@@ -1,0 +1,14 @@
+src/
+test/
+examples/
+*.test.ts
+*.spec.ts
+tsconfig.json
+tsup.config.ts
+biome.json
+lefthook.yml
+bun.lock
+.gitignore
+node_modules/
+coverage/
+.DS_Store

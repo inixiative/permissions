@@ -1,0 +1,72 @@
+{
+  "name": "@inixiative/permissions",
+  "version": "0.0.1",
+  "description": "Generic rebac/abac/rbac core — a permix wrapper + relationship-walking check engine, ORM-agnostic via an injected relation resolver",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "type": "module",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "check": "bun run typecheck && bun run lint",
+    "prepare": "lefthook install",
+    "prepublishOnly": "bun run check && bun run build"
+  },
+  "keywords": [
+    "permissions",
+    "authorization",
+    "rebac",
+    "abac",
+    "rbac",
+    "permix",
+    "json-rules",
+    "typescript"
+  ],
+  "author": "Aron Greenspan",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/inixiative/permissions.git"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.4.6",
+    "@types/bun": "^1.3.10",
+    "@types/lodash-es": "^4.17.12",
+    "lefthook": "^2.1.2",
+    "permix": "^3.6.0",
+    "tsup": "^8.5.0",
+    "typescript": "^5.0.0"
+  },
+  "peerDependencies": {
+    "typescript": "^5.0.0"
+  },
+  "peerDependenciesMeta": {
+    "typescript": {
+      "optional": true
+    }
+  },
+  "dependencies": {
+    "@inixiative/json-rules": "^2.6.0",
+    "lodash-es": "^4.17.21",
+    "zod": "^4.3.6"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  }
+}
