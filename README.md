@@ -97,6 +97,49 @@ Holds the actor's role-derived grants (keyed by `resource` / `resource:id`), a s
 and the actor id. App code populates it from roles/entitlements (hydration); the check engine reads
 it back through the `PermixLike` slice.
 
+## Hydration (Prisma example)
+
+`check` walks relation **fields on the record you pass in** — it never queries. The robust pattern
+is to make under-hydration impossible by construction: recursively load every FK-backed to-one
+relation (the record's ownership closure) before checking, instead of maintaining per-action
+include shapes. Then a missing relation can only mean the FK is null — a real deny, not a loading
+artifact.
+
+Derive the relation map from your ORM once and feed it to **both** the resolver and the hydrator,
+so they can't drift (with Prisma, [`@inixiative/prisma-map`](https://github.com/inixiative/prisma-map)
+generates it):
+
+```ts
+// relations(model) → [{ field: 'organization', target: 'organization', fk: 'organizationId' }, ...]
+const check = createRebacCheck((model, segment) =>
+  relations(model).find((r) => r.field === segment)?.target ?? null);
+
+const hydrate = async (model: string, record: Row, pending = new Map<string, Promise<Row | null>>()) => {
+  const result: Row = { ...record };
+  await Promise.all(
+    relations(model).map(async (rel) => {
+      const id = record[rel.fk] as string | undefined;
+      if (!id) return;
+      const key = `${rel.target}:${id}`;
+      // memoize per call + wrap each fetch in a shared cache (e.g. Redis), so the closure
+      // costs at most one cached read per distinct ancestor
+      if (!pending.has(key)) pending.set(key, cached(key, () => db[rel.target].findFirst({ where: { id } })));
+      const related = await pending.get(key);
+      if (related) result[rel.field] = await hydrate(rel.target, related, pending);
+    }),
+  );
+  return result;
+};
+
+const doc = await hydrate('document', await db.document.findFirstOrThrow({ where: { id } }));
+check(permix, schema, 'document', doc, 'manage');
+```
+
+This guarantees the vast majority of the path automatically; records are plain data, so nothing
+stops you from attaching extra relations or predicate fields by hand before checking, or
+special-casing relations that don't traverse cleanly (self-references, polymorphic joins) in the
+resolver or a custom hydration step.
+
 ## Also exported
 
 - `actionRuleSchema` — recursive Zod validator for a serialized `ActionRule` (validate tenant/row
