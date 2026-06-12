@@ -1,7 +1,9 @@
 import { defineConfig } from 'tsup';
 
 export default defineConfig({
-  entry: ['index.ts'],
+  // actionRuleSchema is a separate entry so the root import never evaluates zod — zod is an
+  // optional peer, only required when the validator subpath is imported.
+  entry: ['index.ts', 'actionRuleSchema.ts'],
   format: ['cjs', 'esm'],
   dts: true,
   clean: true,
