@@ -60,9 +60,9 @@ it back through the `PermixLike` slice.
 
 This package owns the **wrapping and checking**. It does **not** own hydration — loading records,
 deriving the relation map, mapping roles → grants, or populating permix from a user graph all stay
-in the consuming app (e.g. `@template/permissions` injects its Prisma-derived `resolveModel`, app
-`rebacSchema`, and role mappings). Action and role **naming conventions** also stay in the app —
-this core makes no assumptions about what actions or roles are called.
+in the consuming app (e.g. your app's permissions layer injects its ORM-derived `resolveModel`,
+its `rebacSchema`, and its role mappings). Action and role **naming conventions** also stay in the
+app — this core makes no assumptions about what actions or roles are called.
 
 ## License
 
