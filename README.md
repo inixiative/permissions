@@ -105,35 +105,51 @@ relation (the record's ownership closure) before checking, instead of maintainin
 include shapes. Then a missing relation can only mean the FK is null — a real deny, not a loading
 artifact.
 
-Derive the relation map from your ORM once and feed it to **both** the resolver and the hydrator,
-so they can't drift (with Prisma, [`@inixiative/prisma-map`](https://github.com/inixiative/prisma-map)
-generates it):
+Don't hand-maintain the relation map — extract it from the generated Prisma client with
+[`@inixiative/prisma-map`](https://github.com/inixiative/prisma-map), and feed the **same map** to
+both the resolver and the hydrator so they can't drift:
 
 ```ts
-// relations(model) → [{ field: 'organization', target: 'organization', fk: 'organizationId' }, ...]
-const check = createRebacCheck((model, segment) =>
-  relations(model).find((r) => r.field === segment)?.target ?? null);
+import { buildPrismaMapV7, type RelationField } from '@inixiative/prisma-map';
+import { createRebacCheck } from '@inixiative/permissions';
+
+const map = buildPrismaMapV7();
+
+// the resolver is a one-line lookup in the map
+const check = createRebacCheck((model, segment) => {
+  const field = map[model]?.fields[segment];
+  return field?.kind === 'object' ? field.type : null;
+});
+
+// to-one parents: relation fields whose FK lives on this model (fromFields is empty on back-relations)
+const parents = (model: string) =>
+  Object.entries(map[model]?.fields ?? {}).filter(
+    (e): e is [string, RelationField] => e[1].kind === 'object' && !e[1].isList && e[1].fromFields.length > 0,
+  );
 
 const hydrate = async (model: string, record: Row, pending = new Map<string, Promise<Row | null>>()) => {
   const result: Row = { ...record };
   await Promise.all(
-    relations(model).map(async (rel) => {
-      const id = record[rel.fk] as string | undefined;
+    parents(model).map(async ([name, rel]) => {
+      const id = record[rel.fromFields[0]] as string | undefined;
       if (!id) return;
-      const key = `${rel.target}:${id}`;
-      // memoize per call + wrap each fetch in a shared cache (e.g. Redis), so the closure
+      const key = `${rel.type}:${id}`;
+      // memoized per call + each fetch behind a shared cache (e.g. Redis): the closure
       // costs at most one cached read per distinct ancestor
-      if (!pending.has(key)) pending.set(key, cached(key, () => db[rel.target].findFirst({ where: { id } })));
+      if (!pending.has(key)) pending.set(key, cached(key, () => db[rel.type].findFirst({ where: { id } })));
       const related = await pending.get(key);
-      if (related) result[rel.field] = await hydrate(rel.target, related, pending);
+      if (related) result[name] = await hydrate(rel.type, related, pending);
     }),
   );
   return result;
 };
 
-const doc = await hydrate('document', await db.document.findFirstOrThrow({ where: { id } }));
-check(permix, schema, 'document', doc, 'manage');
+const doc = await hydrate('Document', await db.document.findFirstOrThrow({ where: { id } }));
+check(permix, schema, 'Document', doc, 'manage');
 ```
+
+(`buildPrismaMapV6` covers Prisma 6 clients. The map keys models by Prisma name — `Document` — so
+if your schema and delegates use accessor casing, `lowerFirst`/`upperFirst` at the boundary.)
 
 This guarantees the vast majority of the path automatically; records are plain data, so nothing
 stops you from attaching extra relations or predicate fields by hand before checking, or
