@@ -54,7 +54,6 @@ it back through the `PermixLike` slice.
 
 ## Also exported
 
-- `ownerActions(rels?)` — standard action set for owner-polymorphic models (fan out to several parents).
 - `actionRuleSchema` — recursive Zod validator for a serialized `ActionRule` (validate tenant/row overrides).
 
 ## Boundary
@@ -62,7 +61,8 @@ it back through the `PermixLike` slice.
 This package owns the **wrapping and checking**. It does **not** own hydration — loading records,
 deriving the relation map, mapping roles → grants, or populating permix from a user graph all stay
 in the consuming app (e.g. `@template/permissions` injects its Prisma-derived `resolveModel`, app
-`rebacSchema`, and role mappings).
+`rebacSchema`, and role mappings). Action and role **naming conventions** also stay in the app —
+this core makes no assumptions about what actions or roles are called.
 
 ## License
 
