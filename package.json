@@ -47,26 +47,35 @@
     "lefthook": "^2.1.2",
     "permix": "^3.6.0",
     "tsup": "^8.5.0",
-    "typescript": "^5.0.0"
+    "typescript": "^5.0.0",
+    "zod": "^4.3.6"
   },
   "peerDependencies": {
-    "typescript": "^5.0.0"
+    "typescript": "^5.0.0",
+    "zod": "^4.0.0"
   },
   "peerDependenciesMeta": {
     "typescript": {
+      "optional": true
+    },
+    "zod": {
       "optional": true
     }
   },
   "dependencies": {
     "@inixiative/json-rules": "^2.6.0",
-    "lodash-es": "^4.17.21",
-    "zod": "^4.3.6"
+    "lodash-es": "^4.17.21"
   },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
+    },
+    "./actionRuleSchema": {
+      "types": "./dist/actionRuleSchema.d.ts",
+      "import": "./dist/actionRuleSchema.js",
+      "require": "./dist/actionRuleSchema.cjs"
     }
   }
 }

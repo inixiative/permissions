@@ -99,7 +99,13 @@ it back through the `PermixLike` slice.
 
 ## Also exported
 
-- `actionRuleSchema` — recursive Zod validator for a serialized `ActionRule` (validate tenant/row overrides).
+- `actionRuleSchema` — recursive Zod validator for a serialized `ActionRule` (validate tenant/row
+  overrides). Lives on its own subpath so the core stays zod-free; `zod` is an **optional peer** —
+  install it only if you use this:
+
+  ```ts
+  import { actionRuleSchema } from '@inixiative/permissions/actionRuleSchema';
+  ```
 
 ## Boundary
 
