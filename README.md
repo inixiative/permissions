@@ -20,6 +20,51 @@ type ActionRule =
 
 A `RebacSchema` is `model → { actions: { name → ActionRule } }`.
 
+## Writing a schema
+
+Action names are **yours** — the engine imposes no vocabulary. The `own`/`manage`/`read` chain below
+is illustrative; use whatever your roles grant.
+
+```ts
+import { Operator } from '@inixiative/json-rules';
+import type { RebacSchema } from '@inixiative/permissions';
+
+const schema: RebacSchema = {
+  organization: {
+    actions: {
+      own: null, //         terminal: granted only via permix (roles) or row rules
+      manage: 'own', //     delegation chain — own ⊇ manage ⊇ read
+      read: 'manage',
+    },
+  },
+  membership: {
+    actions: {
+      read: { any: [{ self: 'userId' }, { rel: 'organization', action: 'read' }] },
+      leave: { self: 'userId' }, // the actor's own row
+      manage: { rel: 'organization', action: 'manage' },
+    },
+  },
+  document: {
+    actions: {
+      read: {
+        any: [
+          { rule: { field: 'isPublic', operator: Operator.equals, value: true } }, // abac guard
+          { rel: 'organization', action: 'read' }, // rebac: walk the relation
+        ],
+      },
+      manage: { rel: 'organization', action: 'manage' },
+    },
+  },
+};
+```
+
+`rel` accepts dot-paths for multi-hop walks — `{ rel: 'space.organization', action: 'own' }` chains
+through `record.space.organization`, resolving each hop's model via the injected resolver.
+
+Records may also carry a `permissionRules` JSON field (`action → ActionRule`); `check` merges a row
+rule **additively** (OR) with the schema rule, so per-record overrides can widen but never revoke.
+Validate tenant-authored overrides with `actionRuleSchema` before persisting them.
+
 ## The check engine
 
 ```ts
