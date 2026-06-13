@@ -1,6 +1,6 @@
 {
   "name": "@inixiative/permissions",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Generic rebac/abac/rbac core — a permix wrapper + relationship-walking check engine, ORM-agnostic via an injected relation resolver",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
