@@ -103,15 +103,16 @@ it back through the `PermixLike` slice.
 is to make under-hydration impossible by construction: recursively load every FK-backed to-one
 relation (the record's ownership closure) before checking, instead of maintaining per-action
 include shapes. Then a missing relation can only mean the FK is null — a real deny, not a loading
-artifact.
+artifact. `createHydrator` is that pattern as an injected-seam primitive: give it `parents` (the
+to-one, FK-owning relations for a model) and `load` (a single read — also where you wrap caching).
 
 Don't hand-maintain the relation map — extract it from the generated Prisma client with
 [`@inixiative/prisma-map`](https://github.com/inixiative/prisma-map), and feed the **same map** to
-both the resolver and the hydrator so they can't drift:
+both the resolver and the hydrator's `parents` so they can't drift:
 
 ```ts
 import { buildPrismaMapV7, type RelationField } from '@inixiative/prisma-map';
-import { createRebacCheck } from '@inixiative/permissions';
+import { createHydrator, createRebacCheck, type ParentRelation } from '@inixiative/permissions';
 
 const map = buildPrismaMapV7();
 
@@ -122,27 +123,16 @@ const check = createRebacCheck((model, segment) => {
 });
 
 // to-one parents: relation fields whose FK lives on this model (fromFields is empty on back-relations)
-const parents = (model: string) =>
-  Object.entries(map[model]?.fields ?? {}).filter(
-    (e): e is [string, RelationField] => e[1].kind === 'object' && !e[1].isList && e[1].fromFields.length > 0,
-  );
+const parents = (model: string): ParentRelation[] =>
+  Object.entries(map[model]?.fields ?? {})
+    .filter((e): e is [string, RelationField] => e[1].kind === 'object' && !e[1].isList && e[1].fromFields.length > 0)
+    .map(([field, rel]) => ({ field, model: rel.type, fk: rel.fromFields[0] }));
 
-const hydrate = async (model: string, record: Row, pending = new Map<string, Promise<Row | null>>()) => {
-  const result: Row = { ...record };
-  await Promise.all(
-    parents(model).map(async ([name, rel]) => {
-      const id = record[rel.fromFields[0]] as string | undefined;
-      if (!id) return;
-      const key = `${rel.type}:${id}`;
-      // memoized per call + each fetch behind a shared cache (e.g. Redis): the closure
-      // costs at most one cached read per distinct ancestor
-      if (!pending.has(key)) pending.set(key, cached(key, () => db[rel.type].findFirst({ where: { id } })));
-      const related = await pending.get(key);
-      if (related) result[name] = await hydrate(rel.type, related, pending);
-    }),
-  );
-  return result;
-};
+// load is the cache seam: the hydrator de-dupes within one call, your wrapper caches across calls
+const hydrate = createHydrator({
+  parents,
+  load: (model, id) => cached(`${model}:${id}`, () => db[model].findFirst({ where: { id } })),
+});
 
 const doc = await hydrate('Document', await db.document.findFirstOrThrow({ where: { id } }));
 check(permix, schema, 'Document', doc, 'manage');
