@@ -17,10 +17,10 @@ const nodeId = (record: object): number => {
   return id;
 };
 
-export type RebacCheck = (
+export type RebacCheck<M extends string = string> = (
   permix: PermixLike,
-  schema: RebacSchema,
-  model: string,
+  schema: RebacSchema<M>,
+  model: M,
   record: Row,
   actionOrRule: ActionRule,
   visited?: Set<string>,
@@ -35,8 +35,17 @@ export type RebacCheck = (
  * `{ rel, action }` walks a relation (rebac), `{ self }` matches the actor, `{ rule }` is an ABAC
  * predicate, and `any`/`all` compose. Cycles throw rather than loop.
  */
-export const createRebacCheck = (resolveModel: ResolveModel): RebacCheck => {
-  const check: RebacCheck = (permix, schema, model, record, actionOrRule, visited = new Set()) => {
+export const createRebacCheck = <M extends string = string>(
+  resolveModel: ResolveModel<M>,
+): RebacCheck<M> => {
+  const check: RebacCheck<M> = (
+    permix,
+    schema,
+    model,
+    record,
+    actionOrRule,
+    visited = new Set(),
+  ) => {
     if (permix.isSuperadmin?.()) return true;
     if (isNil(actionOrRule)) return false;
 

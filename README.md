@@ -78,6 +78,15 @@ check(permix, schema, 'membership', record, 'manage');
 // matches the actor; { rule } evals json-rules; any/all compose. Cycles throw, they don't loop.
 ```
 
+`createRebacCheck` is generic over the model key (default `string`). Pass your model union and the
+schema, `model` arg, and resolver all enforce it — no casts for your own types:
+
+```ts
+type Model = 'organization' | 'membership' | 'document';
+const check = createRebacCheck<Model>((model, segment) => relationTargets[model]?.[segment] ?? null);
+// now `schema: RebacSchema<Model>`, `model: Model` — a typo'd model name is a compile error.
+```
+
 Cycle detection uses **object identity** (a `WeakMap`), not `record.id` — so id-less or
 id-colliding records never produce a false "cycle", and a genuine self/mutual delegation
 (`read: 'read'`) throws instead of overflowing the stack.

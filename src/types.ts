@@ -18,15 +18,22 @@ export type ActionRule =
 
 export type ModelPermission = { actions: Record<string, ActionRule> };
 
-/** `model → { actions }`. Generic — app adapters narrow the key set (e.g. a Prisma AccessorName). */
-export type RebacSchema = Record<string, ModelPermission>;
+/**
+ * `model → { actions }`, entries optional (only governed models need one). Generic over the model
+ * key: defaults to `string`, or pass a narrow union (e.g. a Prisma AccessorName) and the schema,
+ * `model` arg, and resolver all enforce that union — no cast needed for the consumer's own types.
+ */
+export type RebacSchema<M extends string = string> = Partial<Record<M, ModelPermission>>;
 
 /**
  * Resolve the model a relation field points at, given the source model + relation segment.
  * This is the ORM-specific seam the app injects (e.g. derived from a Prisma model map). Return
- * `null` to abort the walk when the relation is unknown.
+ * `null` to abort the walk when the relation is unknown. Generic over the model key (default `string`).
  */
-export type ResolveModel = (model: string, relationSegment: string) => string | null;
+export type ResolveModel<M extends string = string> = (
+  model: M,
+  relationSegment: string,
+) => M | null;
 
 /** The slice of the permix wrapper the rebac check engine consumes. */
 export type PermixLike = {
