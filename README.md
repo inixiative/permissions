@@ -1,9 +1,10 @@
 # @inixiative/permissions
 
 Generic **rebac / abac / rbac** core: a small `permix` wrapper plus a relationship-walking `check`
-engine, on top of [`@inixiative/json-rules`](https://github.com/inixiative/json-rules). It is
-**ORM-agnostic** — the one app-specific bit (resolving which model a relation points at) is injected,
-so this package never imports a database layer. Record **hydration stays in the app**.
+engine, on top of [`@inixiative/json-rules`](https://github.com/inixiative/json-rules). The one
+app-specific bit — resolving which model a relation points at — is **injected** (built from
+[`@inixiative/prisma-map`](https://github.com/inixiative/prisma-map) in the inixiative stack), so the
+core stays small and never imports a database layer itself. Record **hydration stays in the app**.
 
 ## Permission algebra (`ActionRule`)
 
