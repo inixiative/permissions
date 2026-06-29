@@ -209,6 +209,124 @@ describe('rebac check — bridge (cross-map) rel walks', () => {
   });
 });
 
+describe('to-one constraint on bridge walks (adversarial: must not walk onto the "many" side)', () => {
+  // crm:Account (the "one", endpoints[0]) ↔ db:User (the "many", endpoints[1]).
+  const bridges: Bridge[] = [
+    {
+      endpoints: [
+        { fieldMap: 'crm', model: 'Account', on: 'id' },
+        { fieldMap: 'db', model: 'User', on: 'accountId' },
+      ],
+      cardinality: 'oneToMany',
+    },
+  ];
+
+  test('walking from the "one" side onto the "many" side is denied — never collapsed to found[0]', () => {
+    const s: RebacSchema = {
+      bridges,
+      permissions: {
+        'crm:Account': { actions: { read: { rel: 'db:User', action: 'view' } } },
+        'db:User': {
+          actions: { view: { rule: { field: 'active', operator: Operator.equals, value: true } } },
+        },
+      },
+    };
+    const c = createRebacCheck(() => null);
+    // Data ordered so a found[0] collapse would WRONGLY allow (first row is active). The hop onto the
+    // many side must be refused regardless of row order — a single-record check can't span a list.
+    const subject = {
+      resource: 'crm:Account',
+      record: { id: 'acc1' },
+      data: {
+        'db:User': [
+          { id: 'u2', accountId: 'acc1', active: true },
+          { id: 'u1', accountId: 'acc1', active: false },
+        ],
+      },
+    };
+    expect(c(stub(), s, subject, 'read')).toBe(false);
+  });
+
+  test('the "one" side is still reachable from the "many" side (unaffected)', () => {
+    const s: RebacSchema = {
+      bridges,
+      permissions: {
+        'db:User': { actions: { read: { rel: 'crm:Account', action: 'view' } } },
+        'crm:Account': {
+          actions: { view: { rule: { field: 'tier', operator: Operator.equals, value: 'gold' } } },
+        },
+      },
+    };
+    const c = createRebacCheck(() => null);
+    const subject = {
+      resource: 'db:User',
+      record: { id: 'u1', accountId: 'acc1' },
+      data: { 'crm:Account': [{ id: 'acc1', tier: 'gold' }] },
+    };
+    expect(c(stub(), s, subject, 'read')).toBe(true);
+  });
+});
+
+describe('empty combinators fail closed (adversarial: empty `all` must not be vacuous-true)', () => {
+  test('an empty `all` denies', () => {
+    const s: RebacSchema = { permissions: { m: { actions: { read: { all: [] } } } } };
+    const c = createRebacCheck(() => null);
+    expect(c(stub(), s, { resource: 'm', record: { id: '1' } }, 'read')).toBe(false);
+  });
+
+  test('an empty `any` denies (unchanged)', () => {
+    const s: RebacSchema = { permissions: { m: { actions: { read: { any: [] } } } } };
+    const c = createRebacCheck(() => null);
+    expect(c(stub(), s, { resource: 'm', record: { id: '1' } }, 'read')).toBe(false);
+  });
+
+  test('a non-empty `all` still requires every branch', () => {
+    const s: RebacSchema = {
+      permissions: {
+        m: {
+          actions: {
+            read: {
+              all: [
+                { rule: { field: 'a', operator: Operator.equals, value: 1 } },
+                { rule: { field: 'b', operator: Operator.equals, value: 2 } },
+              ],
+            },
+          },
+        },
+      },
+    };
+    const c = createRebacCheck(() => null);
+    expect(c(stub(), s, { resource: 'm', record: { a: 1, b: 2 } }, 'read')).toBe(true);
+    expect(c(stub(), s, { resource: 'm', record: { a: 1, b: 9 } }, 'read')).toBe(false);
+  });
+});
+
+describe('dictionary is built lazily (adversarial: malformed data must not crash a non-bridge check)', () => {
+  test('a check that never takes a bridge hop does not build (or crash on) the dictionary', () => {
+    const s: RebacSchema = {
+      bridges: [
+        {
+          endpoints: [
+            { fieldMap: 'crm', model: 'Account', on: 'id' },
+            { fieldMap: 'db', model: 'User', on: 'accountId' },
+          ],
+          cardinality: 'oneToMany',
+        },
+      ],
+      permissions: { 'db:User': { actions: { leave: { self: 'userId' } } } },
+    };
+    const c = createRebacCheck(() => null);
+    // Duplicate "one"-side (Account.id) rows would make buildBridgeDictionary throw — but this check
+    // resolves via { self } and never hops, so the dictionary must never be built.
+    const subject = {
+      resource: 'db:User',
+      record: { id: 'u1', userId: 'me' },
+      data: { 'crm:Account': [{ id: 'dup' }, { id: 'dup' }] },
+    };
+    expect(c(stub({ userId: 'me' }), s, subject, 'leave')).toBe(true);
+  });
+});
+
 describe('cycle detection (regressions for the adversarial findings)', () => {
   test('#2 self-delegation throws instead of looping forever', () => {
     const s: RebacSchema = { permissions: { m: { actions: { read: 'read' } } } };

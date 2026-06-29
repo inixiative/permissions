@@ -23,6 +23,11 @@ const splitResource = (resource: string): [string, string] => {
   return i === -1 ? ['', resource] : [resource.slice(0, i), resource.slice(i + 1)];
 };
 
+// permix keys grants by string id; coerce so a numeric `record.id` matches (the bridge path
+// already does `String(farId)` — keep the direct path consistent).
+const recordId = (record: Row): string | undefined =>
+  record.id == null ? undefined : String(record.id);
+
 type BridgeHop = {
   farResource: string;
   localOn: string;
@@ -43,7 +48,11 @@ const bridgeHop = (
     const [a, c] = b.endpoints;
     const aKey = `${a.fieldMap}:${a.model}`;
     const cKey = `${c.fieldMap}:${c.model}`;
+    // a → c. For `oneToMany`, c is the "many" side (endpoints[1]) — a single-record permission check
+    // can't span a list, so this direction is NOT walkable; it would otherwise collapse to an
+    // arbitrary `found[0]` (a non-deterministic wrong-allow). `oneToOne` is symmetric → walkable.
     if (a.fieldMap === map && a.model === model && cKey === segment) {
+      if (b.cardinality === 'oneToMany') continue; // to-one walks only
       return {
         farResource: cKey,
         localOn: a.on,
@@ -52,6 +61,7 @@ const bridgeHop = (
         farOn: c.on,
       };
     }
+    // c → a. The far endpoint a is the "one" side (oneToMany) or symmetric (oneToOne) — always to-one.
     if (c.fieldMap === map && c.model === model && aKey === segment) {
       return {
         farResource: aKey,
@@ -99,7 +109,7 @@ export const createRebacCheck = <R extends string = string>(
   const evaluate = (
     permix: PermixLike,
     schema: RebacSchema<R>,
-    dict: BridgeDictionary | undefined,
+    getDict: () => BridgeDictionary | undefined,
     resource: R,
     record: Row,
     actionOrRule: ActionRule,
@@ -110,9 +120,11 @@ export const createRebacCheck = <R extends string = string>(
 
     if (typeof actionOrRule === 'string') {
       // permix holds the actor's directly-granted (role-derived) actions — a grant short-circuits.
-      if (permix.check(resource, actionOrRule, record.id as string | undefined)) return true;
+      if (permix.check(resource, actionOrRule, recordId(record))) return true;
 
-      const key = `${nodeId(record)}:${actionOrRule}`;
+      // Key by resource too: the same record object reached as a different resource (a self-join) is
+      // a distinct node, not a cycle.
+      const key = `${nodeId(record)}:${resource}:${actionOrRule}`;
       if (visited.has(key)) {
         throw new Error(`Cycle detected in permission graph: ${resource}.${actionOrRule}`);
       }
@@ -124,7 +136,7 @@ export const createRebacCheck = <R extends string = string>(
       // Row-level override is additive (OR) with the schema rule — a per-record grant can only widen.
       const merged: ActionRule =
         rowRule !== undefined ? { any: [schemaRule, rowRule] } : schemaRule;
-      return evaluate(permix, schema, dict, resource, record, merged, visited);
+      return evaluate(permix, schema, getDict, resource, record, merged, visited);
     }
 
     const rule = actionOrRule;
@@ -139,7 +151,7 @@ export const createRebacCheck = <R extends string = string>(
           if (isNil(farId)) return false;
           // Synthetic hop: the far record isn't hydrated. The join-key scalar is enough for an rbac
           // grant; the dictionary supplies its fields only when a downstream action needs them.
-          current = lookupFar(dict, hop, String(farId)) ?? { id: farId };
+          current = lookupFar(getDict(), hop, String(farId)) ?? { id: farId };
           currentResource = hop.farResource as R;
         } else {
           const related = current[segment] as Row | null | undefined;
@@ -150,7 +162,7 @@ export const createRebacCheck = <R extends string = string>(
           currentResource = next;
         }
       }
-      return evaluate(permix, schema, dict, currentResource, current, rule.action, visited);
+      return evaluate(permix, schema, getDict, currentResource, current, rule.action, visited);
     }
 
     if ('self' in rule) {
@@ -162,12 +174,17 @@ export const createRebacCheck = <R extends string = string>(
     // Fork `visited` per branch — parallel paths through any/all aren't cycles.
     if ('any' in rule) {
       return rule.any.some((r) =>
-        evaluate(permix, schema, dict, resource, record, r, new Set(visited)),
+        evaluate(permix, schema, getDict, resource, record, r, new Set(visited)),
       );
     }
     if ('all' in rule) {
-      return rule.all.every((r) =>
-        evaluate(permix, schema, dict, resource, record, r, new Set(visited)),
+      // An empty `all` is NOT vacuously true — a security combinator must fail closed, and the
+      // builder seeds a freshly-picked `all` as `[]` before children are added.
+      return (
+        rule.all.length > 0 &&
+        rule.all.every((r) =>
+          evaluate(permix, schema, getDict, resource, record, r, new Set(visited)),
+        )
       );
     }
 
@@ -175,9 +192,27 @@ export const createRebacCheck = <R extends string = string>(
   };
 
   return (permix, schema, subject, actionOrRule, visited = new Set()) => {
-    const dict = schema.bridges?.length
-      ? buildBridgeDictionary({ maps: {}, bridges: schema.bridges }, subject.data ?? {})
-      : undefined;
-    return evaluate(permix, schema, dict, subject.resource, subject.record, actionOrRule, visited);
+    // Built lazily on the first bridge hop: a check that never crosses a bridge must not pay for —
+    // or be crashed by (buildBridgeDictionary throws on malformed `data`) — a dictionary it never reads.
+    let built = false;
+    let dict: BridgeDictionary | undefined;
+    const getDict = (): BridgeDictionary | undefined => {
+      if (!built) {
+        built = true;
+        dict = schema.bridges?.length
+          ? buildBridgeDictionary({ maps: {}, bridges: schema.bridges }, subject.data ?? {})
+          : undefined;
+      }
+      return dict;
+    };
+    return evaluate(
+      permix,
+      schema,
+      getDict,
+      subject.resource,
+      subject.record,
+      actionOrRule,
+      visited,
+    );
   };
 };
