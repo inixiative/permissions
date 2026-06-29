@@ -1,14 +1,14 @@
-import type { Condition } from '@inixiative/json-rules';
+import type { Bridge, Condition } from '@inixiative/json-rules';
 
 export type Row = Record<string, unknown>;
 
-export type RelationCheck = { rel: string; action: string }; // walk a relation field, then check `action`
+export type RelationCheck = { rel: string; action: string }; // walk a relation, then check `action`
 export type RuleCheck = { rule: Condition }; // ABAC predicate (json-rules) over the record
 export type SelfCheck = { self: string }; // record[field] matches the current actor id
 
 /** The serializable permission algebra: rebac (`rel`) + abac (`rule`) + rbac (`string` delegation). */
 export type ActionRule =
-  | string // delegate to another action on the same model
+  | string // delegate to another action on the same resource
   | RelationCheck
   | RuleCheck
   | SelfCheck
@@ -16,24 +16,41 @@ export type ActionRule =
   | { all: ActionRule[] } // AND
   | null; // terminal deny
 
-export type ModelPermission = { actions: Record<string, ActionRule> };
+/** One resource's permission entry: `actions: { name → ActionRule }`. */
+export type ResourcePermission = { actions: Record<string, ActionRule> };
 
 /**
- * `model → { actions }`, entries optional (only governed models need one). Generic over the model
- * key: defaults to `string`, or pass a narrow union (e.g. a Prisma AccessorName) and the schema,
- * `model` arg, and resolver all enforce that union — no cast needed for the consumer's own types.
+ * The permission schema. `permissions` maps a (map-qualified) resource — e.g. `db:User` — to its
+ * actions; `bridges` are the cross-source edges (json-rules `Bridge`s) a `rel` walk may traverse.
+ * Generic over the resource key: defaults to `string`, or pass a narrow union (e.g. a map-qualified
+ * AccessorName) and the schema, `subject.resource`, and resolver all enforce it.
  */
-export type RebacSchema<M extends string = string> = Partial<Record<M, ModelPermission>>;
+export type RebacSchema<R extends string = string> = {
+  bridges?: Bridge[];
+  permissions: Partial<Record<R, ResourcePermission>>;
+};
 
 /**
- * Resolve the model a relation field points at, given the source model + relation segment.
- * This is the ORM-specific seam the app injects (e.g. derived from a Prisma model map). Return
- * `null` to abort the walk when the relation is unknown. Generic over the model key (default `string`).
+ * What the check evaluates against: the `record`, its (map-qualified) `resource`, and `data` —
+ * supplemental hydrated rows per `map:model`, the same shape json-rules' `buildBridgeDictionary`
+ * takes. The check builds the bridge dictionary from `data` itself; `data` is only consulted when a
+ * `rel` walk crosses a bridge and a downstream action reads the far record's fields.
  */
-export type ResolveModel<M extends string = string> = (
-  model: M,
+export type Subject<R extends string = string> = {
+  resource: R;
+  record: Row;
+  data?: Record<string, Row[]>;
+};
+
+/**
+ * Resolve an INTRA-map relation field to the resource it points at — the ORM-specific seam the app
+ * injects (e.g. from a Prisma model map). Cross-source bridges are resolved by the engine from the
+ * schema's `bridges`, not here. Returns `null` to abort the walk when the relation is unknown.
+ */
+export type ResolveRelation<R extends string = string> = (
+  resource: R,
   relationSegment: string,
-) => M | null;
+) => R | null;
 
 /** The slice of the permix wrapper the rebac check engine consumes. */
 export type PermixLike = {

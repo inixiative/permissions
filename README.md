@@ -10,7 +10,7 @@ core stays small and never imports a database layer itself. Record **hydration s
 
 ```ts
 type ActionRule =
-  | string                       // rbac: delegate to another action on the same model
+  | string                       // rbac: delegate to another action on the same resource
   | { rel: string; action: string }  // rebac: walk a relation, then check `action` on the target
   | { self: string }             // record[field] === actor id
   | { rule: Condition }          // abac: a json-rules predicate over the record
@@ -19,7 +19,10 @@ type ActionRule =
   | null;                        // terminal deny
 ```
 
-A `RebacSchema` is `model → { actions: { name → ActionRule } }`.
+A `RebacSchema` is `{ bridges?, permissions }` — `permissions` maps a (map-qualified) **resource**,
+e.g. `db:User`, to `{ actions: { name → ActionRule } }`; `bridges` are the cross-source edges a `rel`
+walk may cross (see [Bridges](#bridges-cross-source-rel-walks)). A single-source schema omits
+`bridges` and can use bare resource keys.
 
 ## Writing a schema
 
@@ -31,29 +34,31 @@ import { Operator } from '@inixiative/json-rules';
 import type { RebacSchema } from '@inixiative/permissions';
 
 const schema: RebacSchema = {
-  organization: {
-    actions: {
-      own: null, //         terminal: granted only via permix (roles) or row rules
-      manage: 'own', //     delegation chain — own ⊇ manage ⊇ read
-      read: 'manage',
-    },
-  },
-  membership: {
-    actions: {
-      read: { any: [{ self: 'userId' }, { rel: 'organization', action: 'read' }] },
-      leave: { self: 'userId' }, // the actor's own row
-      manage: { rel: 'organization', action: 'manage' },
-    },
-  },
-  document: {
-    actions: {
-      read: {
-        any: [
-          { rule: { field: 'isPublic', operator: Operator.equals, value: true } }, // abac guard
-          { rel: 'organization', action: 'read' }, // rebac: walk the relation
-        ],
+  permissions: {
+    organization: {
+      actions: {
+        own: null, //         terminal: granted only via permix (roles) or row rules
+        manage: 'own', //     delegation chain — own ⊇ manage ⊇ read
+        read: 'manage',
       },
-      manage: { rel: 'organization', action: 'manage' },
+    },
+    membership: {
+      actions: {
+        read: { any: [{ self: 'userId' }, { rel: 'organization', action: 'read' }] },
+        leave: { self: 'userId' }, // the actor's own row
+        manage: { rel: 'organization', action: 'manage' },
+      },
+    },
+    document: {
+      actions: {
+        read: {
+          any: [
+            { rule: { field: 'isPublic', operator: Operator.equals, value: true } }, // abac guard
+            { rel: 'organization', action: 'read' }, // rebac: walk the relation
+          ],
+        },
+        manage: { rel: 'organization', action: 'manage' },
+      },
     },
   },
 };
@@ -71,26 +76,64 @@ Validate tenant-authored overrides with `actionRuleSchema` before persisting the
 ```ts
 import { createRebacCheck } from '@inixiative/permissions';
 
-// inject the ORM-specific relation resolver (e.g. derived from a Prisma model map)
-const check = createRebacCheck((model, segment) => relationTargets[model]?.[segment] ?? null);
+// inject the ORM-specific INTRA-map relation resolver (e.g. derived from a Prisma model map)
+const check = createRebacCheck((resource, segment) => relationTargets[resource]?.[segment] ?? null);
 
-check(permix, schema, 'membership', record, 'manage');
-// string → permix grant or schema delegation; { rel } walks `record.organization`; { self }
-// matches the actor; { rule } evals json-rules; any/all compose. Cycles throw, they don't loop.
+check(permix, schema, { resource: 'membership', record }, 'manage');
+// string → permix grant or schema delegation; { rel } walks `record.organization` (or a bridge —
+// see below); { self } matches the actor; { rule } evals json-rules; any/all compose. Cycles throw.
 ```
 
-`createRebacCheck` is generic over the model key (default `string`). Pass your model union and the
-schema, `model` arg, and resolver all enforce it — no casts for your own types:
+The check takes a **subject** — `{ resource, record, data? }` — not a bare record; `data` is the
+supplemental rows that back cross-source bridge hops (below). `createRebacCheck` is generic over the
+resource key (default `string`). Pass your resource union and the schema, `subject.resource`, and
+resolver all enforce it — no casts for your own types:
 
 ```ts
-type Model = 'organization' | 'membership' | 'document';
-const check = createRebacCheck<Model>((model, segment) => relationTargets[model]?.[segment] ?? null);
-// now `schema: RebacSchema<Model>`, `model: Model` — a typo'd model name is a compile error.
+type Resource = 'organization' | 'membership' | 'document';
+const check = createRebacCheck<Resource>((resource, segment) => relationTargets[resource]?.[segment] ?? null);
+// now `schema: RebacSchema<Resource>`, `subject.resource: Resource` — a typo is a compile error.
 ```
 
 Cycle detection uses **object identity** (a `WeakMap`), not `record.id` — so id-less or
 id-colliding records never produce a false "cycle", and a genuine self/mutual delegation
 (`read: 'read'`) throws instead of overflowing the stack.
+
+## Bridges (cross-source `rel` walks)
+
+A `rel` can cross a **bridge** — a cross-source edge between two fieldMaps (see
+[`@inixiative/json-rules`](https://github.com/inixiative/json-rules)). Declare them on the schema;
+both ends are map-qualified resources:
+
+```ts
+const schema: RebacSchema = {
+  bridges: [{
+    endpoints: [
+      { fieldMap: 'crm', model: 'Account', on: 'id' },
+      { fieldMap: 'db',  model: 'User',    on: 'accountId' },
+    ],
+    cardinality: 'oneToMany',
+  }],
+  permissions: {
+    'db:User':     { actions: { read: { rel: 'crm:Account', action: 'own' } } },
+    'crm:Account': { actions: { own: null } },
+  },
+};
+```
+
+Bridges **don't hydrate** (they aren't FK relations) — the engine traverses them *synthetically*.
+The join key is a scalar already on the record (`User.accountId`), so a hop ending in an rbac grant
+needs nothing extra. When a downstream action reads the far record's *fields* (abac / `self`), pass
+those rows as `subject.data` (keyed `map:model` — the `buildBridgeDictionary` shape) and the engine
+builds the lookup itself:
+
+```ts
+check(permix, schema, {
+  resource: 'db:User',
+  record: { id: 'u1', accountId: 'acc1' },
+  data: { 'crm:Account': [{ id: 'acc1', tier: 'gold' }] }, // only when far fields are needed
+}, 'read');
+```
 
 ## The permix wrapper
 
@@ -127,8 +170,8 @@ import { createHydrator, createRebacCheck, type ParentRelation } from '@inixiati
 const map = buildPrismaMapV7();
 
 // the resolver is a one-line lookup in the map
-const check = createRebacCheck((model, segment) => {
-  const field = map[model]?.fields[segment];
+const check = createRebacCheck((resource, segment) => {
+  const field = map[resource]?.fields[segment];
   return field?.kind === 'object' ? field.type : null;
 });
 
@@ -145,7 +188,7 @@ const hydrate = createHydrator({
 });
 
 const doc = await hydrate('Document', await db.document.findFirstOrThrow({ where: { id } }));
-check(permix, schema, 'Document', doc, 'manage');
+check(permix, schema, { resource: 'Document', record: doc }, 'manage');
 ```
 
 (`buildPrismaMapV6` covers Prisma 6 clients. The map keys models by Prisma name — `Document` — so
@@ -171,7 +214,7 @@ resolver or a custom hydration step.
 This package owns the **wrapping and checking**. It does **not** own hydration — loading records,
 deriving the relation map, mapping roles → grants, or populating permix from a user graph all stay
 in the consuming app (e.g. [`@template/permissions`](https://github.com/inixiative/template) injects
-its Prisma-derived `resolveModel`, app `rebacSchema`, and role mappings — including app-specific
+its Prisma-derived `resolveRelation`, app `rebacSchema`, and role mappings — including app-specific
 action sets like `ownerActions`). Action and role **naming conventions** also stay in the app —
 this core makes no assumptions about what actions or roles are called.
 
