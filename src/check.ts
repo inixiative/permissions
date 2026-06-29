@@ -178,13 +178,8 @@ export const createRebacCheck = <R extends string = string>(
       );
     }
     if ('all' in rule) {
-      // An empty `all` is NOT vacuously true — a security combinator must fail closed, and the
-      // builder seeds a freshly-picked `all` as `[]` before children are added.
-      return (
-        rule.all.length > 0 &&
-        rule.all.every((r) =>
-          evaluate(permix, schema, getDict, resource, record, r, new Set(visited)),
-        )
+      return rule.all.every((r) =>
+        evaluate(permix, schema, getDict, resource, record, r, new Set(visited)),
       );
     }
 

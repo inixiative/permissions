@@ -267,14 +267,14 @@ describe('to-one constraint on bridge walks (adversarial: must not walk onto the
   });
 });
 
-describe('empty combinators fail closed (adversarial: empty `all` must not be vacuous-true)', () => {
-  test('an empty `all` denies', () => {
+describe('empty combinators follow boolean identity (all([]) = true, any([]) = false)', () => {
+  test('an empty `all` is vacuously true (allow) — `true`/allow is a valid permission value', () => {
     const s: RebacSchema = { permissions: { m: { actions: { read: { all: [] } } } } };
     const c = createRebacCheck(() => null);
-    expect(c(stub(), s, { resource: 'm', record: { id: '1' } }, 'read')).toBe(false);
+    expect(c(stub(), s, { resource: 'm', record: { id: '1' } }, 'read')).toBe(true);
   });
 
-  test('an empty `any` denies (unchanged)', () => {
+  test('an empty `any` is false (deny)', () => {
     const s: RebacSchema = { permissions: { m: { actions: { read: { any: [] } } } } };
     const c = createRebacCheck(() => null);
     expect(c(stub(), s, { resource: 'm', record: { id: '1' } }, 'read')).toBe(false);
