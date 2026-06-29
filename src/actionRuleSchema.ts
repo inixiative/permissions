@@ -12,6 +12,7 @@ import { z } from 'zod';
 export const actionRuleSchema: z.ZodType = z.lazy(() =>
   z.union([
     z.string(), // delegate to another action on the same model
+    z.boolean(), // terminal allow (true) / deny (false)
     z.null(),
     z.object({ rel: z.string(), action: z.string() }).strict(),
     z.object({ self: z.string() }).strict(),

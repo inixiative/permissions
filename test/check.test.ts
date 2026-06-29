@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { type Bridge, Operator } from '@inixiative/json-rules';
-import type { PermixLike, RebacSchema, ResolveRelation } from '../index';
+import type { ActionRule, PermixLike, RebacSchema, ResolveRelation } from '../index';
 import { createRebacCheck } from '../index';
 
 // stub permix: no direct grants (forces schema evaluation); optional superadmin + actor id.
@@ -324,6 +324,29 @@ describe('dictionary is built lazily (adversarial: malformed data must not crash
       data: { 'crm:Account': [{ id: 'dup' }, { id: 'dup' }] },
     };
     expect(c(stub({ userId: 'me' }), s, subject, 'leave')).toBe(true);
+  });
+});
+
+describe('raw boolean ActionRule (true = allow, false = deny; null stays a deny)', () => {
+  const c = createRebacCheck(() => null);
+  const schemaFor = (rule: ActionRule): RebacSchema => ({
+    permissions: { m: { actions: { read: rule } } },
+  });
+  const subject = { resource: 'm', record: { id: '1' } };
+
+  test('a bare `true` allows and `false` denies', () => {
+    expect(c(stub(), schemaFor(true), subject, 'read')).toBe(true);
+    expect(c(stub(), schemaFor(false), subject, 'read')).toBe(false);
+  });
+
+  test('booleans compose inside any / all', () => {
+    expect(c(stub(), schemaFor({ any: [false, true] }), subject, 'read')).toBe(true);
+    expect(c(stub(), schemaFor({ all: [true, false] }), subject, 'read')).toBe(false);
+  });
+
+  test('a delegate resolving to `false` is a terminal deny (like null)', () => {
+    const s: RebacSchema = { permissions: { m: { actions: { read: 'block', block: false } } } };
+    expect(c(stub(), s, subject, 'read')).toBe(false);
   });
 });
 

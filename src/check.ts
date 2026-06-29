@@ -116,7 +116,8 @@ export const createRebacCheck = <R extends string = string>(
     visited: Set<string>,
   ): boolean => {
     if (permix.isSuperadmin?.()) return true;
-    if (isNil(actionOrRule)) return false;
+    if (isNil(actionOrRule)) return false; // null = terminal deny
+    if (typeof actionOrRule === 'boolean') return actionOrRule; // true = allow, false = deny
 
     if (typeof actionOrRule === 'string') {
       // permix holds the actor's directly-granted (role-derived) actions — a grant short-circuits.

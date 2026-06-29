@@ -14,7 +14,8 @@ export type ActionRule =
   | SelfCheck
   | { any: ActionRule[] } // OR
   | { all: ActionRule[] } // AND
-  | null; // terminal deny
+  | boolean // terminal allow (`true`) / deny (`false`)
+  | null; // terminal deny (equivalent to `false`)
 
 /** One resource's permission entry: `actions: { name → ActionRule }`. */
 export type ResourcePermission = { actions: Record<string, ActionRule> };
