@@ -267,6 +267,219 @@ describe('to-one constraint on bridge walks (adversarial: must not walk onto the
   });
 });
 
+describe('bridge — complex traversals (multi-hop, mixed-path, composition)', () => {
+  // db:User --(accountId→id)--> crm:Account --(subscriptionId→id)--> billing:Subscription.
+  // Both hops are many→one (walkable). The intermediate Account must be supplied so its
+  // subscriptionId scalar is available for the second hop.
+  const chainBridges: Bridge[] = [
+    {
+      endpoints: [
+        { fieldMap: 'crm', model: 'Account', on: 'id' },
+        { fieldMap: 'db', model: 'User', on: 'accountId' },
+      ],
+      cardinality: 'oneToMany',
+    },
+    {
+      endpoints: [
+        { fieldMap: 'billing', model: 'Subscription', on: 'id' },
+        { fieldMap: 'crm', model: 'Account', on: 'subscriptionId' },
+      ],
+      cardinality: 'oneToMany',
+    },
+  ];
+
+  test('chains two bridges (db:User → crm:Account → billing:Subscription) via successive join scalars', () => {
+    const s: RebacSchema = {
+      bridges: chainBridges,
+      permissions: {
+        'db:User': {
+          actions: { read: { rel: 'crm:Account.billing:Subscription', action: 'own' } },
+        },
+        'billing:Subscription': { actions: { own: null } },
+      },
+    };
+    const c = createRebacCheck(() => null);
+    const granted = grantStub({ 'billing:Subscription:own': ['sub1'] });
+    const subject = {
+      resource: 'db:User',
+      record: { id: 'u1', accountId: 'acc1' },
+      data: { 'crm:Account': [{ id: 'acc1', subscriptionId: 'sub1' }] },
+    };
+    expect(c(granted, s, subject, 'read')).toBe(true);
+  });
+
+  test('a chained bridge fails closed when the intermediate record (and its next join scalar) is absent', () => {
+    const s: RebacSchema = {
+      bridges: chainBridges,
+      permissions: {
+        'db:User': {
+          actions: { read: { rel: 'crm:Account.billing:Subscription', action: 'own' } },
+        },
+        'billing:Subscription': { actions: { own: null } },
+      },
+    };
+    const c = createRebacCheck(() => null);
+    const granted = grantStub({ 'billing:Subscription:own': ['sub1'] });
+    // No Account in data → synthetic { id: 'acc1' } carries no subscriptionId → second hop can't resolve.
+    const subject = { resource: 'db:User', record: { id: 'u1', accountId: 'acc1' } };
+    expect(c(granted, s, subject, 'read')).toBe(false);
+  });
+
+  const oneBridge: Bridge[] = [
+    {
+      endpoints: [
+        { fieldMap: 'crm', model: 'Account', on: 'id' },
+        { fieldMap: 'db', model: 'User', on: 'accountId' },
+      ],
+      cardinality: 'oneToMany',
+    },
+  ];
+
+  test('crosses a bridge then walks an intra-source relation on the far map (rbac-terminal)', () => {
+    const s: RebacSchema = {
+      bridges: oneBridge,
+      permissions: {
+        'db:User': { actions: { read: { rel: 'crm:Account.owner', action: 'own' } } },
+        'crm:Contact': { actions: { own: null } },
+      },
+    };
+    // The Account.owner segment is NOT a bridge — resolveRelation supplies the far-map hop.
+    const resolve: ResolveRelation = (resource, seg) =>
+      resource === 'crm:Account' && seg === 'owner' ? 'crm:Contact' : null;
+    const c = createRebacCheck(resolve);
+    const granted = grantStub({ 'crm:Contact:own': ['c1'] });
+    // The far Account is supplied WITH its nested owner — the synthetic walk reads current['owner'].
+    const subject = {
+      resource: 'db:User',
+      record: { id: 'u1', accountId: 'acc1' },
+      data: { 'crm:Account': [{ id: 'acc1', owner: { id: 'c1' } }] },
+    };
+    expect(c(granted, s, subject, 'read')).toBe(true);
+  });
+
+  test('a post-bridge intra-source rel fails closed when the far record is synthetic (no data → no relation fields)', () => {
+    const s: RebacSchema = {
+      bridges: oneBridge,
+      permissions: {
+        'db:User': { actions: { read: { rel: 'crm:Account.owner', action: 'own' } } },
+        'crm:Contact': { actions: { own: null } },
+      },
+    };
+    const resolve: ResolveRelation = (resource, seg) =>
+      resource === 'crm:Account' && seg === 'owner' ? 'crm:Contact' : null;
+    const c = createRebacCheck(resolve);
+    const granted = grantStub({ 'crm:Contact:own': ['c1'] });
+    // No data → far Account is synthetic { id: 'acc1' } with no `owner` field → walk aborts.
+    const subject = { resource: 'db:User', record: { id: 'u1', accountId: 'acc1' } };
+    expect(c(granted, s, subject, 'read')).toBe(false);
+  });
+
+  test('after crossing a bridge, the far resource’s action delegates through a string chain', () => {
+    const s: RebacSchema = {
+      bridges: oneBridge,
+      permissions: {
+        'db:User': { actions: { read: { rel: 'crm:Account', action: 'read' } } },
+        'crm:Account': { actions: { own: null, manage: 'own', read: 'manage' } },
+      },
+    };
+    const c = createRebacCheck(() => null);
+    // The grant is only on `own`; reaching it requires read → manage → own on the far resource.
+    const granted = grantStub({ 'crm:Account:own': ['acc1'] });
+    expect(
+      c(granted, s, { resource: 'db:User', record: { id: 'u1', accountId: 'acc1' } }, 'read'),
+    ).toBe(true);
+    expect(
+      c(granted, s, { resource: 'db:User', record: { id: 'u1', accountId: 'other' } }, 'read'),
+    ).toBe(false);
+  });
+
+  test('a bridge rel composes inside `any` alongside a local rule', () => {
+    const s: RebacSchema = {
+      bridges: oneBridge,
+      permissions: {
+        'db:User': {
+          actions: {
+            read: {
+              any: [
+                { rule: { field: 'isAdmin', operator: Operator.equals, value: true } },
+                { rel: 'crm:Account', action: 'own' },
+              ],
+            },
+          },
+        },
+        'crm:Account': { actions: { own: null } },
+      },
+    };
+    const c = createRebacCheck(() => null);
+    const granted = grantStub({ 'crm:Account:own': ['acc1'] });
+    // Local rule fails (isAdmin false) but the bridge branch grants.
+    expect(
+      c(
+        granted,
+        s,
+        { resource: 'db:User', record: { id: 'u1', accountId: 'acc1', isAdmin: false } },
+        'read',
+      ),
+    ).toBe(true);
+    // Neither branch: local false AND the bridge id mismatches.
+    expect(
+      c(
+        granted,
+        s,
+        { resource: 'db:User', record: { id: 'u1', accountId: 'other', isAdmin: false } },
+        'read',
+      ),
+    ).toBe(false);
+  });
+});
+
+describe('oneToOne bridge is walkable from both endpoints (symmetric)', () => {
+  // db:User.profileId ↔ crm:Profile.id — to-one in both directions.
+  const bridges: Bridge[] = [
+    {
+      endpoints: [
+        { fieldMap: 'db', model: 'User', on: 'profileId' },
+        { fieldMap: 'crm', model: 'Profile', on: 'id' },
+      ],
+      cardinality: 'oneToOne',
+    },
+  ];
+
+  test('forward: db:User → crm:Profile', () => {
+    const s: RebacSchema = {
+      bridges,
+      permissions: {
+        'db:User': { actions: { read: { rel: 'crm:Profile', action: 'own' } } },
+        'crm:Profile': { actions: { own: null } },
+      },
+    };
+    const c = createRebacCheck(() => null);
+    const granted = grantStub({ 'crm:Profile:own': ['p1'] });
+    expect(
+      c(granted, s, { resource: 'db:User', record: { id: 'u1', profileId: 'p1' } }, 'read'),
+    ).toBe(true);
+  });
+
+  test('reverse: crm:Profile → db:User (allowed — oneToOne is to-one both ways)', () => {
+    const s: RebacSchema = {
+      bridges,
+      permissions: {
+        'crm:Profile': { actions: { read: { rel: 'db:User', action: 'own' } } },
+        'db:User': { actions: { own: null } },
+      },
+    };
+    const c = createRebacCheck(() => null);
+    const granted = grantStub({ 'db:User:own': ['u1'] });
+    // Profile.id (record.id) joins User.profileId; the User row is supplied for the reverse index.
+    const subject = {
+      resource: 'crm:Profile',
+      record: { id: 'p1' },
+      data: { 'db:User': [{ id: 'u1', profileId: 'p1' }] },
+    };
+    expect(c(granted, s, subject, 'read')).toBe(true);
+  });
+});
+
 describe('empty combinators follow boolean identity (all([]) = true, any([]) = false)', () => {
   test('an empty `all` is vacuously true (allow) — `true`/allow is a valid permission value', () => {
     const s: RebacSchema = { permissions: { m: { actions: { read: { all: [] } } } } };
