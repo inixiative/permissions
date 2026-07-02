@@ -1,6 +1,6 @@
 {
   "name": "@inixiative/permissions",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Generic rebac/abac/rbac core — a permix wrapper + relationship-walking check engine; relation resolution is injected (built from prisma-map in the inixiative stack)",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -63,7 +63,7 @@
     }
   },
   "dependencies": {
-    "@inixiative/json-rules": "^2.10.0",
+    "@inixiative/json-rules": "^2.12.1",
     "lodash-es": "^4.17.21"
   },
   "exports": {

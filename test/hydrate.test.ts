@@ -43,6 +43,46 @@ describe('createHydrator', () => {
     expect(loads).toEqual([]);
   });
 
+  test('terminates on a self-referential FK (managerId = id) instead of hanging forever', async () => {
+    const users: Record<string, Row> = { u1: { id: 'u1', managerId: 'u1' } };
+    const rels: Record<string, ParentRelation[]> = {
+      user: [{ field: 'manager', model: 'user', fk: 'managerId' }],
+    };
+    const hydrate = createHydrator({
+      parents: (m) => rels[m] ?? [],
+      load: async (_model, id) => users[id] ?? null,
+    });
+
+    const record = await hydrate('user', users.u1);
+
+    expect(record.id).toBe('u1');
+    // The self-edge is followed once, then the cycle is cut — no infinite nesting.
+    expect((record.manager as Row).id).toBe('u1');
+    expect((record.manager as Row).manager).toBeUndefined();
+  }, 5000);
+
+  test('terminates on an A→B→A cycle instead of hanging forever', async () => {
+    const users: Record<string, Row> = {
+      a: { id: 'a', managerId: 'b' },
+      b: { id: 'b', managerId: 'a' },
+    };
+    const rels: Record<string, ParentRelation[]> = {
+      user: [{ field: 'manager', model: 'user', fk: 'managerId' }],
+    };
+    const hydrate = createHydrator({
+      parents: (m) => rels[m] ?? [],
+      load: async (_model, id) => users[id] ?? null,
+    });
+
+    const record = await hydrate('user', users.a);
+
+    expect(record.id).toBe('a');
+    expect((record.manager as Row).id).toBe('b');
+    expect(((record.manager as Row).manager as Row).id).toBe('a');
+    // The cycle closes back onto `a` (an ancestor) — that edge is cut rather than looped.
+    expect(((record.manager as Row).manager as Row).manager).toBeUndefined();
+  }, 5000);
+
   test('de-duplicates a parent reached twice within one hydration (diamond)', async () => {
     const diamond: Record<string, ParentRelation[]> = {
       doc: [

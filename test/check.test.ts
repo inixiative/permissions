@@ -480,6 +480,54 @@ describe('oneToOne bridge is walkable from both endpoints (symmetric)', () => {
   });
 });
 
+describe('bridge synthetic far-record joins on the actual far key (not always `id`)', () => {
+  // crm:Team (the "one", endpoints[0]) joins on a NON-id unique field `code`;
+  // db:User (the "many", endpoints[1]) joins on `teamCode`. Walking db:User → crm:Team lands on a
+  // far endpoint whose join key is `code`, NOT `id`.
+  const bridges: Bridge[] = [
+    {
+      endpoints: [
+        { fieldMap: 'crm', model: 'Team', on: 'code' },
+        { fieldMap: 'db', model: 'User', on: 'teamCode' },
+      ],
+      cardinality: 'oneToMany',
+    },
+  ];
+
+  const s: RebacSchema = {
+    bridges,
+    permissions: {
+      'db:User': { actions: { read: { rel: 'crm:Team', action: 'own' } } },
+      'crm:Team': { actions: { own: null } }, // granted only via permix (id-keyed grants)
+    },
+  };
+  const c = createRebacCheck(() => null);
+  // An actor holds an id-keyed grant on the Team whose *id* happens to equal the join value.
+  const granted = grantStub({ 'crm:Team:own': ['collidingValue'] });
+
+  test('an id-keyed grant colliding with a NON-id join value must NOT allow (no subject.data)', () => {
+    // record.teamCode joins crm:Team.code — it is NOT a Team id. The colliding id-grant must not apply.
+    expect(
+      c(
+        granted,
+        s,
+        { resource: 'db:User', record: { id: 'u1', teamCode: 'collidingValue' } },
+        'read',
+      ),
+    ).toBe(false);
+  });
+
+  test('monotonic: supplying the real far row (id ≠ join value) keeps the decision a deny', () => {
+    const subject = {
+      resource: 'db:User',
+      record: { id: 'u1', teamCode: 'collidingValue' },
+      // The real Team joined by code has its own distinct id, on which the actor holds NO grant.
+      data: { 'crm:Team': [{ id: 'realTeam', code: 'collidingValue' }] },
+    };
+    expect(c(granted, s, subject, 'read')).toBe(false);
+  });
+});
+
 describe('empty combinators follow boolean identity (all([]) = true, any([]) = false)', () => {
   test('an empty `all` is vacuously true (allow) — `true`/allow is a valid permission value', () => {
     const s: RebacSchema = { permissions: { m: { actions: { read: { all: [] } } } } };

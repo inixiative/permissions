@@ -28,14 +28,18 @@ export type HydrateDeps = {
  * is null (a real deny), not a loading artifact. Concurrent loads of the same `model:id` within one
  * hydration are de-duplicated via the shared `pending` map; cross-call caching is `load`'s job.
  *
- * The closure is assumed acyclic (FK-to-one parent graphs are — a row is not its own ancestor).
- * Cycle *detection* belongs to `check`, which guards the permission graph itself.
+ * FK-to-one parent graphs are *usually* acyclic, but real data can lie (a self-referential
+ * `managerId = id`, or an A→B→A loop). `ancestors` — the `model:id` keys on the path from the root
+ * to the current node — cuts any edge that points back at an ancestor, so hydration always
+ * terminates. The set is forked per branch (like the `check` engine's `visited`) so a legitimate
+ * diamond — the same parent reached via two non-ancestor paths — is still fully hydrated on both.
  */
 export const createHydrator = ({ parents, load }: HydrateDeps) => {
   const hydrate = async (
     model: string,
     record: Row,
     pending: Map<string, Promise<Row | null>> = new Map(),
+    ancestors: ReadonlySet<string> = new Set(),
   ): Promise<Row> => {
     const result: Row = { ...record };
     await Promise.all(
@@ -43,13 +47,16 @@ export const createHydrator = ({ parents, load }: HydrateDeps) => {
         const id = record[fk] as string | undefined;
         if (!id) return;
         const key = `${parentModel}:${id}`;
+        if (ancestors.has(key)) return; // cycle: this parent is already on the path from the root
         let load$ = pending.get(key);
         if (!load$) {
           load$ = load(parentModel, id);
           pending.set(key, load$);
         }
         const related = await load$;
-        if (related) result[field] = await hydrate(parentModel, related, pending);
+        if (related) {
+          result[field] = await hydrate(parentModel, related, pending, new Set(ancestors).add(key));
+        }
       }),
     );
     return result;

@@ -43,15 +43,23 @@ export const createPermissions = <Action extends string = string>(): Permix<Acti
   return {
     check: (resource, action, id, data) => {
       if (isSuperadmin) return true;
-      const key = id ? `${resource}:${id}` : resource;
-      return permix.check(key, action, data);
+      // Only probe entities we actually set up: an unregistered key makes permix log a spurious
+      // "Incorrect entity name" warning on every deny (the engine probes speculatively). Gating on
+      // `accumulated` is equivalent — an unregistered entity is never granted — and stays quiet.
+      const granted = (key: string) => key in accumulated && permix.check(key, action, data);
+      // An id-keyed grant is checked first, then the resource-wide grant: a "read all documents"
+      // grant (set up with no id) must still apply when checking a specific record id.
+      if (id && granted(`${resource}:${id}`)) return true;
+      return granted(resource);
     },
     setup: async (perms, options) => {
       if (options?.replace) accumulated = {};
       const entries = castArray(perms);
       for (const { resource, id, actions } of entries) {
         const key = id ? `${resource}:${id}` : resource;
-        accumulated[key] = { ...actions };
+        // Merge, don't overwrite: successive setups for the same key are additive — e.g. a `read`
+        // grant then a `manage` grant on `organization:o1` must leave both actions in place.
+        accumulated[key] = { ...accumulated[key], ...actions };
       }
       await permix.setup(accumulated as Parameters<typeof permix.setup>[0]);
     },
