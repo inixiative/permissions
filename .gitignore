@@ -5,5 +5,3 @@ coverage/
 .DS_Store
 .idea/
 .vscode/
-bun.lockb
-bun.lock
