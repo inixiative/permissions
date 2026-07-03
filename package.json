@@ -17,9 +17,9 @@
     "typecheck": "tsc --noEmit",
     "lint": "biome check .",
     "format": "biome format --write .",
-    "check": "bun run typecheck && bun run lint",
+    "check": "bun run typecheck && bun run lint && bun run test",
     "prepare": "lefthook install",
-    "prepublishOnly": "bun run check && bun run test && bun run build"
+    "prepublishOnly": "bun run check && bun run build"
   },
   "keywords": [
     "permissions",
