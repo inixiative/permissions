@@ -5,7 +5,7 @@
     "": {
       "name": "@inixiative/permissions",
       "dependencies": {
-        "@inixiative/json-rules": "^2.12.1",
+        "@inixiative/json-rules": "^2.13.0",
         "lodash-es": "^4.17.21",
       },
       "devDependencies": {
@@ -102,7 +102,7 @@
 
     "@inixiative/config": ["@inixiative/config@0.2.1", "", { "peerDependencies": { "@biomejs/biome": ">=2.5.0", "tsup": ">=8.0.0", "typescript": ">=5.9.0" }, "optionalPeers": ["@biomejs/biome", "tsup", "typescript"], "bin": { "inixiative-config": "dist/cli.js" } }, "sha512-TSCHqCpIwgXDkLSVf8Pg1pHnsAdJV8NdYGqMup9O28VnaSKakkNcNSsOd64rQ+JIpIyDcI0YYZaLOLe8AGZgHA=="],
 
-    "@inixiative/json-rules": ["@inixiative/json-rules@2.12.1", "", { "dependencies": { "dayjs": "^1.11.13" }, "peerDependencies": { "typescript": "^5.0.0" }, "optionalPeers": ["typescript"] }, "sha512-lamE/AJQBajEpKHIWh/KD/ioeDtEkQ63MTAMKLllScfo1NsB7r88FbC/lsCericDWLsT84l/z74ixEmprKGBrA=="],
+    "@inixiative/json-rules": ["@inixiative/json-rules@2.13.0", "", { "dependencies": { "dayjs": "^1.11.13" }, "peerDependencies": { "typescript": "^5.0.0" }, "optionalPeers": ["typescript"] }, "sha512-O2BHEXBll4dC/F2fbf/xu4brSFYYbNATh4dQXJxUNv19uikhgz6MtVs+4FDzRejXWGtsnXF+oxpMHorIX+aIvA=="],
 
     "@jridgewell/gen-mapping": ["@jridgewell/gen-mapping@0.3.13", "", { "dependencies": { "@jridgewell/sourcemap-codec": "^1.5.0", "@jridgewell/trace-mapping": "^0.3.24" } }, "sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA=="],
 
