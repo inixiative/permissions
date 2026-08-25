@@ -64,7 +64,7 @@
     }
   },
   "dependencies": {
-    "@inixiative/json-rules": "^2.19.0",
+    "@inixiative/json-rules": "^2.19.1",
     "lodash-es": "^4.17.21"
   },
   "exports": {

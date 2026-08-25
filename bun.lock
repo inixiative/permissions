@@ -5,7 +5,7 @@
     "": {
       "name": "@inixiative/permissions",
       "dependencies": {
-        "@inixiative/json-rules": "^2.19.0",
+        "@inixiative/json-rules": "^2.19.1",
         "lodash-es": "^4.17.21",
       },
       "devDependencies": {
@@ -102,7 +102,7 @@
 
     "@inixiative/config": ["@inixiative/config@0.5.19", "", { "peerDependencies": { "@biomejs/biome": ">=2.5.0", "tsup": ">=8.0.0", "typescript": ">=5.9.0" }, "optionalPeers": ["@biomejs/biome", "tsup", "typescript"], "bin": { "inixiative-config": "dist/cli.js" } }, "sha512-5TP4C7NtQ9blefebh5D0kfAQFw0ayAOgSSaJkmctNg3h9ZZnpSJk+BBNxo2VASzXLtDmv3NcQF2+Epfrdo3ySA=="],
 
-    "@inixiative/json-rules": ["@inixiative/json-rules@2.19.0", "", { "dependencies": { "dayjs": "^1.11.13", "fastest-levenshtein": "^1.0.16" }, "peerDependencies": { "typescript": "^5.0.0" }, "optionalPeers": ["typescript"] }, "sha512-sbMZcOVOUxDemnMUu/5QaCzDfyK1NZtvGmzxTHxoDmDVnGgMkNqBuc9RyM26TYG3nrSKK4+8lPHxr9kY2Q1c9Q=="],
+    "@inixiative/json-rules": ["@inixiative/json-rules@2.19.1", "", { "dependencies": { "dayjs": "^1.11.13", "fastest-levenshtein": "^1.0.16" }, "peerDependencies": { "typescript": "^5.0.0" }, "optionalPeers": ["typescript"] }, "sha512-AHZc4Qq251FPy1TR6fdFyNaP/rMMbDnm0gpcg8/16jdJEblmBhQaxUbQI2ErY/Mj88Gm+VF59sse2jrxBx0mBg=="],
 
     "@jridgewell/gen-mapping": ["@jridgewell/gen-mapping@0.3.13", "", { "dependencies": { "@jridgewell/sourcemap-codec": "^1.5.0", "@jridgewell/trace-mapping": "^0.3.24" } }, "sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA=="],
 
