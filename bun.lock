@@ -5,12 +5,12 @@
     "": {
       "name": "@inixiative/permissions",
       "dependencies": {
-        "@inixiative/json-rules": "^2.19.8",
+        "@inixiative/json-rules": "^2.20.0",
         "lodash-es": "^4.17.21",
       },
       "devDependencies": {
         "@biomejs/biome": "2.5.2",
-        "@inixiative/config": "^0.5.22",
+        "@inixiative/config": "^0.5.23",
         "@types/bun": "1.3.14",
         "@types/lodash-es": "^4.17.12",
         "lefthook": "2.1.9",
@@ -100,9 +100,9 @@
 
     "@esbuild/win32-x64": ["@esbuild/win32-x64@0.27.7", "", { "os": "win32", "cpu": "x64" }, "sha512-56hiAJPhwQ1R4i+21FVF7V8kSD5zZTdHcVuRFMW0hn753vVfQN8xlx4uOPT4xoGH0Z/oVATuR82AiqSTDIpaHg=="],
 
-    "@inixiative/config": ["@inixiative/config@0.5.22", "", { "peerDependencies": { "@biomejs/biome": ">=2.5.0", "tsup": ">=8.0.0", "typescript": ">=5.9.0" }, "optionalPeers": ["@biomejs/biome", "tsup", "typescript"], "bin": { "inixiative-config": "dist/cli.js" } }, "sha512-uOFo/hrWo5JH3MLnEu3WTd2LgFJNZ6IZavRxcfrW07rjAMy7M3dEJuMelv49Fckxc9VPmExUorOKwoYlM9gu5w=="],
+    "@inixiative/config": ["@inixiative/config@0.5.23", "", { "peerDependencies": { "@biomejs/biome": ">=2.5.0", "tsup": ">=8.0.0", "typescript": ">=5.9.0" }, "optionalPeers": ["@biomejs/biome", "tsup", "typescript"], "bin": { "inixiative-config": "dist/cli.js" } }, "sha512-UMhBV9dzqq4sj711tcP4L/aYQQ03kU0g/4OLyoWTSBzdvqwHVmSEAuOhAnQnX96HbrA2ade0qxBOzupXeS+4mA=="],
 
-    "@inixiative/json-rules": ["@inixiative/json-rules@2.19.8", "", { "dependencies": { "dayjs": "^1.11.13", "fastest-levenshtein": "^1.0.16" }, "peerDependencies": { "typescript": "^5.0.0" }, "optionalPeers": ["typescript"] }, "sha512-WdA4bfOvhTt5XRxWi1au8h3pBjyIBSPdNJnyEKr+xAdE9Cks5Um+pS7FbbDU38k/MdKw0Yj7orw+vXsajqvwEw=="],
+    "@inixiative/json-rules": ["@inixiative/json-rules@2.20.0", "", { "dependencies": { "dayjs": "^1.11.13", "fastest-levenshtein": "^1.0.16" }, "peerDependencies": { "typescript": "^5.0.0" }, "optionalPeers": ["typescript"] }, "sha512-Hve5qgfFK2vQetYAhL3x1gKll/vS+sES9Sijcv8fNw+9zLn42W+w6obJ6SR9R73+YMHGFdElovz+plk5P1neng=="],
 
     "@jridgewell/gen-mapping": ["@jridgewell/gen-mapping@0.3.13", "", { "dependencies": { "@jridgewell/sourcemap-codec": "^1.5.0", "@jridgewell/trace-mapping": "^0.3.24" } }, "sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA=="],
 
