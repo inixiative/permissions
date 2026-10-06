@@ -159,7 +159,7 @@ export const createRebacCheck = <R extends string = string>(
           currentResource = hop.farResource as R;
         } else {
           const related = current[segment] as Row | null | undefined;
-          if (!related) return false;
+          if (!related || Array.isArray(related)) return false;
           const next = resolveRelation(currentResource, segment);
           if (!next) return false;
           current = related;
