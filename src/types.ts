@@ -1,6 +1,6 @@
-import type { Bridge, Condition } from '@inixiative/json-rules';
+import type { Bridge, Condition, Row } from '@inixiative/json-rules';
 
-export type Row = Record<string, unknown>;
+export type { Row };
 
 export type RelationCheck = { rel: string; action: string }; // walk a relation, then check `action`
 export type RuleCheck = { rule: Condition }; // ABAC predicate (json-rules) over the record
@@ -33,7 +33,7 @@ export type RebacSchema<R extends string = string> = {
 
 /**
  * What the check evaluates against: the `record`, its (map-qualified) `resource`, and `data` —
- * supplemental hydrated rows per `map:model`, the same shape json-rules' `buildBridgeDictionary`
+ * supplemental hydrated rows per `map:model`, the same shape json-rules' `indexBridges`
  * takes. The check builds the bridge dictionary from `data` itself; `data` is only consulted when a
  * `rel` walk crosses a bridge and a downstream action reads the far record's fields.
  */

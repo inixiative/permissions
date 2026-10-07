@@ -124,7 +124,7 @@ const schema: RebacSchema = {
 Bridges **don't hydrate** (they aren't FK relations) — the engine traverses them *synthetically*.
 The join key is a scalar already on the record (`User.accountId`), so a hop ending in an rbac grant
 needs nothing extra. When a downstream action reads the far record's *fields* (abac / `self`), pass
-those rows as `subject.data` (keyed `map:model` — the `buildBridgeDictionary` shape) and the engine
+those rows as `subject.data` (keyed `map:model` — the `indexBridges` shape) and the engine
 builds the lookup itself:
 
 ```ts
