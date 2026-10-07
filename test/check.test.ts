@@ -577,7 +577,7 @@ describe('dictionary is built lazily (adversarial: malformed data must not crash
       permissions: { 'db:User': { actions: { leave: { self: 'userId' } } } },
     };
     const c = createRebacCheck(() => null);
-    // Duplicate "one"-side (Account.id) rows would make buildBridgeDictionary throw — but this check
+    // Duplicate "one"-side (Account.id) rows would make indexBridges throw — but this check
     // resolves via { self } and never hops, so the dictionary must never be built.
     const subject = {
       resource: 'db:User',

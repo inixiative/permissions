@@ -1,8 +1,11 @@
-import { type Bridge, buildBridgeDictionary, check as checkRule } from '@inixiative/json-rules';
+import {
+  type Bridge,
+  type BridgeDictionary,
+  check as checkRule,
+  indexBridges,
+} from '@inixiative/json-rules';
 import { isNil } from 'lodash-es';
 import type { ActionRule, PermixLike, RebacSchema, ResolveRelation, Row, Subject } from './types';
-
-type BridgeDictionary = ReturnType<typeof buildBridgeDictionary>;
 
 // Stable identity for cycle detection that does NOT depend on `record.id` — an id may be absent or
 // collide across resources, both of which would make an id-based key falsely report a cycle. A
@@ -192,14 +195,14 @@ export const createRebacCheck = <R extends string = string>(
 
   return (permix, schema, subject, actionOrRule, visited = new Set()) => {
     // Built lazily on the first bridge hop: a check that never crosses a bridge must not pay for —
-    // or be crashed by (buildBridgeDictionary throws on malformed `data`) — a dictionary it never reads.
+    // or be crashed by (indexBridges throws on malformed `data`) — a dictionary it never reads.
     let built = false;
     let dict: BridgeDictionary | undefined;
     const getDict = (): BridgeDictionary | undefined => {
       if (!built) {
         built = true;
         dict = schema.bridges?.length
-          ? buildBridgeDictionary({ maps: {}, bridges: schema.bridges }, subject.data ?? {})
+          ? indexBridges({ maps: {}, bridges: schema.bridges }, subject.data ?? {})
           : undefined;
       }
       return dict;

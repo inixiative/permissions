@@ -1,6 +1,6 @@
 {
   "name": "@inixiative/permissions",
-  "version": "0.3.4",
+  "version": "0.4.0",
   "description": "Generic rebac/abac/rbac core — a permix wrapper + relationship-walking check engine; relation resolution is injected (built from prisma-map in the inixiative stack)",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -18,7 +18,7 @@
     "lint": "biome check .",
     "format": "biome format --write .",
     "check": "bun run typecheck && bun run lint && bun run test",
-    "prepare": "lefthook install",
+    "prepare": "if git rev-parse --git-dir >/dev/null 2>&1; then lefthook install; fi",
     "prepublishOnly": "bun run check && bun run build"
   },
   "keywords": [
@@ -42,7 +42,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.2",
-    "@inixiative/config": "^0.5.49",
+    "@inixiative/config": "^0.5.50",
     "@types/bun": "1.4.2",
     "@types/lodash-es": "^4.17.12",
     "lefthook": "2.1.9",
@@ -64,7 +64,7 @@
     }
   },
   "dependencies": {
-    "@inixiative/json-rules": "^2.27.0",
+    "@inixiative/json-rules": "^3.0.0",
     "lodash-es": "^4.17.21"
   },
   "exports": {
