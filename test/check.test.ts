@@ -32,8 +32,17 @@ const schema: RebacSchema = {
     },
     membership: {
       actions: {
-        leave: { self: 'userId' },
+        leave: { self: 'userId', action: 'operate' },
         manage: { rel: 'organization', action: 'manage' },
+      },
+    },
+    user: {
+      actions: {
+        own: null,
+        manage: 'own',
+        operate: 'manage',
+        read: 'operate',
+        'user.identify': 'read',
       },
     },
   },
@@ -43,7 +52,7 @@ const relations: Record<string, Record<string, string>> = {
   membership: { organization: 'organization' },
 };
 const resolveRelation: ResolveRelation = (resource, seg) => relations[resource]?.[seg] ?? null;
-const check = createRebacCheck(resolveRelation);
+const check = createRebacCheck(resolveRelation, { selfResource: 'user' });
 
 describe('rebac check', () => {
   test('ABAC { rule } leaf', () => {
@@ -75,26 +84,68 @@ describe('rebac check', () => {
     ).toBe(true);
   });
 
-  test('{ self } matches the actor id', () => {
-    expect(
-      check(
-        stub({ userId: 'u1' }),
+  // grants: `user:<action>` → the actor holds that action on its own user entry
+  const actor = (userId: string | null, ...userActions: string[]): PermixLike => ({
+    check: (resource, action, id) =>
+      resource === 'user' && id === userId && userActions.includes(action),
+    isSuperadmin: () => false,
+    getUserId: () => userId,
+  });
+  const leave = (permix: PermixLike, userId: string) =>
+    check(permix, schema, { resource: 'membership', record: { userId } }, 'leave');
+
+  test("{ self, action } needs the id to match AND the action on the actor's own entry", () => {
+    expect(leave(actor('u1', 'own'), 'u1')).toBe(true);
+    expect(leave(actor('u1', 'own'), 'u2')).toBe(false);
+    expect(leave(actor(null), 'u1')).toBe(false);
+  });
+
+  test("{ self, action } walks the self resource's delegation chain", () => {
+    expect(leave(actor('u1', 'operate'), 'u1')).toBe(true);
+    expect(leave(actor('u1', 'manage'), 'u1')).toBe(true);
+  });
+
+  test('{ self, action } refuses a narrowed actor that lacks the action on itself', () => {
+    expect(leave(actor('u1', 'read'), 'u1')).toBe(false);
+    expect(leave(actor('u1'), 'u1')).toBe(false);
+  });
+
+  test('{ self, action } takes any user action, custom ones included', () => {
+    const s: RebacSchema = {
+      permissions: {
+        ...schema.permissions,
+        membership: { actions: { export: { self: 'userId', action: 'report.export' } } },
+      },
+    };
+    const run = (permix: PermixLike) =>
+      check(permix, s, { resource: 'membership', record: { userId: 'u1' } }, 'export');
+    expect(run(actor('u1', 'report.export'))).toBe(true);
+    expect(run(actor('u1', 'own'))).toBe(false);
+  });
+
+  test('a bare { self } is an error, not a silent pass', () => {
+    const s: RebacSchema = {
+      permissions: { membership: { actions: { leave: { self: 'userId' } as never } } },
+    };
+    expect(() =>
+      check(actor('u1', 'own'), s, { resource: 'membership', record: { userId: 'u1' } }, 'leave'),
+    ).toThrow('A self arm must name an action');
+  });
+
+  test('a self arm without a configured selfResource is an error', () => {
+    const noSelf = createRebacCheck(resolveRelation);
+    expect(() =>
+      noSelf(
+        actor('u1', 'own'),
         schema,
         { resource: 'membership', record: { userId: 'u1' } },
         'leave',
       ),
-    ).toBe(true);
-    expect(
-      check(
-        stub({ userId: 'u1' }),
-        schema,
-        { resource: 'membership', record: { userId: 'u2' } },
-        'leave',
-      ),
-    ).toBe(false);
-    expect(
-      check(stub(), schema, { resource: 'membership', record: { userId: 'u1' } }, 'leave'),
-    ).toBe(false);
+    ).toThrow('selfResource');
+  });
+
+  test('a superadmin passes a self arm', () => {
+    expect(leave(stub({ superadmin: true }), 'someone-else')).toBe(true);
   });
 
   test('{ rel, action } walks an intra-map relation via resolveRelation', () => {
@@ -574,9 +625,13 @@ describe('dictionary is built lazily (adversarial: malformed data must not crash
           cardinality: 'oneToMany',
         },
       ],
-      permissions: { 'db:User': { actions: { leave: { self: 'userId' } } } },
+      permissions: {
+        'db:User': {
+          actions: { own: true, leave: { self: 'userId', action: 'own' } },
+        },
+      },
     };
-    const c = createRebacCheck(() => null);
+    const c = createRebacCheck<string>(() => null, { selfResource: 'db:User' });
     // Duplicate "one"-side (Account.id) rows would make indexBridges throw — but this check
     // resolves via { self } and never hops, so the dictionary must never be built.
     const subject = {

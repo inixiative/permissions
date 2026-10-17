@@ -104,10 +104,16 @@ export type RebacCheck<R extends string = string> = (
  * `schema.bridges` — synthetically, via the join-key scalar on the record, looking the far row up in
  * a `BridgeDictionary` the engine builds from `subject.data` (only needed when a downstream action
  * reads the far record's fields). `string` delegates (rbac via permix or schema), `{ rule }` is an
- * ABAC predicate, `{ self }` matches the actor, `any`/`all` compose. Cycles throw rather than loop.
+ * ABAC predicate, `{ self, action }` matches the actor and checks `action` on its own entry, `any`/`all` compose. Cycles throw rather than loop.
  */
+export type RebacCheckOptions<R extends string = string> = {
+  /** The resource holding the actor's own entry; a `{ self, action }` arm checks `action` there. */
+  selfResource?: R;
+};
+
 export const createRebacCheck = <R extends string = string>(
   resolveRelation: ResolveRelation<R>,
+  options: RebacCheckOptions<R> = {},
 ): RebacCheck<R> => {
   const evaluate = (
     permix: PermixLike,
@@ -173,8 +179,23 @@ export const createRebacCheck = <R extends string = string>(
     }
 
     if ('self' in rule) {
+      if (typeof rule.action !== 'string')
+        throw new Error(
+          `A self arm must name an action: { self: '${rule.self}', action: '<action on the actor itself>' }`,
+        );
+      if (!options.selfResource)
+        throw new Error('A self arm needs createRebacCheck(resolveRelation, { selfResource })');
       const userId = permix.getUserId();
-      return userId !== null && record[rule.self] === userId;
+      if (userId === null || record[rule.self] !== userId) return false;
+      return evaluate(
+        permix,
+        schema,
+        getDict,
+        options.selfResource,
+        { id: userId },
+        rule.action,
+        visited,
+      );
     }
 
     if ('rule' in rule) return checkRule(rule.rule, record) === true;

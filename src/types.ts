@@ -4,7 +4,11 @@ export type { Row };
 
 export type RelationCheck = { rel: string; action: string }; // walk a relation, then check `action`
 export type RuleCheck = { rule: Condition }; // ABAC predicate (json-rules) over the record
-export type SelfCheck = { self: string }; // record[field] matches the current actor id
+/**
+ * `record[self]` is the actor's id AND the actor holds `action` on its own entry (the check's
+ * `selfResource`, e.g. `db:user:<id>`). `action` is any action of that resource, custom ones included.
+ */
+export type SelfCheck = { self: string; action: string };
 
 /** The serializable permission algebra: rebac (`rel`) + abac (`rule`) + rbac (`string` delegation). */
 export type ActionRule =
