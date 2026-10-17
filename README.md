@@ -12,7 +12,7 @@ core stays small and never imports a database layer itself. Record **hydration s
 type ActionRule =
   | string                       // rbac: delegate to another action on the same resource
   | { rel: string; action: string }  // rebac: walk a relation, then check `action` on the target
-  | { self: string }             // record[field] === actor id
+  | { self: string; action: string } // record[field] === actor id AND the actor holds `action` on itself
   | { rule: Condition }          // abac: a json-rules predicate over the record
   | { any: ActionRule[] }        // OR
   | { all: ActionRule[] }        // AND
@@ -44,8 +44,8 @@ const schema: RebacSchema = {
     },
     membership: {
       actions: {
-        read: { any: [{ self: 'userId' }, { rel: 'organization', action: 'read' }] },
-        leave: { self: 'userId' }, // the actor's own row
+        read: { any: [{ self: 'userId', action: 'read' }, { rel: 'organization', action: 'read' }] },
+        leave: { self: 'userId', action: 'operate' }, // the actor's own row, if it may act as itself
         manage: { rel: 'organization', action: 'manage' },
       },
     },
@@ -77,12 +77,23 @@ Validate tenant-authored overrides with `actionRuleSchema` before persisting the
 import { createRebacCheck } from '@inixiative/permissions';
 
 // inject the ORM-specific INTRA-map relation resolver (e.g. derived from a Prisma model map)
-const check = createRebacCheck((resource, segment) => relationTargets[resource]?.[segment] ?? null);
+const check = createRebacCheck(
+  (resource, segment) => relationTargets[resource]?.[segment] ?? null,
+  { selfResource: 'user' }, // where `{ self, action }` checks the actor's own action
+);
 
 check(permix, schema, { resource: 'membership', record }, 'manage');
 // string → permix grant or schema delegation; { rel } walks `record.organization` (or a bridge —
-// see below); { self } matches the actor; { rule } evals json-rules; any/all compose. Cycles throw.
+// see below); { self, action } matches the actor and checks `action` on its own entry; { rule } evals json-rules; any/all compose. Cycles throw.
 ```
+
+**`self` is paired with an action.** `{ self: 'userId', action: 'operate' }` passes only when
+`record.userId` is the actor's id **and** the actor holds `operate` on its own entry: the
+`selfResource` record `{ id: actorId }`, evaluated through the schema like any other check, so the
+delegation chain (`read → operate → manage → own`) and custom user actions (`'report.export'`) work.
+A full principal holds `own` on itself and passes as before; a narrowed one (say a credential that
+only holds `read` on its user) no longer passes a write arm on identity alone. A bare `{ self }`
+throws, and `actionRuleSchema` rejects it.
 
 The check takes a **subject** — `{ resource, record, data? }` — not a bare record; `data` is the
 supplemental rows that back cross-source bridge hops (below). `createRebacCheck` is generic over the
