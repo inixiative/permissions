@@ -144,6 +144,17 @@ describe('rebac check', () => {
     ).toThrow('selfResource');
   });
 
+  test("a self arm that loops back through the actor's own entry is a cycle, not a hang", () => {
+    const s: RebacSchema = {
+      permissions: {
+        user: { actions: { loop: { self: 'id', action: 'loop' } } },
+      },
+    };
+    expect(() => check(actor('u1'), s, { resource: 'user', record: { id: 'u1' } }, 'loop')).toThrow(
+      'Cycle detected',
+    );
+  });
+
   test('a superadmin passes a self arm', () => {
     expect(leave(stub({ superadmin: true }), 'someone-else')).toBe(true);
   });

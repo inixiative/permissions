@@ -187,6 +187,13 @@ export const createRebacCheck = <R extends string = string>(
         throw new Error('A self arm needs createRebacCheck(resolveRelation, { selfResource })');
       const userId = permix.getUserId();
       if (userId === null || record[rule.self] !== userId) return false;
+      const selfKey = `self:${options.selfResource}:${userId}:${rule.action}`;
+      if (visited.has(selfKey)) {
+        throw new Error(
+          `Cycle detected in permission graph: ${options.selfResource}.${rule.action}`,
+        );
+      }
+      visited.add(selfKey);
       return evaluate(
         permix,
         schema,
