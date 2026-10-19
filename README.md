@@ -13,7 +13,8 @@ type ActionRule =
   | string                       // rbac: delegate to another action on the same resource
   | { rel: string; action: string }  // rebac: walk a relation, then check `action` on the target
   | { self: string; action: string } // record[field] === actor id AND the actor holds `action` on itself
-  | { rule: Condition }          // abac: a json-rules predicate over the record
+  | { rule: Condition }          // abac: a json-rules predicate over the record (actor fields bound as `actor.<field>`)
+  | { actor: Condition }         // abac: a json-rules predicate over the actor itself
   | { any: ActionRule[] }        // OR
   | { all: ActionRule[] }        // AND
   | null;                        // terminal deny
@@ -110,6 +111,57 @@ Cycle detection uses **object identity** (a `WeakMap`), not `record.id` — so i
 id-colliding records never produce a false "cycle", and a genuine self/mutual delegation
 (`read: 'read'`) throws instead of overflowing the stack.
 
+## The actor
+
+The actor is plain data, like a record: an `id` plus whatever the app knows about who is acting
+(what kind of principal it is, the integrations a credential may reach, …). The app sets it once
+per request with `permix.setActor({ id, ...meta })`; rules read it three ways:
+
+- `{ self, action }` matches `record[self]` against `actor.id`;
+- `{ actor: Condition }` is a json-rules predicate over the actor itself;
+- `{ rule: Condition }` may compare the record against the actor with `{ bind: 'actor.<field>' }`.
+
+```ts
+// the actor's id is required; the rest is yours. Naming its model says what kind of principal acts.
+type AppActor = Actor & {
+  model: 'User' | 'Token';
+  integrationReach: 'all' | 'listed';
+  integrationIds: string[];
+};
+const permix = createPermissions<Action, AppActor>();
+
+// a person reaches every integration its roles allow
+permix.setActor({ id: userId, model: 'User', integrationReach: 'all', integrationIds: [] });
+// a token bound to integration i1, reaching only its own (or [] for none, or a list)
+permix.setActor({ id: userId, model: 'Token', integrationReach: 'listed', integrationIds: ['i1'] });
+
+// the fence: role reach AND (reaches all, or this id is listed)
+const reach: ActionRule = {
+  any: [
+    { actor: { field: 'integrationReach', operator: Operator.equals, value: 'all' } },
+    { rule: { field: 'id', operator: Operator.in, bind: 'actor.integrationIds' } },
+  ],
+};
+integration: { actions: { manage: { all: [{ rel: 'owner', action: 'manage' }, reach] } } },
+```
+
+**Every actor carries the same fields.** Type them through `createPermissions<Action, YourActor>()`.
+A `{ rule }` that binds a field the actor lacks throws (json-rules' missing-bind contract), while an
+`{ actor }` condition reads a missing field as null, so write actor predicates positively
+(`kind equals 'person'`, not `kind notEquals 'token'`). Actor fields are flat: scalars, dates or
+lists of ids.
+
+**With nobody acting,** `{ actor }` denies, and so does any `{ rule }` that binds an `actor.` field,
+optional binds included.
+
+**A fence is a schema rule, so what skips the schema skips it:** a superadmin, and a direct permix
+grant on the fenced resource itself (the grant short-circuits before the rule). Put the fence on
+every action of the resource, not just `manage`, and grant through the owner, not on the fenced
+resource.
+
+**Row rules can read the actor too.** A record's `permissionRules` may use `{ actor }` and actor
+binds; they still only widen (OR) that record's access.
+
 ## Bridges (cross-source `rel` walks)
 
 A `rel` can cross a **bridge** — a cross-source edge between two fieldMaps (see
@@ -153,7 +205,7 @@ import { createPermissions } from '@inixiative/permissions';
 
 const permix = createPermissions<'read' | 'manage' | 'own'>();
 await permix.setup([{ resource: 'organization', id: 'o1', actions: { own: true } }]);
-permix.setUserId('u1');
+permix.setActor({ id: 'u1' });
 permix.check('organization', 'own', 'o1'); // true
 ```
 

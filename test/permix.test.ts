@@ -67,10 +67,10 @@ describe('createPermissions (permix wrapper)', () => {
     expect(p.check('organization', 'manage', 'o1')).toBe(true);
   });
 
-  test('actor id round-trips', () => {
+  test('actor round-trips with its meta', () => {
     const p = createPermissions();
-    expect(p.getUserId()).toBeNull();
-    p.setUserId('u1');
-    expect(p.getUserId()).toBe('u1');
+    expect(p.getActor()).toBeNull();
+    p.setActor({ id: 'u1', kind: 'token', integrationIds: ['i1'] });
+    expect(p.getActor()).toEqual({ id: 'u1', kind: 'token', integrationIds: ['i1'] });
   });
 });
