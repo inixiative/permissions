@@ -15,7 +15,7 @@ export const actionRuleSchema: z.ZodType = z.lazy(() =>
     z.boolean(), // terminal allow (true) / deny (false)
     z.null(),
     z.object({ rel: z.string(), action: z.string() }).strict(),
-    z.object({ self: z.string() }).strict(),
+    z.object({ self: z.string(), action: z.string() }).strict(),
     z
       .object({
         rule: z.custom<Condition>((v) => validateRule(v).ok, 'invalid json-rules condition'),

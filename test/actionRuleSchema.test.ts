@@ -7,11 +7,19 @@ describe('actionRuleSchema', () => {
     expect(actionRuleSchema.safeParse('manage').success).toBe(true);
     expect(actionRuleSchema.safeParse(null).success).toBe(true);
     expect(actionRuleSchema.safeParse({ rel: 'organization', action: 'read' }).success).toBe(true);
-    expect(actionRuleSchema.safeParse({ self: 'userId' }).success).toBe(true);
+    expect(actionRuleSchema.safeParse({ self: 'userId', action: 'operate' }).success).toBe(true);
+    expect(actionRuleSchema.safeParse({ self: 'userId', action: 'report.export' }).success).toBe(
+      true,
+    );
   });
 
   it('composes any/all recursively', () => {
-    const rule = { any: [{ self: 'userId' }, { all: [{ rel: 'org', action: 'read' }, 'manage'] }] };
+    const rule = {
+      any: [
+        { self: 'userId', action: 'read' },
+        { all: [{ rel: 'org', action: 'read' }, 'manage'] },
+      ],
+    };
     expect(actionRuleSchema.safeParse(rule).success).toBe(true);
   });
 
@@ -29,5 +37,9 @@ describe('actionRuleSchema', () => {
       false,
     );
     expect(actionRuleSchema.safeParse({ bogus: true }).success).toBe(false);
+  });
+
+  it('rejects a bare self: every self arm names the action it needs', () => {
+    expect(actionRuleSchema.safeParse({ self: 'userId' }).success).toBe(false);
   });
 });
