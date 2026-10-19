@@ -1,5 +1,6 @@
 import { castArray } from 'lodash-es';
 import { createPermix } from 'permix';
+import type { Actor } from './types';
 
 export type ActionState<Action extends string = string> = Partial<
   Record<Action, boolean | ((data?: unknown) => boolean)>
@@ -17,7 +18,7 @@ type PermissionState = Record<string, ActionState>;
 
 /**
  * A thin, role-agnostic wrapper over `permix`. Holds the actor's granted actions (keyed by
- * `resource` or `resource:id`), a superadmin bypass, and the current actor id. App code populates
+ * `resource` or `resource:id`), a superadmin bypass, and the current actor (its id plus app-supplied meta). App code populates
  * it from roles/entitlements (hydration stays app-side); the rebac {@link createRebacCheck} engine
  * reads it back through the {@link PermixLike} slice.
  */
@@ -29,15 +30,15 @@ export type Permix<Action extends string = string> = {
   ) => Promise<void>;
   setSuperadmin: (value: boolean) => void;
   isSuperadmin: () => boolean;
-  setUserId: (id: string) => void;
-  getUserId: () => string | null;
+  setActor: (actor: Actor) => void;
+  getActor: () => Actor | null;
   getJSON: () => Record<string, Record<string, boolean>> | null;
 };
 
 export const createPermissions = <Action extends string = string>(): Permix<Action> => {
   const permix = createPermix<Record<string, { action: Action }>>();
   let isSuperadmin = false;
-  let userId: string | null = null;
+  let actor: Actor | null = null;
   let accumulated: PermissionState = {};
 
   return {
@@ -67,10 +68,10 @@ export const createPermissions = <Action extends string = string>(): Permix<Acti
       isSuperadmin = value;
     },
     isSuperadmin: () => isSuperadmin,
-    setUserId: (id) => {
-      userId = id;
+    setActor: (value) => {
+      actor = value;
     },
-    getUserId: () => userId,
+    getActor: () => actor,
     getJSON: () => permix.dehydrate() as Record<string, Record<string, boolean>>,
   };
 };

@@ -3,9 +3,19 @@ import {
   type BridgeDictionary,
   check as checkRule,
   indexBridges,
+  listBindings,
+  type RuleValue,
 } from '@inixiative/json-rules';
 import { isNil } from 'lodash-es';
-import type { ActionRule, PermixLike, RebacSchema, ResolveRelation, Row, Subject } from './types';
+import type {
+  ActionRule,
+  Actor,
+  PermixLike,
+  RebacSchema,
+  ResolveRelation,
+  Row,
+  Subject,
+} from './types';
 
 // Stable identity for cycle detection that does NOT depend on `record.id` — an id may be absent or
 // collide across resources, both of which would make an id-based key falsely report a cycle. A
@@ -88,6 +98,13 @@ const lookupFar = (
   return Array.isArray(found) ? found[0] : found; // many→one: the single far row
 };
 
+// The actor's fields, as the `actor.<field>` binds a `{ rule }` may compare a record against.
+const actorBindings = (actor: Actor | null): Record<string, RuleValue> =>
+  actor ? Object.fromEntries(Object.entries(actor).map(([k, v]) => [`actor.${k}`, v])) : {};
+
+const readsActor = (condition: Parameters<typeof listBindings>[0]): boolean =>
+  listBindings(condition, { required: true }).some((name) => name.startsWith('actor.'));
+
 export type RebacCheck<R extends string = string> = (
   permix: PermixLike,
   schema: RebacSchema<R>,
@@ -104,7 +121,7 @@ export type RebacCheck<R extends string = string> = (
  * `schema.bridges` — synthetically, via the join-key scalar on the record, looking the far row up in
  * a `BridgeDictionary` the engine builds from `subject.data` (only needed when a downstream action
  * reads the far record's fields). `string` delegates (rbac via permix or schema), `{ rule }` is an
- * ABAC predicate, `{ self, action }` matches the actor and checks `action` on its own entry, `any`/`all` compose. Cycles throw rather than loop.
+ * ABAC predicate over the record (the actor's fields bound as `actor.<field>`), `{ actor }` one over the actor, `{ self, action }` matches the actor and checks `action` on its own entry, `any`/`all` compose. Cycles throw rather than loop.
  */
 export type RebacCheckOptions<R extends string = string> = {
   /** The resource holding the actor's own entry; a `{ self, action }` arm checks `action` there. */
@@ -185,7 +202,7 @@ export const createRebacCheck = <R extends string = string>(
         );
       if (!options.selfResource)
         throw new Error('A self arm needs createRebacCheck(resolveRelation, { selfResource })');
-      const userId = permix.getUserId();
+      const userId = permix.getActor()?.id ?? null;
       if (userId === null || record[rule.self] !== userId) return false;
       const selfKey = `self:${options.selfResource}:${userId}:${rule.action}`;
       if (visited.has(selfKey)) {
@@ -205,7 +222,17 @@ export const createRebacCheck = <R extends string = string>(
       );
     }
 
-    if ('rule' in rule) return checkRule(rule.rule, record) === true;
+    if ('actor' in rule) {
+      const actor = permix.getActor();
+      return actor !== null && checkRule(rule.actor, actor) === true;
+    }
+
+    if ('rule' in rule) {
+      const actor = permix.getActor();
+      // No actor to compare against: a rule that reads one denies rather than throwing.
+      if (actor === null && readsActor(rule.rule)) return false;
+      return checkRule(rule.rule, record, { bindings: actorBindings(actor) }) === true;
+    }
     // Fork `visited` per branch — parallel paths through any/all aren't cycles.
     if ('any' in rule) {
       return rule.any.some((r) =>

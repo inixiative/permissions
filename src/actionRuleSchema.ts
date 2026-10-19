@@ -21,6 +21,11 @@ export const actionRuleSchema: z.ZodType = z.lazy(() =>
         rule: z.custom<Condition>((v) => validateRule(v).ok, 'invalid json-rules condition'),
       })
       .strict(),
+    z
+      .object({
+        actor: z.custom<Condition>((v) => validateRule(v).ok, 'invalid json-rules condition'),
+      })
+      .strict(),
     z.object({ any: z.array(actionRuleSchema) }).strict(),
     z.object({ all: z.array(actionRuleSchema) }).strict(),
   ]),

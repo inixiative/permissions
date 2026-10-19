@@ -1,4 +1,4 @@
-import type { Bridge, Condition, Row } from '@inixiative/json-rules';
+import type { Bridge, Condition, Row, RuleValue } from '@inixiative/json-rules';
 
 export type { Row };
 
@@ -9,6 +9,15 @@ export type RuleCheck = { rule: Condition }; // ABAC predicate (json-rules) over
  * `selfResource`, e.g. `db:user:<id>`). `action` is any action of that resource, custom ones included.
  */
 export type SelfCheck = { self: string; action: string };
+/** An ABAC predicate (json-rules) over the actor itself: `{ actor: { field: 'kind', … } }`. */
+export type ActorCheck = { actor: Condition };
+
+/**
+ * Who is acting: an id plus whatever the app knows about them — plain data, like a record (what
+ * kind of principal it is, the integration it is bound to, …). `{ self }` reads its `id`;
+ * `{ actor }` evaluates a condition over it; `{ rule }` reads its fields as `actor.<field>` binds.
+ */
+export type Actor = { id: string } & Record<string, RuleValue>;
 
 /** The serializable permission algebra: rebac (`rel`) + abac (`rule`) + rbac (`string` delegation). */
 export type ActionRule =
@@ -16,6 +25,7 @@ export type ActionRule =
   | RelationCheck
   | RuleCheck
   | SelfCheck
+  | ActorCheck
   | { any: ActionRule[] } // OR
   | { all: ActionRule[] } // AND
   | boolean // terminal allow (`true`) / deny (`false`)
@@ -61,5 +71,5 @@ export type ResolveRelation<R extends string = string> = (
 export type PermixLike = {
   check: (resource: string, action: string, id?: string, data?: unknown) => boolean;
   isSuperadmin?: () => boolean;
-  getUserId: () => string | null;
+  getActor: () => Actor | null;
 };

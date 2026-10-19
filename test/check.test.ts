@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { type Bridge, Operator } from '@inixiative/json-rules';
-import type { ActionRule, PermixLike, RebacSchema, ResolveRelation } from '../index';
+import type { ActionRule, Actor, PermixLike, RebacSchema, ResolveRelation } from '../index';
 import { createRebacCheck } from '../index';
 
 // stub permix: no direct grants (forces schema evaluation); optional superadmin + actor id.
@@ -9,14 +9,14 @@ const stub = (
 ): PermixLike => ({
   check: (_resource, action) => action === opts.grant,
   isSuperadmin: () => opts.superadmin ?? false,
-  getUserId: () => opts.userId ?? null,
+  getActor: () => (opts.userId ? { id: opts.userId } : null),
 });
 
 // stub permix that grants specific resource:action to specific ids — for rbac-terminal bridge walks.
 const grantStub = (grants: Record<string, string[]>): PermixLike => ({
   check: (resource, action, id) => !!id && (grants[`${resource}:${action}`]?.includes(id) ?? false),
   isSuperadmin: () => false,
-  getUserId: () => null,
+  getActor: () => null,
 });
 
 const schema: RebacSchema = {
@@ -89,7 +89,7 @@ describe('rebac check', () => {
     check: (resource, action, id) =>
       resource === 'user' && id === userId && userActions.includes(action),
     isSuperadmin: () => false,
-    getUserId: () => userId,
+    getActor: () => (userId ? { id: userId } : null),
   });
   const leave = (permix: PermixLike, userId: string) =>
     check(permix, schema, { resource: 'membership', record: { userId } }, 'leave');
@@ -725,5 +725,74 @@ describe('cycle detection (regressions for the adversarial findings)', () => {
     const b: Record<string, unknown> = { id: 'b', parent: a };
     a.parent = b;
     expect(() => c(stub(), s, { resource: 'node', record: a }, 'read')).toThrow(/Cycle detected/);
+  });
+});
+
+describe('actor meta: { actor } predicates and actor.<field> binds in { rule }', () => {
+  const check = createRebacCheck<string>(() => null, { selfResource: 'user' });
+  const as = (actor: Actor | null): PermixLike => ({
+    check: () => false,
+    isSuperadmin: () => false,
+    getActor: () => actor,
+  });
+  // An integration-bound credential reaches `all` integrations, or only the ids it lists.
+  const reach: ActionRule = {
+    any: [
+      { actor: { field: 'integrationReach', operator: Operator.equals, value: 'all' } },
+      { rule: { field: 'id', operator: Operator.in, bind: 'actor.integrationIds' } },
+    ],
+  };
+  const fenced: RebacSchema = {
+    permissions: {
+      integration: { actions: { manage: { all: [true, reach] } } },
+      user: {
+        actions: {
+          'token.create': { actor: { field: 'kind', operator: Operator.equals, value: 'person' } },
+        },
+      },
+    },
+  };
+  const manage = (actor: Actor | null, id: string) =>
+    check(as(actor), fenced, { resource: 'integration', record: { id } }, 'manage');
+
+  test('{ actor } evaluates a condition over the actor itself', () => {
+    const create = (actor: Actor | null) =>
+      check(as(actor), fenced, { resource: 'user', record: { id: 'u1' } }, 'token.create');
+    expect(create({ id: 'u1', kind: 'person' })).toBe(true);
+    expect(create({ id: 'u1', kind: 'token' })).toBe(false);
+    expect(create(null)).toBe(false);
+  });
+
+  test("{ rule } compares the record against the actor's fields", () => {
+    const own = { id: 't1', integrationReach: 'some', integrationIds: ['i1'] };
+    expect(manage(own, 'i1')).toBe(true);
+    expect(manage(own, 'i2')).toBe(false);
+    expect(manage({ id: 't1', integrationReach: 'some', integrationIds: [] }, 'i1')).toBe(false);
+    expect(manage({ id: 't1', integrationReach: 'all', integrationIds: [] }, 'i2')).toBe(true);
+  });
+
+  test('a rule that reads the actor denies when nobody is acting', () => {
+    expect(manage(null, 'i1')).toBe(false);
+  });
+
+  test('an actor missing a field the rule binds is a caller bug and throws', () => {
+    expect(() => manage({ id: 't1', integrationReach: 'some' }, 'i1')).toThrow(
+      /actor.integrationIds/,
+    );
+  });
+
+  test('a rule that reads no actor field still runs with nobody acting', () => {
+    const open: RebacSchema = {
+      permissions: {
+        doc: {
+          actions: {
+            read: { rule: { field: 'isPublic', operator: Operator.equals, value: true } },
+          },
+        },
+      },
+    };
+    expect(check(as(null), open, { resource: 'doc', record: { isPublic: true } }, 'read')).toBe(
+      true,
+    );
   });
 });
