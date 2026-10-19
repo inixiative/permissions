@@ -795,4 +795,99 @@ describe('actor meta: { actor } predicates and actor.<field> binds in { rule }',
       true,
     );
   });
+
+  test('a person (reach all, no listed ids) passes; the full shape never throws', () => {
+    expect(manage({ id: 'u1', integrationReach: 'all', integrationIds: [] }, 'i9')).toBe(true);
+  });
+
+  test('an optional actor bind still denies with nobody acting (fail closed)', () => {
+    const notMine: RebacSchema = {
+      permissions: {
+        doc: {
+          actions: {
+            read: {
+              rule: {
+                field: 'ownerId',
+                operator: Operator.notEquals,
+                bind: 'actor.id',
+                bindOptional: true,
+              },
+            },
+          },
+        },
+      },
+    };
+    const read = (actor: Actor | null) =>
+      check(as(actor), notMine, { resource: 'doc', record: { ownerId: 'u1' } }, 'read');
+    expect(read(null)).toBe(false);
+    expect(read({ id: 'u2' })).toBe(true);
+    expect(read({ id: 'u1' })).toBe(false);
+  });
+
+  test('{ actor } reads a missing field as null, so a negative predicate passes (write them positively)', () => {
+    const notToken: RebacSchema = {
+      permissions: {
+        doc: {
+          actions: {
+            read: { actor: { field: 'kind', operator: Operator.notEquals, value: 'token' } },
+          },
+        },
+      },
+    };
+    const read = (actor: Actor) =>
+      check(as(actor), notToken, { resource: 'doc', record: {} }, 'read');
+    expect(read({ id: 'u1' })).toBe(true);
+    expect(read({ id: 't1', kind: 'token' })).toBe(false);
+  });
+
+  test('a superadmin skips the fence', () => {
+    const admin: PermixLike = {
+      ...as({ id: 't1', integrationReach: 'listed', integrationIds: [] }),
+      isSuperadmin: () => true,
+    };
+    expect(check(admin, fenced, { resource: 'integration', record: { id: 'i1' } }, 'manage')).toBe(
+      true,
+    );
+  });
+
+  test('a row rule may read the actor, and only widens', () => {
+    const closed: RebacSchema = { permissions: { doc: { actions: { read: false } } } };
+    const record = {
+      id: 'd1',
+      permissionRules: {
+        read: { actor: { field: 'kind', operator: Operator.equals, value: 'reviewer' } },
+      },
+    };
+    const read = (actor: Actor) => check(as(actor), closed, { resource: 'doc', record }, 'read');
+    expect(read({ id: 'u1', kind: 'reviewer' })).toBe(true);
+    expect(read({ id: 'u1', kind: 'person' })).toBe(false);
+  });
+
+  test('actor binds resolve inside if / then and array conditions', () => {
+    const nested: RebacSchema = {
+      permissions: {
+        doc: {
+          actions: {
+            read: {
+              rule: {
+                if: { field: 'isShared', operator: Operator.equals, value: true },
+                then: {
+                  field: 'tags',
+                  arrayOperator: 'any',
+                  condition: { field: 'teamId', operator: Operator.in, bind: 'actor.teamIds' },
+                },
+                else: { field: 'ownerId', operator: Operator.equals, bind: 'actor.id' },
+              },
+            },
+          },
+        },
+      },
+    };
+    const read = (record: Record<string, unknown>) =>
+      check(as({ id: 'u1', teamIds: ['t1'] }), nested, { resource: 'doc', record }, 'read');
+    expect(read({ isShared: true, tags: [{ teamId: 't1' }] })).toBe(true);
+    expect(read({ isShared: true, tags: [{ teamId: 't2' }] })).toBe(false);
+    expect(read({ isShared: false, ownerId: 'u1' })).toBe(true);
+    expect(read({ isShared: false, ownerId: 'u2' })).toBe(false);
+  });
 });

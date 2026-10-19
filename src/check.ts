@@ -100,10 +100,13 @@ const lookupFar = (
 
 // The actor's fields, as the `actor.<field>` binds a `{ rule }` may compare a record against.
 const actorBindings = (actor: Actor | null): Record<string, RuleValue> =>
-  actor ? Object.fromEntries(Object.entries(actor).map(([k, v]) => [`actor.${k}`, v])) : {};
+  actor
+    ? Object.fromEntries(Object.entries(actor).map(([k, v]) => [`actor.${k}`, v as RuleValue]))
+    : {};
 
+// Optional binds included: with nobody acting, `ownerId notEquals actor.id` must not pass on null.
 const readsActor = (condition: Parameters<typeof listBindings>[0]): boolean =>
-  listBindings(condition, { required: true }).some((name) => name.startsWith('actor.'));
+  listBindings(condition).some((name) => name.startsWith('actor.'));
 
 export type RebacCheck<R extends string = string> = (
   permix: PermixLike,
@@ -224,7 +227,7 @@ export const createRebacCheck = <R extends string = string>(
 
     if ('actor' in rule) {
       const actor = permix.getActor();
-      return actor !== null && checkRule(rule.actor, actor) === true;
+      return actor !== null && checkRule(rule.actor, actor as Row) === true;
     }
 
     if ('rule' in rule) {

@@ -1,4 +1,4 @@
-import type { Bridge, Condition, Row, RuleValue } from '@inixiative/json-rules';
+import type { Bridge, Condition, Row } from '@inixiative/json-rules';
 
 export type { Row };
 
@@ -16,8 +16,13 @@ export type ActorCheck = { actor: Condition };
  * Who is acting: an id plus whatever the app knows about them — plain data, like a record (what
  * kind of principal it is, the integration it is bound to, …). `{ self }` reads its `id`;
  * `{ actor }` evaluates a condition over it; `{ rule }` reads its fields as `actor.<field>` binds.
+ * Give every actor the same fields (type them through `createPermissions<Action, YourActor>()`):
+ * a rule that binds a field an actor lacks throws, and an `{ actor }` condition reads it as null.
  */
-export type Actor = { id: string } & Record<string, RuleValue>;
+export type Actor = { id: string } & { [field: string]: ActorValue };
+
+/** One flat actor field: a scalar or a list of ids. Flat, so `{ actor }` and `actor.<field>` binds read it alike. */
+export type ActorValue = string | number | boolean | Date | null | readonly (string | number)[];
 
 /** The serializable permission algebra: rebac (`rel`) + abac (`rule`) + rbac (`string` delegation). */
 export type ActionRule =

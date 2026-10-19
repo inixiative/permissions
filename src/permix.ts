@@ -22,7 +22,7 @@ type PermissionState = Record<string, ActionState>;
  * it from roles/entitlements (hydration stays app-side); the rebac {@link createRebacCheck} engine
  * reads it back through the {@link PermixLike} slice.
  */
-export type Permix<Action extends string = string> = {
+export type Permix<Action extends string = string, A extends Actor = Actor> = {
   check: (resource: string, action: Action, id?: string, data?: unknown) => boolean;
   setup: (
     perms: PermissionEntry<Action> | PermissionEntry<Action>[],
@@ -30,15 +30,18 @@ export type Permix<Action extends string = string> = {
   ) => Promise<void>;
   setSuperadmin: (value: boolean) => void;
   isSuperadmin: () => boolean;
-  setActor: (actor: Actor) => void;
-  getActor: () => Actor | null;
+  setActor: (actor: A) => void;
+  getActor: () => A | null;
   getJSON: () => Record<string, Record<string, boolean>> | null;
 };
 
-export const createPermissions = <Action extends string = string>(): Permix<Action> => {
+export const createPermissions = <
+  Action extends string = string,
+  A extends Actor = Actor,
+>(): Permix<Action, A> => {
   const permix = createPermix<Record<string, { action: Action }>>();
   let isSuperadmin = false;
-  let actor: Actor | null = null;
+  let actor: A | null = null;
   let accumulated: PermissionState = {};
 
   return {
