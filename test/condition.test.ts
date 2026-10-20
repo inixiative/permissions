@@ -188,6 +188,11 @@ describe('toCondition', () => {
     });
   });
 
+  test('a stored rule that loops compiles to false', async () => {
+    const p = await permix({ resource: 'db:space', actions: { read: 'read' } }, orgToken);
+    expect(toCondition(p, schema, 'db:space', 'read', 'under')).toBe(false);
+  });
+
   test('a schema cycle throws, like the engine', async () => {
     const looping: RebacSchema = { permissions: { 'db:x': { actions: { a: 'b', b: 'a' } } } };
     const p = await permix([]);

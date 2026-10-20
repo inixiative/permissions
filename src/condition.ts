@@ -6,6 +6,7 @@ import {
   createRebacCheck,
   isCollectionCheck,
   isPermixLeaf,
+  PermissionCycleError,
 } from './check';
 import type {
   ActionRule,
@@ -115,14 +116,19 @@ export const createConditionCompiler = <R extends string = string>(
     if (typeof rule === 'string') {
       if (permix.check(resource, rule)) return true; // held on the whole resource
       const key = `${prefix}|${resource}|${rule}`;
-      if (visited.has(key))
-        throw new Error(`Cycle detected in permission graph: ${resource}.${rule}`);
+      if (visited.has(key)) throw new PermissionCycleError(`${resource}.${rule}`);
       visited.add(key);
       const ids = permix.heldIds(resource, rule);
       const arms: Condition[] = [];
       if (ids.length) arms.push({ field: `${prefix}id`, operator: 'in', value: ids } as Condition);
       for (const entry of permix.rules(resource, rule)) {
-        const compiled = recurse(entry.rule);
+        let compiled: Condition;
+        try {
+          compiled = recurse(entry.rule);
+        } catch (error) {
+          if (!(error instanceof PermissionCycleError)) throw error;
+          compiled = false;
+        }
         arms.push(
           entry.id === undefined
             ? compiled

@@ -99,6 +99,24 @@ const lookupFar = (
   return Array.isArray(found) ? found[0] : found; // many→one: the single far row
 };
 
+/** A permission graph that loops. From the schema it is a programmer error; from data it denies. */
+export class PermissionCycleError extends Error {
+  constructor(at: string) {
+    super(`Cycle detected in permission graph: ${at}`);
+    this.name = 'PermissionCycleError';
+  }
+}
+
+/** Evaluate a rule that came from data (a row's `permissionRules`, a rule-valued grant): a cycle denies. */
+export const denyOnDataCycle = (evaluateArm: () => boolean): boolean => {
+  try {
+    return evaluateArm();
+  } catch (error) {
+    if (error instanceof PermissionCycleError) return false;
+    throw error;
+  }
+};
+
 export type RebacCheck<R extends string = string> = (
   permix: PermixExpression,
   schema: RebacSchema<R>,
@@ -168,7 +186,7 @@ export const createRebacCheck = <R extends string = string>(
       // a distinct node, not a cycle.
       const key = `${nodeId(record)}:${resource}:${actionOrRule}`;
       if (visited.has(key)) {
-        throw new Error(`Cycle detected in permission graph: ${resource}.${actionOrRule}`);
+        throw new PermissionCycleError(`${resource}.${actionOrRule}`);
       }
       visited.add(key);
 
@@ -181,9 +199,14 @@ export const createRebacCheck = <R extends string = string>(
         .filter((entry) => entry.id === undefined || entry.id === id)
         .map((entry) => entry.rule);
       // Row-level overrides and rule-valued grants are additive (OR) with the schema rule: they only widen.
-      const arms = [schemaRule, ...(rowRule !== undefined ? [rowRule] : []), ...grantRules];
-      const merged: ActionRule = arms.length === 1 ? schemaRule : { any: arms };
-      return evaluate(permix, schema, getDict, resource, record, merged, visited);
+      if (evaluate(permix, schema, getDict, resource, record, schemaRule, new Set(visited)))
+        return true;
+      const dataArms = [...(rowRule !== undefined ? [rowRule] : []), ...grantRules];
+      return dataArms.some((arm) =>
+        denyOnDataCycle(() =>
+          evaluate(permix, schema, getDict, resource, record, arm, new Set(visited)),
+        ),
+      );
     }
 
     const rule = actionOrRule;
@@ -225,9 +248,7 @@ export const createRebacCheck = <R extends string = string>(
         );
       const selfKey = `self:${options.selfResource}:${selfId}:${rule.action}`;
       if (visited.has(selfKey)) {
-        throw new Error(
-          `Cycle detected in permission graph: ${options.selfResource}.${rule.action}`,
-        );
+        throw new PermissionCycleError(`${options.selfResource}.${rule.action}`);
       }
       visited.add(selfKey);
       return evaluate(

@@ -88,9 +88,18 @@ describe('rule-valued grants at the merge point', () => {
     expect(check(grant, schema, subject(linear), 'read')).toBe(false);
   });
 
-  test('a rule that delegates back to itself is a cycle, as a row rule is', async () => {
+  test('a stored rule that loops back on itself denies instead of throwing', async () => {
     const grant = await permix({ resource: 'integration', actions: { read: 'read' } });
-    expect(() => check(grant, schema, subject(slack), 'read')).toThrow(/Cycle detected/);
+    expect(check(grant, schema, subject(slack), 'read')).toBe(false);
+    const withRow = { ...slack, permissionRules: { read: 'read' } };
+    expect(check(await permix([]), schema, subject(withRow), 'read')).toBe(false);
+  });
+
+  test('a cycle in the schema itself still throws', async () => {
+    const looping: RebacSchema = { permissions: { x: { actions: { a: 'b', b: 'a' } } } };
+    expect(() => check(createPermissions(), looping, { resource: 'x', record: {} }, 'a')).toThrow(
+      /Cycle detected/,
+    );
   });
 
   test('a held true still short-circuits', async () => {

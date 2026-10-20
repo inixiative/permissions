@@ -11,6 +11,7 @@
 - **Permix expressions.** The check takes a permix or `any` / `all` of several; each leaf is a full pass over the same subject, sharing one bridge dictionary. "Principal AND grant" is `{ all: [principal, grant] }`.
 - **Collections.** `ResourcePermission.collections` holds rules checked on a scope or draft row; pass `{ collection: name }` in place of the action. A missing collection rule denies.
 - **`createConditionCompiler(...).toCondition`** compiles what an expression reaches for an action into one json-rules condition, over- or under-approximating what it can't express; **`implies(h, i)`** compares two such conditions (sound, incomplete). `prefixCondition` rebases a condition through a relation path.
+- **A cycle entered through data denies.** A row `permissionRules` value or a rule-valued grant that loops evaluates to `false` (and compiles to `false`); a cycle in the schema itself still throws, now as a typed `PermissionCycleError`.
 - Migration: build actors with `defineActor`; give a `{ self }` arm an `action` wherever identity alone isn't enough (it was required in 0.5, so existing arms are unchanged); replace actor binds in rules with `{ actor }` predicates or write-time ids; move flat entitlements under resource keys.
 
 ## 0.5.0 — the actor carries meta; self names its action
