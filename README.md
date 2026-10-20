@@ -12,8 +12,8 @@ core stays small and never imports a database layer itself. Record **hydration s
 type ActionRule =
   | string                       // rbac: delegate to another action on the same resource
   | { rel: string; action: string }  // rebac: walk a relation, then check `action` on the target
-  | { self: string; action: string } // record[field] === actor id AND the actor holds `action` on itself
-  | { rule: Condition }          // abac: a json-rules predicate over the record (actor fields bound as `actor.<field>`)
+  | { self: string; action?: string } // record[field] is the acting person; with `action`, it holds `action` on itself
+  | { rule: Condition }          // abac: a json-rules predicate over the record
   | { actor: Condition }         // abac: a json-rules predicate over the actor itself
   | { any: ActionRule[] }        // OR
   | { all: ActionRule[] }        // AND
@@ -21,7 +21,7 @@ type ActionRule =
 ```
 
 A `RebacSchema` is `{ bridges?, permissions }` — `permissions` maps a (map-qualified) **resource**,
-e.g. `db:User`, to `{ actions: { name → ActionRule } }`; `bridges` are the cross-source edges a `rel`
+e.g. `db:User`, to `{ actions: { name → ActionRule }, collections?: { name → ActionRule } }`; `bridges` are the cross-source edges a `rel`
 walk may cross (see [Bridges](#bridges-cross-source-rel-walks)). A single-source schema omits
 `bridges` and can use bare resource keys.
 
@@ -88,13 +88,13 @@ check(permix, schema, { resource: 'membership', record }, 'manage');
 // see below); { self, action } matches the actor and checks `action` on its own entry; { rule } evals json-rules; any/all compose. Cycles throw.
 ```
 
-**`self` is paired with an action.** `{ self: 'userId', action: 'operate' }` passes only when
-`record.userId` is the actor's id **and** the actor holds `operate` on its own entry: the
-`selfResource` record `{ id: actorId }`, evaluated through the schema like any other check, so the
-delegation chain (`read → operate → manage → own`) and custom user actions (`'report.export'`) work.
-A full principal holds `own` on itself and passes as before; a narrowed one (say a credential that
-only holds `read` on its user) no longer passes a write arm on identity alone. A bare `{ self }`
-throws, and `actionRuleSchema` rejects it.
+**`self` is the acting person.** `{ self: 'userId' }` passes when `record.userId` is the person
+behind the actor (`selfId(actor)`: the principal's id when the principal is a `User`, else its
+`userId`, else null — so an organization's credential fails every self arm closed). With an action,
+`{ self: 'userId', action: 'operate' }` also requires the actor to hold `operate` on its own entry
+(the `selfResource` record `{ id }`), evaluated through the schema, so a narrowed credential (one
+holding only `read` on its user) doesn't pass a write arm on identity alone. Pass
+`createRebacCheck(resolve, { selfResource, selfId })` to change either.
 
 The check takes a **subject** — `{ resource, record, data? }` — not a bare record; `data` is the
 supplemental rows that back cross-source bridge hops (below). `createRebacCheck` is generic over the
@@ -113,54 +113,105 @@ id-colliding records never produce a false "cycle", and a genuine self/mutual de
 
 ## The actor
 
-The actor is plain data, like a record: an `id` plus whatever the app knows about who is acting
-(what kind of principal it is, the integrations a credential may reach, …). The app sets it once
-per request with `permix.setActor({ id, ...meta })`; rules read it three ways:
-
-- `{ self, action }` matches `record[self]` against `actor.id`;
-- `{ actor: Condition }` is a json-rules predicate over the actor itself;
-- `{ rule: Condition }` may compare the record against the actor with `{ bind: 'actor.<field>' }`.
+The actor is plain data, like a record: what kind of thing acts (`model`), its `id`, the
+**principal** whose authority it draws on, and any flat meta the app adds. `defineActor` fills the
+defaults (`model` is `'User'`, the principal is the actor itself):
 
 ```ts
-// the actor's id is required; the rest is yours. Naming its model says what kind of principal acts.
-type AppActor = Actor & {
-  model: 'User' | 'Token';
-  integrationReach: 'all' | 'listed';
-  integrationIds: string[];
-};
-const permix = createPermissions<Action, AppActor>();
+import { defineActor } from '@inixiative/permissions';
 
-// a person reaches every integration its roles allow
-permix.setActor({ id: userId, model: 'User', integrationReach: 'all', integrationIds: [] });
-// a token bound to integration i1, reaching only its own (or [] for none, or a list)
-permix.setActor({ id: userId, model: 'Token', integrationReach: 'listed', integrationIds: ['i1'] });
-
-// the fence: role reach AND (reaches all, or this id is listed)
-const reach: ActionRule = {
-  any: [
-    { actor: { field: 'integrationReach', operator: Operator.equals, value: 'all' } },
-    { rule: { field: 'id', operator: Operator.in, bind: 'actor.integrationIds' } },
-  ],
-};
-integration: { actions: { manage: { all: [{ rel: 'owner', action: 'manage' }, reach] } } },
+permix.setActor(defineActor({ id: userId })); // a person
+permix.setActor(
+  defineActor({
+    id: tokenId,
+    model: 'Token',
+    principal: { model: 'OrganizationUser', id: membershipId, userId, organizationId },
+    integrationId: 'i1', // meta: the integration this credential is bound to
+  }),
+);
 ```
 
-**Every actor carries the same fields.** Type them through `createPermissions<Action, YourActor>()`.
-A `{ rule }` that binds a field the actor lacks throws (json-rules' missing-bind contract), while an
-`{ actor }` condition reads a missing field as null, so write actor predicates positively
-(`kind equals 'person'`, not `kind notEquals 'token'`). Actor fields are flat: scalars, dates or
-lists of ids.
+Rules read it two ways: `{ self }` compares a record field against the person behind it (above),
+and `{ actor: Condition }` is a json-rules predicate over the actor itself, dotted paths included:
 
-**With nobody acting,** `{ actor }` denies, and so does any `{ rule }` that binds an `actor.` field,
-optional binds included.
+```ts
+const personOnly: ActionRule = { actor: { field: 'model', operator: Operator.equals, value: 'User' } };
+user: { actions: { 'token.create': { all: [personOnly, 'own'] } } }, // tokens can't mint tokens
+```
 
-**A fence is a schema rule, so what skips the schema skips it:** a superadmin, and a direct permix
-grant on the fenced resource itself (the grant short-circuits before the rule). Put the fence on
-every action of the resource, not just `manage`, and grant through the owner, not on the fenced
-resource.
+`{ rule }` conditions read only the record: the engine binds nothing, and `actionRuleSchema` refuses
+a condition that names a bind. Identity that a grant needs is written into the grant when it is
+written (see `$self` below), never bound at check time.
 
-**Row rules can read the actor too.** A record's `permissionRules` may use `{ actor }` and actor
-binds; they still only widen (OR) that record's access.
+## Grants: held actions and rule values
+
+A permix entry's action is `true` (held) or an `ActionRule` (a **rule-valued grant**). A rule value
+is OR'd with the schema rule at the merge point, inside the same pass, so it narrows only what that
+permix grants:
+
+```ts
+await permix.setup([
+  { resource: 'db:integration', actions: { read: { rule: { field: 'provider', operator: 'equals', value: 'slack' } } } },
+  { resource: 'db:integration', id: 'i1', actions: { manage: true } }, // that row only
+]);
+```
+
+Grants stored as JSON use the same keys: a key without an id is the whole resource, `resource:id`
+is that row. `entitlementEntries(entitlements, resources)` turns them into permix entries
+(`parseGrantKey` splits one key; resource keys may contain `:`, the longest match wins).
+
+**`$self` at write time.** A grant written for something it is bound to may name
+`<resource>:$self`; `interpolateSelf(grant, subjects)` rewrites it to the literal id when the grant
+is written, and reports every placeholder whose subject is absent so the write can be refused.
+`selfPlaceholders(subjects)` lists the ones a grant may use.
+
+```ts
+interpolateSelf({ 'db:integration:$self': { manage: true } }, { 'db:integration': 'i1' });
+// → { ok: true, value: { 'db:integration:i1': { manage: true } } }
+```
+
+## Several passes: permix expressions
+
+The check takes a permix, or `any` / `all` of several, each evaluated as a full pass over the same
+subject (one bridge dictionary shared). "The principal allows AND the grant allows" is:
+
+```ts
+check({ all: [principal, grant] }, schema, subject, 'read');
+// a membership's own grant, bounded by its tenant, as an alternative:
+check({ all: [{ any: [person, { all: [tenant, membershipGrant] }] }, grant] }, schema, subject, 'read');
+```
+
+## Collections
+
+`collections` are checked on a **scope row** (just the parent's keys) or a **draft row** (the row
+about to be created), with `{ collection: name }` in place of the action. Inside a collection rule a
+string names a row action of the same resource, evaluated on that row. A resource with no rule for
+the collection denies.
+
+```ts
+contact: {
+  actions: { read: { rel: 'organization', action: 'read' } },
+  collections: { readMany: 'read', create: { rel: 'organization', action: 'manage' } },
+},
+check(permix, schema, { resource: 'contact', record: { organizationId, organization } }, { collection: 'create' });
+```
+
+## Reach as a condition: `toCondition` and `implies`
+
+`createConditionCompiler({ resolveRelation, isToMany, hasRowRules?, selfResource?, selfId? })`
+returns `toCondition(expression, schema, resource, actionOrRule, 'over' | 'under')`: what a permix
+expression reaches for that action, as one json-rules condition over rows of `resource` (`true` =
+every row). It mirrors the engine: a held resource-wide action is `true`, id-keyed ones `id in [ids]`,
+rules recurse with field paths rebased through `rel` walks, `{ self }` and `{ actor }` are constants
+for the request, to-many walks are `false`. An arm it can't express (a bridge hop, a row's
+`permissionRules`) is `true` when over-approximating and `false` when under-approximating.
+
+`implies(h, i)` answers "does every row matching `h` match `i`?" syntactically: sound, incomplete.
+Together they compare reaches, e.g. a grant cap "the issuer reaches at least what the holder will":
+
+```ts
+implies(toCondition(holder, schema, R, a, 'over'), toCondition(issuer, schema, R, a, 'under'));
+```
 
 ## Bridges (cross-source `rel` walks)
 
@@ -209,8 +260,9 @@ permix.setActor({ id: 'u1' });
 permix.check('organization', 'own', 'o1'); // true
 ```
 
-Holds the actor's role-derived grants (keyed by `resource` / `resource:id`), a superadmin bypass,
-and the actor id. App code populates it from roles/entitlements (hydration); the check engine reads
+Holds the actor's grants (keyed by `resource` / `resource:id`; held actions and rule values), a
+superadmin bypass, and the actor. `rules(resource, action)` and `heldIds(resource, action)` read
+entries back for the engine and the condition compiler. App code populates it from roles/entitlements (hydration); the check engine reads
 it back through the `PermixLike` slice.
 
 ## Hydration (Prisma example)

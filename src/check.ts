@@ -3,13 +3,14 @@ import {
   type BridgeDictionary,
   check as checkRule,
   indexBridges,
-  listBindings,
-  type RuleValue,
 } from '@inixiative/json-rules';
 import { isNil } from 'lodash-es';
+import { defaultSelfId } from './actor';
 import type {
   ActionRule,
   Actor,
+  CollectionCheck,
+  PermixExpression,
   PermixLike,
   RebacSchema,
   ResolveRelation,
@@ -51,7 +52,7 @@ type BridgeHop = {
 
 // A relation segment is a bridge when it names the OTHER endpoint's `map:model`. The local join key
 // is this endpoint's `on` (a scalar already on the record); the far record joins on the other `on`.
-const bridgeHop = (
+export const bridgeHop = (
   bridges: Bridge[] | undefined,
   resource: string,
   segment: string,
@@ -98,43 +99,54 @@ const lookupFar = (
   return Array.isArray(found) ? found[0] : found; // many→one: the single far row
 };
 
-// The actor's fields, as the `actor.<field>` binds a `{ rule }` may compare a record against.
-const actorBindings = (actor: Actor | null): Record<string, RuleValue> =>
-  actor
-    ? Object.fromEntries(Object.entries(actor).map(([k, v]) => [`actor.${k}`, v as RuleValue]))
-    : {};
-
-// Optional binds included: with nobody acting, `ownerId notEquals actor.id` must not pass on null.
-const readsActor = (condition: Parameters<typeof listBindings>[0]): boolean =>
-  listBindings(condition).some((name) => name.startsWith('actor.'));
-
 export type RebacCheck<R extends string = string> = (
-  permix: PermixLike,
+  permix: PermixExpression,
   schema: RebacSchema<R>,
   subject: Subject<R>,
-  actionOrRule: ActionRule,
+  actionOrRule: ActionRule | CollectionCheck,
   visited?: Set<string>,
 ) => boolean;
+
+export const isPermixLeaf = <P extends PermixLike>(
+  expression: PermixExpression<P>,
+): expression is P => typeof (expression as PermixLike).check === 'function';
+
+export const isCollectionCheck = (value: ActionRule | CollectionCheck): value is CollectionCheck =>
+  typeof value === 'object' && value !== null && 'collection' in value;
+
+/** A collection's rule, or `null` (deny) when the resource declares none. */
+export const collectionRule = <R extends string>(
+  schema: RebacSchema<R>,
+  resource: R,
+  name: string,
+): ActionRule => schema.permissions[resource]?.collections?.[name] ?? null;
 
 /**
  * Build the rebac check, bound to an intra-map relation resolver.
  *
  * `resolveRelation(resource, segment)` maps a hydrated relation field to the resource it points at
  * (the ORM-specific seam the app injects). Cross-source `rel` hops are resolved by the engine from
- * `schema.bridges` — synthetically, via the join-key scalar on the record, looking the far row up in
- * a `BridgeDictionary` the engine builds from `subject.data` (only needed when a downstream action
- * reads the far record's fields). `string` delegates (rbac via permix or schema), `{ rule }` is an
- * ABAC predicate over the record (the actor's fields bound as `actor.<field>`), `{ actor }` one over the actor, `{ self, action }` matches the actor and checks `action` on its own entry, `any`/`all` compose. Cycles throw rather than loop.
+ * `schema.bridges`. A `string` delegates (a held permix action, a rule-valued grant, the row's
+ * `permissionRules` or the schema rule, OR'd), `{ rule }` is an ABAC predicate over the record,
+ * `{ actor }` one over the actor, `{ self }` matches the person behind the actor (and, with an
+ * `action`, checks it on the actor's own entry), `any`/`all` compose. Cycles throw rather than loop.
+ *
+ * The returned check takes a permix expression: one permix, or `any` / `all` of several passes over
+ * the same subject (one bridge dictionary shared). Its last argument may be `{ collection }` to
+ * evaluate a collection rule instead of a row action.
  */
 export type RebacCheckOptions<R extends string = string> = {
   /** The resource holding the actor's own entry; a `{ self, action }` arm checks `action` there. */
   selfResource?: R;
+  /** The id a `{ self }` arm compares against. Defaults to the person behind the actor. */
+  selfId?: (actor: Actor | null) => string | null;
 };
 
 export const createRebacCheck = <R extends string = string>(
   resolveRelation: ResolveRelation<R>,
   options: RebacCheckOptions<R> = {},
 ): RebacCheck<R> => {
+  const selfIdOf = options.selfId ?? defaultSelfId;
   const evaluate = (
     permix: PermixLike,
     schema: RebacSchema<R>,
@@ -163,9 +175,14 @@ export const createRebacCheck = <R extends string = string>(
       const schemaRule = schema.permissions[resource]?.actions[actionOrRule] ?? null;
       const rowRules = record.permissionRules as Record<string, ActionRule> | null | undefined;
       const rowRule = rowRules?.[actionOrRule];
-      // Row-level override is additive (OR) with the schema rule — a per-record grant can only widen.
-      const merged: ActionRule =
-        rowRule !== undefined ? { any: [schemaRule, rowRule] } : schemaRule;
+      const id = recordId(record);
+      // A rule-valued grant on the whole resource, or on this row, is a grant like a held action.
+      const grantRules = (permix.rules?.(resource, actionOrRule) ?? [])
+        .filter((entry) => entry.id === undefined || entry.id === id)
+        .map((entry) => entry.rule);
+      // Row-level overrides and rule-valued grants are additive (OR) with the schema rule: they only widen.
+      const arms = [schemaRule, ...(rowRule !== undefined ? [rowRule] : []), ...grantRules];
+      const merged: ActionRule = arms.length === 1 ? schemaRule : { any: arms };
       return evaluate(permix, schema, getDict, resource, record, merged, visited);
     }
 
@@ -199,15 +216,14 @@ export const createRebacCheck = <R extends string = string>(
     }
 
     if ('self' in rule) {
-      if (typeof rule.action !== 'string')
-        throw new Error(
-          `A self arm must name an action: { self: '${rule.self}', action: '<action on the actor itself>' }`,
-        );
+      const selfId = selfIdOf(permix.getActor());
+      if (selfId === null || record[rule.self] !== selfId) return false;
+      if (rule.action === undefined) return true; // identity only
       if (!options.selfResource)
-        throw new Error('A self arm needs createRebacCheck(resolveRelation, { selfResource })');
-      const userId = permix.getActor()?.id ?? null;
-      if (userId === null || record[rule.self] !== userId) return false;
-      const selfKey = `self:${options.selfResource}:${userId}:${rule.action}`;
+        throw new Error(
+          'A self arm with an action needs createRebacCheck(resolveRelation, { selfResource })',
+        );
+      const selfKey = `self:${options.selfResource}:${selfId}:${rule.action}`;
       if (visited.has(selfKey)) {
         throw new Error(
           `Cycle detected in permission graph: ${options.selfResource}.${rule.action}`,
@@ -219,7 +235,7 @@ export const createRebacCheck = <R extends string = string>(
         schema,
         getDict,
         options.selfResource,
-        { id: userId },
+        { id: selfId },
         rule.action,
         visited,
       );
@@ -230,12 +246,7 @@ export const createRebacCheck = <R extends string = string>(
       return actor !== null && checkRule(rule.actor, actor as Row) === true;
     }
 
-    if ('rule' in rule) {
-      const actor = permix.getActor();
-      // No actor to compare against: a rule that reads one denies rather than throwing.
-      if (actor === null && readsActor(rule.rule)) return false;
-      return checkRule(rule.rule, record, { bindings: actorBindings(actor) }) === true;
-    }
+    if ('rule' in rule) return checkRule(rule.rule, record) === true;
     // Fork `visited` per branch — parallel paths through any/all aren't cycles.
     if ('any' in rule) {
       return rule.any.some((r) =>
@@ -251,9 +262,9 @@ export const createRebacCheck = <R extends string = string>(
     return false;
   };
 
-  return (permix, schema, subject, actionOrRule, visited = new Set()) => {
-    // Built lazily on the first bridge hop: a check that never crosses a bridge must not pay for —
-    // or be crashed by (indexBridges throws on malformed `data`) — a dictionary it never reads.
+  return (expression, schema, subject, actionOrRule, visited = new Set()) => {
+    // Built lazily on the first bridge hop and shared by every pass: a check that never crosses a
+    // bridge must not pay for (or be crashed by) a dictionary it never reads.
     let built = false;
     let dict: BridgeDictionary | undefined;
     const getDict = (): BridgeDictionary | undefined => {
@@ -265,14 +276,23 @@ export const createRebacCheck = <R extends string = string>(
       }
       return dict;
     };
-    return evaluate(
-      permix,
-      schema,
-      getDict,
-      subject.resource,
-      subject.record,
-      actionOrRule,
-      visited,
-    );
+    const rule = isCollectionCheck(actionOrRule)
+      ? collectionRule(schema, subject.resource, actionOrRule.collection)
+      : actionOrRule;
+    const run = (node: PermixExpression): boolean => {
+      if (isPermixLeaf(node))
+        return evaluate(
+          node,
+          schema,
+          getDict,
+          subject.resource,
+          subject.record,
+          rule,
+          new Set(visited),
+        );
+      if ('any' in node) return node.any.some(run);
+      return node.all.every(run);
+    };
+    return run(expression);
   };
 };

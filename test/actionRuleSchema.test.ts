@@ -47,7 +47,15 @@ describe('actionRuleSchema', () => {
     expect(actionRuleSchema.safeParse({ actor: 'kind' }).success).toBe(false);
   });
 
-  it('rejects a bare self: every self arm names the action it needs', () => {
-    expect(actionRuleSchema.safeParse({ self: 'userId' }).success).toBe(false);
+  it('accepts a bare self (identity only)', () => {
+    expect(actionRuleSchema.safeParse({ self: 'userId' }).success).toBe(true);
+  });
+
+  it('refuses a condition that names a bind: the engine binds nothing', () => {
+    const bound = { rule: { field: 'id', operator: Operator.in, bind: 'actor.integrationIds' } };
+    expect(actionRuleSchema.safeParse(bound).success).toBe(false);
+    expect(actionRuleSchema.safeParse({ any: [true, bound] }).success).toBe(false);
+    const actorBound = { actor: { field: 'id', operator: Operator.equals, bind: 'x' } };
+    expect(actionRuleSchema.safeParse(actorBound).success).toBe(false);
   });
 });

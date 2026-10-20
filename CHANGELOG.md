@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.0.0 — principal and actor, two passes, rule-valued grants, collections, `$self`, reach as a condition
+
+- **Breaking: the actor is nested.** `Actor = { model, id, principal: { model, id, …meta }, …meta }`. `defineActor({ id, model = 'User', principal = { model, id } })` fills the defaults. `{ actor }` conditions read dotted paths (`principal.model`).
+- **Breaking: `{ self }` is the acting person, and its `action` is optional.** It compares `record[self]` with `selfId(actor)` (default: the principal's id when the principal is a `User`, else its `userId`, else null). Without `action` it is identity only; with one, the actor must also hold it on its own entry. `createRebacCheck` takes `selfId` beside `selfResource`.
+- **Breaking: no binds.** `{ rule }` is evaluated with no bindings (the 0.5 `actor.<field>` binds are gone), and `actionRuleSchema` refuses a condition that names a bind. Identity a grant needs is written into the grant at write time (`$self`).
+- **Rule-valued grants.** A permix entry's action is `true` or an `ActionRule`; the engine ORs matching rules (resource-wide, or keyed to the record's id) with the schema rule and row rule at the merge point. `Permix.rules(resource, action)` and `Permix.heldIds(resource, action)` read entries back.
+- **Breaking: `Entitlements` is resource-keyed**: `Record<key, Record<action, ActionRule>>`, a bare resource key the whole resource, `resource:id` that row. `parseGrantKey` and `entitlementEntries` turn it into permix entries.
+- **`$self` at write time.** `interpolateSelf(grant, subjects)` rewrites `<resource>:$self` keys to the grant's own subject ids and reports unresolvable ones; `selfPlaceholders(subjects)` lists the placeholders a grant may use; `SELF` is the token.
+- **Permix expressions.** The check takes a permix or `any` / `all` of several; each leaf is a full pass over the same subject, sharing one bridge dictionary. "Principal AND grant" is `{ all: [principal, grant] }`.
+- **Collections.** `ResourcePermission.collections` holds rules checked on a scope or draft row; pass `{ collection: name }` in place of the action. A missing collection rule denies.
+- **`createConditionCompiler(...).toCondition`** compiles what an expression reaches for an action into one json-rules condition, over- or under-approximating what it can't express; **`implies(h, i)`** compares two such conditions (sound, incomplete). `prefixCondition` rebases a condition through a relation path.
+- Migration: build actors with `defineActor`; give a `{ self }` arm an `action` wherever identity alone isn't enough (it was required in 0.5, so existing arms are unchanged); replace actor binds in rules with `{ actor }` predicates or write-time ids; move flat entitlements under resource keys.
+
 ## 0.5.0 — the actor carries meta; self names its action
 
 - **Breaking: `setUserId`/`getUserId` become `setActor`/`getActor`.** The actor is `{ id, ...meta }`: plain data about who is acting (kind of principal, bound integration, …). `PermixLike` exposes `getActor`. `{ self }` reads `actor.id`.

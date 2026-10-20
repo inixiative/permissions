@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { createPermissions } from '../index';
+import { createPermissions, defineActor } from '../index';
 
 describe('createPermissions (permix wrapper)', () => {
   test('grants checked by resource:id', async () => {
@@ -70,7 +70,54 @@ describe('createPermissions (permix wrapper)', () => {
   test('actor round-trips with its meta', () => {
     const p = createPermissions();
     expect(p.getActor()).toBeNull();
-    p.setActor({ id: 'u1', kind: 'token', integrationIds: ['i1'] });
-    expect(p.getActor()).toEqual({ id: 'u1', kind: 'token', integrationIds: ['i1'] });
+    const actor = defineActor({
+      id: 't1',
+      model: 'Token',
+      principal: { model: 'OrganizationUser', id: 'm1', userId: 'u1' },
+      integrationId: 'i1',
+    });
+    p.setActor(actor);
+    expect(p.getActor()).toEqual(actor);
+  });
+
+  test('a rule value is a rule-valued grant, not a held action', async () => {
+    const p = createPermissions();
+    const slack = { rule: { field: 'provider', operator: 'equals' as const, value: 'slack' } };
+    await p.setup([
+      { resource: 'integration', actions: { read: slack, manage: true } },
+      { resource: 'integration', id: 'i1', actions: { own: 'manage' } },
+    ]);
+    expect(p.check('integration', 'read', 'i9')).toBe(false);
+    expect(p.check('integration', 'manage', 'i9')).toBe(true);
+    expect(p.rules('integration', 'read')).toEqual([{ rule: slack }]);
+    expect(p.rules('integration', 'own')).toEqual([{ id: 'i1', rule: 'manage' }]);
+    expect(p.rules('integration', 'manage')).toEqual([]);
+    expect(p.rules('other', 'read')).toEqual([]);
+  });
+
+  test('false and null grant nothing', async () => {
+    const p = createPermissions();
+    await p.setup([{ resource: 'doc', actions: { read: false, manage: null } }]);
+    expect(p.check('doc', 'read')).toBe(false);
+    expect(p.rules('doc', 'manage')).toEqual([]);
+  });
+
+  test('heldIds lists the id-keyed entries holding exactly the action', async () => {
+    const p = createPermissions();
+    await p.setup([
+      { resource: 'integration', id: 'i1', actions: { read: true } },
+      { resource: 'integration', id: 'i2', actions: { read: true, manage: true } },
+      { resource: 'integration', actions: { read: true } },
+      { resource: 'integrationRecord', id: 'r1', actions: { read: true } },
+    ]);
+    expect(p.heldIds('integration', 'read').sort()).toEqual(['i1', 'i2']);
+    expect(p.heldIds('integration', 'manage')).toEqual(['i2']);
+  });
+
+  test('replace clears rules too', async () => {
+    const p = createPermissions();
+    await p.setup([{ resource: 'doc', actions: { read: 'manage' } }]);
+    await p.setup([{ resource: 'doc', actions: { manage: true } }], { replace: true });
+    expect(p.rules('doc', 'read')).toEqual([]);
   });
 });
