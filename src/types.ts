@@ -1,6 +1,6 @@
 import type { Bridge, Condition, Row } from '@inixiative/json-rules';
 
-export type { Row };
+export type { Condition, Row };
 
 export type RelationCheck = { rel: string; action: string }; // walk a relation, then check `action`
 export type RuleCheck = { rule: Condition }; // ABAC predicate (json-rules) over the record
