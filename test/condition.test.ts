@@ -303,12 +303,26 @@ describe('implies with a witness', () => {
     ).toBe(false);
   });
 
+  test('the checked row itself is never a witness: its fields may not be the stored row', () => {
+    const org = { id: 'o1' };
+    const rootWitness = (prefix: string, id: string) =>
+      prefix === '' && id === 'o1' ? org : undefined;
+    const ofOrg: Condition = { field: 'id', operator: Operator.in, value: ['o1'] };
+    const lowRoles: Condition = {
+      all: [{ field: 'role', operator: Operator.notIn, value: ['owner', 'admin'] }, ofOrg],
+    };
+    const anyRole: Condition = {
+      any: [
+        { all: [{ field: 'role', operator: Operator.in, value: ['owner', 'admin'] }, ofOrg] },
+        lowRoles,
+      ],
+    };
+    expect(implies(anyRole, lowRoles, rootWitness)).toBe(false);
+  });
+
   test('witnessLeaves lists the rows to load', () => {
     expect(
       witnessLeaves({ any: [ofSpace, { field: 'id', operator: Operator.equals, value: 'i1' }] }),
-    ).toEqual([
-      { prefix: 'space.', ids: ['s1'] },
-      { prefix: '', ids: ['i1'] },
-    ]);
+    ).toEqual([{ prefix: 'space.', ids: ['s1'] }]);
   });
 });

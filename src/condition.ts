@@ -236,7 +236,7 @@ const asMembership = (condition: Condition): Membership | null => {
   return null;
 };
 
-/** The row a membership leaf names: the row at `prefix` (e.g. `space.`, or `''` for the row itself) with that id. */
+/** The row a membership leaf names: the row at relation `prefix` (e.g. `space.`) with that id. */
 export type Witness = (prefix: string, id: string) => Row | undefined;
 
 /** Fields and paths a condition reads at its top level (nested element conditions are element-relative). */
@@ -260,17 +260,12 @@ const nestUnder = (prefix: string, row: Row): Row =>
     .filter(Boolean)
     .reduceRight<Row>((inner, segment) => ({ [segment]: inner }), row);
 
-// A leaf `<prefix>id in [ids]` covers `i` when, for every id, the real row at `prefix` satisfies `i` and `i` reads
-// nothing outside that row: then every row whose `prefix` is that row satisfies `i` exactly.
+// A leaf `<relation>.id in [ids]` covers `i` when, for every id, the real related row satisfies `i` and `i` reads
+// nothing outside that relation. Only relations: a checked record may carry fields its stored row lacks
+// (`assign` is checked on `{ ...org, role }`), so the row at the root is never a witness.
 const witnessed = (h: Condition, i: Condition, witness?: Witness): boolean => {
   const hm = asMembership(h);
-  if (
-    !witness ||
-    !hm ||
-    hm.rest !== canonical({}) ||
-    !(hm.field === 'id' || hm.field.endsWith('.id'))
-  )
-    return false;
+  if (!witness || !hm || hm.rest !== canonical({}) || !hm.field.endsWith('.id')) return false;
   const prefix = hm.field.slice(0, -'id'.length);
   if (!conditionFields(i).every((field) => field.startsWith(prefix))) return false;
   return hm.values.every((value) => {
@@ -324,6 +319,6 @@ export const witnessLeaves = (condition: Condition): { prefix: string; ids: stri
       ...(condition.else === undefined ? [] : [condition.else]),
     ].flatMap(witnessLeaves);
   const membership = asMembership(condition);
-  if (!membership || !(membership.field === 'id' || membership.field.endsWith('.id'))) return [];
+  if (!membership || !membership.field.endsWith('.id')) return [];
   return [{ prefix: membership.field.slice(0, -'id'.length), ids: membership.values.map(String) }];
 };
