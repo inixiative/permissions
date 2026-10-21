@@ -56,7 +56,7 @@ const relations: Record<string, Record<string, string>> = {
 };
 const resolveRelation: ResolveRelation = (resource, segment) =>
   relations[resource]?.[segment] ?? null;
-const { toCondition } = createConditionCompiler({
+const { toCondition, dependents } = createConditionCompiler({
   resolveRelation,
   isToMany: (resource, segment) => resource === 'db:contact' && segment === 'tags',
   hasRowRules: (resource) => resource === 'db:contact',
@@ -324,5 +324,36 @@ describe('implies with a witness', () => {
     expect(
       witnessLeaves({ any: [ofSpace, { field: 'id', operator: Operator.equals, value: 'i1' }] }),
     ).toEqual([{ prefix: 'space.', ids: ['s1'] }]);
+  });
+});
+
+describe('dependents', () => {
+  const names = (resource: string, action: string) =>
+    dependents(schema, resource, action).map(
+      ({ resource: at, actionOrRule }) =>
+        `${at}.${typeof actionOrRule === 'string' ? actionOrRule : `@${actionOrRule.collection}`}`,
+    );
+
+  test('holding own on an organization reaches every action that consults it', () => {
+    expect(names('db:organization', 'own').sort()).toEqual(
+      [
+        'db:contact.personal',
+        'db:contact.read',
+        'db:organization.manage',
+        'db:organization.own',
+        'db:organization.read',
+        'db:space.manage',
+        'db:space.own',
+        'db:space.read',
+      ].sort(),
+    );
+  });
+
+  test('an action nothing consults has only itself', () => {
+    expect(names('db:contact', 'public')).toEqual(['db:contact.public']);
+  });
+
+  test('self arms consult the self resource', () => {
+    expect(names('db:user', 'read')).toContain('db:contact.read');
   });
 });

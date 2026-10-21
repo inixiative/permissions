@@ -16,6 +16,7 @@ import type {
   PermixLike,
   RebacSchema,
   ResolveRelation,
+  ResourcePermission,
   Row,
 } from './types';
 
@@ -209,7 +210,75 @@ export const createConditionCompiler = <R extends string = string>(
     return run(expression);
   };
 
-  return { toCondition };
+  type Node = `${string}#${string}`;
+  const node = (resource: string, action: string): Node => `${resource}#${action}`;
+
+  // Every (resource, action) a rule consults, directly: same-resource delegations, the action at the
+  // end of a relation walk, a self arm's action on the self resource.
+  const consulted = (schema: RebacSchema<R>, resource: R, rule: ActionRule): Node[] => {
+    if (rule === null || typeof rule === 'boolean') return [];
+    if (typeof rule === 'string') return [node(resource, rule)];
+    if ('rel' in rule) {
+      let at: R | null = resource;
+      for (const segment of rule.rel.split('.')) {
+        if (!at || bridgeHop(schema.bridges, at, segment) || isToMany(at, segment)) return [];
+        at = resolveRelation(at, segment);
+      }
+      return at ? [node(at, rule.action)] : [];
+    }
+    if ('self' in rule) return rule.action && selfResource ? [node(selfResource, rule.action)] : [];
+    if ('any' in rule) return rule.any.flatMap((arm) => consulted(schema, resource, arm));
+    if ('all' in rule) return rule.all.flatMap((arm) => consulted(schema, resource, arm));
+    return [];
+  };
+
+  /**
+   * Every (resource, action) whose answer can depend on holding `action` on `resource`: the action
+   * itself and, transitively, every action (and collection) whose rule consults one of them. A grant
+   * entry can widen exactly these.
+   */
+  const dependents = (
+    schema: RebacSchema<R>,
+    resource: R,
+    action: string,
+  ): { resource: R; actionOrRule: string | CollectionCheck }[] => {
+    const consumers = new Map<Node, { resource: R; actionOrRule: string | CollectionCheck }[]>();
+    for (const [at, permission] of Object.entries(schema.permissions) as [
+      R,
+      ResourcePermission,
+    ][]) {
+      const entries: [string | CollectionCheck, ActionRule][] = [
+        ...Object.entries(permission.actions),
+        ...Object.entries(permission.collections ?? {}).map(
+          ([collection, rule]): [CollectionCheck, ActionRule] => [{ collection }, rule],
+        ),
+      ];
+      for (const [actionOrRule, rule] of entries)
+        for (const target of consulted(schema, at, rule)) {
+          const list = consumers.get(target) ?? [];
+          list.push({ resource: at, actionOrRule });
+          consumers.set(target, list);
+        }
+    }
+    const seen = new Set<string>();
+    const result: { resource: R; actionOrRule: string | CollectionCheck }[] = [];
+    const visit = (at: R, actionOrRule: string | CollectionCheck) => {
+      const key =
+        typeof actionOrRule === 'string'
+          ? node(at, actionOrRule)
+          : `${at}#@${actionOrRule.collection}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      result.push({ resource: at, actionOrRule });
+      if (typeof actionOrRule === 'string')
+        for (const next of consumers.get(node(at, actionOrRule)) ?? [])
+          visit(next.resource, next.actionOrRule);
+    };
+    visit(resource, action);
+    return result;
+  };
+
+  return { toCondition, dependents };
 };
 
 const canonical = (value: unknown): string => {
