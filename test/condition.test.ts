@@ -7,6 +7,7 @@ import {
   defineActor,
   implies,
   prefixCondition,
+  witnessLeaves,
 } from '../index';
 
 const schema: RebacSchema = {
@@ -265,5 +266,49 @@ describe('prefixCondition', () => {
         },
       ],
     });
+  });
+});
+
+describe('implies with a witness', () => {
+  const space = { id: 's1', organizationId: 'o1', organization: { id: 'o1' } };
+  const witness = (prefix: string, id: string) =>
+    prefix === 'space.' && id === 's1' ? space : undefined;
+  const ofSpace: Condition = { field: 'space.id', operator: Operator.in, value: ['s1'] };
+  const ofOrg: Condition = { field: 'space.organization.id', operator: Operator.in, value: ['o1'] };
+
+  test('rows of a space are rows whose space belongs to its organization', () => {
+    expect(implies(ofSpace, ofOrg)).toBe(false);
+    expect(implies(ofSpace, ofOrg, witness)).toBe(true);
+  });
+
+  test('another organization is not proven', () => {
+    const other: Condition = {
+      field: 'space.organization.id',
+      operator: Operator.in,
+      value: ['o2'],
+    };
+    expect(implies(ofSpace, other, witness)).toBe(false);
+  });
+
+  test('an issuer arm that reads outside the relation is never proven by the related row', () => {
+    const guarded: Condition = {
+      all: [ofOrg, { field: 'userId', operator: Operator.notExists }],
+    };
+    expect(implies(ofSpace, guarded, witness)).toBe(false);
+  });
+
+  test('an unknown related row proves nothing', () => {
+    expect(
+      implies({ field: 'space.id', operator: Operator.in, value: ['s9'] }, ofOrg, witness),
+    ).toBe(false);
+  });
+
+  test('witnessLeaves lists the rows to load', () => {
+    expect(
+      witnessLeaves({ any: [ofSpace, { field: 'id', operator: Operator.equals, value: 'i1' }] }),
+    ).toEqual([
+      { prefix: 'space.', ids: ['s1'] },
+      { prefix: '', ids: ['i1'] },
+    ]);
   });
 });

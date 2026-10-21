@@ -236,13 +236,58 @@ const asMembership = (condition: Condition): Membership | null => {
   return null;
 };
 
-const leafImplies = (h: Condition, i: Condition): boolean => {
+/** The row a membership leaf names: the row at `prefix` (e.g. `space.`, or `''` for the row itself) with that id. */
+export type Witness = (prefix: string, id: string) => Row | undefined;
+
+/** Fields and paths a condition reads at its top level (nested element conditions are element-relative). */
+export const conditionFields = (condition: Condition): string[] => {
+  if (typeof condition === 'boolean') return [];
+  if ('all' in condition) return condition.all.flatMap(conditionFields);
+  if ('any' in condition) return condition.any.flatMap(conditionFields);
+  if ('if' in condition)
+    return [
+      condition.if,
+      condition.then,
+      ...(condition.else === undefined ? [] : [condition.else]),
+    ].flatMap(conditionFields);
+  const leaf = condition as Record<string, unknown>;
+  return [leaf.field, leaf.path].filter((value): value is string => typeof value === 'string');
+};
+
+const nestUnder = (prefix: string, row: Row): Row =>
+  prefix
+    .split('.')
+    .filter(Boolean)
+    .reduceRight<Row>((inner, segment) => ({ [segment]: inner }), row);
+
+// A leaf `<prefix>id in [ids]` covers `i` when, for every id, the real row at `prefix` satisfies `i` and `i` reads
+// nothing outside that row: then every row whose `prefix` is that row satisfies `i` exactly.
+const witnessed = (h: Condition, i: Condition, witness?: Witness): boolean => {
+  const hm = asMembership(h);
+  if (
+    !witness ||
+    !hm ||
+    hm.rest !== canonical({}) ||
+    !(hm.field === 'id' || hm.field.endsWith('.id'))
+  )
+    return false;
+  const prefix = hm.field.slice(0, -'id'.length);
+  if (!conditionFields(i).every((field) => field.startsWith(prefix))) return false;
+  return hm.values.every((value) => {
+    const row = witness(prefix, String(value));
+    return row !== undefined && checkRule(i, nestUnder(prefix, row)) === true;
+  });
+};
+
+const leafImplies = (h: Condition, i: Condition, witness?: Witness): boolean => {
   if (canonical(h) === canonical(i)) return true;
   const hm = asMembership(h);
   const im = asMembership(i);
-  if (!hm || !im || hm.field !== im.field || hm.rest !== im.rest) return false;
-  const allowed = new Set(im.values.map(canonical));
-  return hm.values.every((value) => allowed.has(canonical(value)));
+  if (hm && im && hm.field === im.field && hm.rest === im.rest) {
+    const allowed = new Set(im.values.map(canonical));
+    if (hm.values.every((value) => allowed.has(canonical(value)))) return true;
+  }
+  return witnessed(h, i, witness);
 };
 
 const isAny = (c: Condition): c is { any: Condition[] } =>
@@ -251,15 +296,34 @@ const isAll = (c: Condition): c is { all: Condition[] } =>
   typeof c === 'object' && c !== null && 'all' in c;
 
 /**
- * Does every row matching `h` match `i`? Syntactic and sound but incomplete: `true` is a proof,
- * `false` means "not shown". Leaves match by canonical JSON; `field equals/in` compare as sets.
+ * Does every row matching `h` match `i`? Sound but incomplete: `true` is a proof, `false` means "not
+ * shown". Leaves match by canonical JSON; `field equals/in` compare as sets. With a `witness`, a leaf
+ * `<relation>.id in [ids]` is also proven by evaluating `i` on the real related rows, when `i` reads
+ * only that relation (so "rows of space s" implies "rows whose space's organization is o").
  */
-export const implies = (h: Condition, i: Condition): boolean => {
+export const implies = (h: Condition, i: Condition, witness?: Witness): boolean => {
   if (i === true || h === false) return true;
   if (i === false || h === true) return false;
-  if (isAny(h)) return h.any.every((arm) => implies(arm, i));
-  if (isAll(i)) return i.all.every((conjunct) => implies(h, conjunct));
-  if (isAny(i) && i.any.some((arm) => implies(h, arm))) return true;
-  if (isAll(h) && h.all.some((conjunct) => implies(conjunct, i))) return true;
-  return leafImplies(h, i);
+  if (isAny(h)) return h.any.every((arm) => implies(arm, i, witness));
+  if (isAll(i)) return i.all.every((conjunct) => implies(h, conjunct, witness));
+  if (isAny(i) && i.any.some((arm) => implies(h, arm, witness))) return true;
+  if (isAll(h) && h.all.some((conjunct) => implies(conjunct, i, witness))) return true;
+  if (witnessed(h, i, witness)) return true;
+  return leafImplies(h, i, witness);
+};
+
+/** The `<relation>.id in [ids]` leaves of a condition: the related rows a `witness` must supply. */
+export const witnessLeaves = (condition: Condition): { prefix: string; ids: string[] }[] => {
+  if (typeof condition === 'boolean') return [];
+  if ('all' in condition) return condition.all.flatMap(witnessLeaves);
+  if ('any' in condition) return condition.any.flatMap(witnessLeaves);
+  if ('if' in condition)
+    return [
+      condition.if,
+      condition.then,
+      ...(condition.else === undefined ? [] : [condition.else]),
+    ].flatMap(witnessLeaves);
+  const membership = asMembership(condition);
+  if (!membership || !(membership.field === 'id' || membership.field.endsWith('.id'))) return [];
+  return [{ prefix: membership.field.slice(0, -'id'.length), ids: membership.values.map(String) }];
 };
