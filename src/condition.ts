@@ -30,6 +30,24 @@ export type ConditionPermix = PermixLike & Required<Pick<PermixLike, 'rules' | '
  */
 export type Approximation = 'over' | 'under';
 
+export type ToConditionOptions = {
+  /**
+   * Compile a row's own `permissionRules` arm as one opaque leaf, the same on every side, instead of
+   * approximating it. For comparing two reaches over the same rows: a row rule consults the same
+   * algebra on both sides, so it can't separate them once every action it consults is compared too.
+   */
+  opaqueRowRules?: boolean;
+};
+
+const ROW_RULES = '$rowRules';
+
+const rowRulesOf = (resource: string, action: string, prefix: string): Condition =>
+  ({
+    field: `${prefix}${ROW_RULES}`,
+    operator: 'equals',
+    value: `${resource}.${action}`,
+  }) as Condition;
+
 export type ConditionCompilerDeps<R extends string = string> = {
   resolveRelation: ResolveRelation<R>;
   /** Whether `segment` on `resource` is a to-many relation (the engine never walks those). */
@@ -103,19 +121,32 @@ export const createConditionCompiler = <R extends string = string>(
     rule: ActionRule,
     prefix: string,
     approximation: Approximation,
+    opaqueRowRules: boolean,
     visited: Set<string>,
     depth: number,
   ): Condition => {
     const inexact: Condition = approximation === 'over';
     const recurse = (next: ActionRule, at: R = resource, path = prefix, nextDepth = depth) =>
-      compile(permix, schema, at, next, path, approximation, new Set(visited), nextDepth);
+      compile(
+        permix,
+        schema,
+        at,
+        next,
+        path,
+        approximation,
+        opaqueRowRules,
+        new Set(visited),
+        nextDepth,
+      );
 
     if (permix.isSuperadmin?.()) return true;
     if (rule === null) return false;
     if (typeof rule === 'boolean') return rule;
 
     if (typeof rule === 'string') {
-      if (permix.check(resource, rule)) return true; // held on the whole resource
+      // held on the whole resource: every row at the root, every row that has the relation after a walk
+      if (permix.check(resource, rule))
+        return prefix ? ({ field: `${prefix}id`, operator: 'exists' } as Condition) : true;
       const key = `${prefix}|${resource}|${rule}`;
       if (visited.has(key)) throw new PermissionCycleError(`${resource}.${rule}`);
       visited.add(key);
@@ -140,7 +171,8 @@ export const createConditionCompiler = <R extends string = string>(
         );
       }
       arms.push(recurse(schema.permissions[resource]?.actions[rule] ?? null));
-      if (hasRowRules?.(resource)) arms.push(inexact);
+      if (hasRowRules?.(resource))
+        arms.push(opaqueRowRules ? rowRulesOf(resource, rule, prefix) : inexact);
       return any(arms);
     }
 
@@ -197,13 +229,25 @@ export const createConditionCompiler = <R extends string = string>(
     resource: R,
     actionOrRule: ActionRule | CollectionCheck,
     approximation: Approximation,
+    options: ToConditionOptions = {},
   ): Condition => {
+    const opaqueRowRules = options.opaqueRowRules ?? false;
     const rule = isCollectionCheck(actionOrRule)
       ? collectionRule(schema, resource, actionOrRule.collection)
       : actionOrRule;
     const run = (node: PermixExpression<ConditionPermix>): Condition => {
       if (isPermixLeaf(node))
-        return compile(node, schema, resource, rule, '', approximation, new Set(), 0);
+        return compile(
+          node,
+          schema,
+          resource,
+          rule,
+          '',
+          approximation,
+          opaqueRowRules,
+          new Set(),
+          0,
+        );
       if ('any' in node) return any(node.any.map(run));
       return all(node.all.map(run));
     };
@@ -354,6 +398,18 @@ const leafImplies = (h: Condition, i: Condition, witness?: Witness): boolean => 
   return witnessed(h, i, witness);
 };
 
+const DISTRIBUTION_LIMIT = 64;
+
+// all[any[a, b], c] → any[all[a, c], all[b, c]], so arms shared across conjuncts can match; null past the limit.
+const distribute = (h: { all: Condition[] }): Condition | null => {
+  const index = h.all.findIndex((conjunct) => isAny(conjunct));
+  if (index === -1) return null;
+  const pivot = h.all[index] as { any: Condition[] };
+  const rest = h.all.filter((_, at) => at !== index);
+  if (pivot.any.length * Math.max(rest.length, 1) > DISTRIBUTION_LIMIT) return null;
+  return { any: pivot.any.map((arm) => ({ all: [arm, ...rest] })) };
+};
+
 const isAny = (c: Condition): c is { any: Condition[] } =>
   typeof c === 'object' && c !== null && 'any' in c;
 const isAll = (c: Condition): c is { all: Condition[] } =>
@@ -372,6 +428,10 @@ export const implies = (h: Condition, i: Condition, witness?: Witness): boolean 
   if (isAll(i)) return i.all.every((conjunct) => implies(h, conjunct, witness));
   if (isAny(i) && i.any.some((arm) => implies(h, arm, witness))) return true;
   if (isAll(h) && h.all.some((conjunct) => implies(conjunct, i, witness))) return true;
+  if (isAll(h)) {
+    const distributed = distribute(h);
+    if (distributed) return implies(distributed, i, witness);
+  }
   if (witnessed(h, i, witness)) return true;
   return leafImplies(h, i, witness);
 };

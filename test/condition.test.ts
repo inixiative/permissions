@@ -357,3 +357,106 @@ describe('dependents', () => {
     expect(names('db:user', 'read')).toContain('db:contact.read');
   });
 });
+
+describe('opaque row rules', () => {
+  test('after a walk, a resource-wide hold reaches rows that have the relation, not every row', async () => {
+    const wide = await permix({ resource: 'db:organization', actions: { read: true } }, orgToken);
+    expect(toCondition(wide, schema, 'db:contact', 'viaOrgRule', 'under')).toEqual({
+      field: 'organization.size',
+      operator: Operator.greaterThan,
+      value: 10,
+    });
+    expect(
+      toCondition(wide, schema, 'db:contact', 'read', 'under', { opaqueRowRules: true }),
+    ).toEqual({
+      any: [
+        { field: 'organization.id', operator: 'exists' },
+        { field: '$rowRules', operator: 'equals', value: 'db:contact.read' },
+      ],
+    });
+  });
+
+  test('an owner principal with a resource-wide manage grant reaches space rows an admin cannot', async () => {
+    const holderPrincipal = await permix(
+      { resource: 'db:organization', id: 'o1', actions: { own: true } },
+      orgToken,
+    );
+    const holderGrant = await permix(
+      { resource: 'db:organization', actions: { manage: true } },
+      orgToken,
+    );
+    const issuer = await permix({
+      resource: 'db:organization',
+      id: 'o1',
+      actions: { manage: true },
+    });
+    const reached = toCondition(
+      { all: [holderPrincipal, holderGrant] },
+      schema,
+      'db:contact',
+      'read',
+      'over',
+      {
+        opaqueRowRules: true,
+      },
+    );
+    const held = toCondition(issuer, schema, 'db:contact', 'read', 'under', {
+      opaqueRowRules: true,
+    });
+    expect(implies(reached, held)).toBe(false);
+  });
+
+  test('a row rule is the same opaque leaf on both sides, so it cancels', async () => {
+    const holderPrincipal = await permix(
+      { resource: 'db:organization', id: 'o1', actions: { own: true } },
+      orgToken,
+    );
+    const holderGrant = await permix(
+      { resource: 'db:organization', id: 'o1', actions: { manage: true } },
+      orgToken,
+    );
+    const issuer = await permix({
+      resource: 'db:organization',
+      id: 'o1',
+      actions: { manage: true },
+    });
+    const holder = { all: [holderPrincipal, holderGrant] };
+    const approximated = toCondition(holder, schema, 'db:contact', 'read', 'over');
+    expect(approximated).toBe(true);
+    const reached = toCondition(holder, schema, 'db:contact', 'read', 'over', {
+      opaqueRowRules: true,
+    });
+    const held = toCondition(issuer, schema, 'db:contact', 'read', 'under', {
+      opaqueRowRules: true,
+    });
+    expect(implies(reached, held)).toBe(true);
+  });
+
+  test('distribution keeps a holder that reaches more refused', async () => {
+    const holderPrincipal = await permix(
+      { resource: 'db:organization', id: 'o1', actions: { own: true } },
+      orgToken,
+    );
+    const holderGrant = await permix(
+      { resource: 'db:organization', actions: { own: true } },
+      orgToken,
+    );
+    const issuer = await permix({
+      resource: 'db:organization',
+      id: 'o1',
+      actions: { manage: true },
+    });
+    const reached = toCondition(
+      { all: [holderPrincipal, holderGrant] },
+      schema,
+      'db:contact',
+      'read',
+      'over',
+      { opaqueRowRules: true },
+    );
+    const held = toCondition(issuer, schema, 'db:contact', 'read', 'under', {
+      opaqueRowRules: true,
+    });
+    expect(implies(reached, held)).toBe(false);
+  });
+});
