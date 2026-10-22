@@ -1,33 +1,93 @@
+import { type Condition, listBindings, validateRule } from '@inixiative/json-rules';
 import { castArray } from 'lodash-es';
 import { createPermix } from 'permix';
-import type { Actor } from './types';
+import type { Actor, Entitlement, PermixLike, Position } from './types';
 
 export type ActionState<Action extends string = string> = Partial<
   Record<Action, boolean | ((data?: unknown) => boolean)>
 >;
 
-export type PermissionEntry<Action extends string = string> = {
+/** A grant: the actor holds `actions` on a resource, or on one row of it. Lives in the table. */
+export type GrantEntry<Action extends string = string> = {
   resource: string;
   id?: string;
   actions: ActionState<Action>;
 };
 
-export type Entitlements = Record<string, boolean> | null;
+/**
+ * An entitlement: `actions` on `resource`, acting FROM a position on the record's chain, narrowed
+ * by `where` — plain json-rules over the record at that node, literals and record paths only;
+ * whatever referred to the holder (its own id, its user) was written in when the grant was made.
+ * Whoever granted it is the `owner` of the `setup` call that installs it, and at check time the
+ * entitlement holds only if that owner's own table still allows the action on the record.
+ */
+export type EntitlementEntry<Action extends string = string> = {
+  resource: string;
+  from: Position;
+  where?: Condition | null;
+  actions: Partial<Record<Action, boolean>>;
+};
+
+export type PermissionEntry<Action extends string = string> =
+  | GrantEntry<Action>
+  | EntitlementEntry<Action>;
+
+export type SetupOptions = { replace?: boolean; owner?: PermixLike };
 
 type PermissionState = Record<string, ActionState>;
 
+const isEntitlement = (entry: PermissionEntry): entry is EntitlementEntry =>
+  (entry as EntitlementEntry).from !== undefined;
+
+const isPosition = (value: unknown): value is Position =>
+  typeof value === 'object' &&
+  value !== null &&
+  typeof (value as Position).resource === 'string' &&
+  (value as Position).resource.length > 0 &&
+  typeof (value as Position).id === 'string' &&
+  (value as Position).id.length > 0;
+
+const validate = (entry: PermissionEntry, owner: PermixLike | undefined): void => {
+  if (!isEntitlement(entry)) {
+    if ((entry as EntitlementEntry).where !== undefined)
+      throw new Error('`where` needs `from`: an entitlement acts from a position');
+    return;
+  }
+  if (!isPosition(entry.from))
+    throw new Error('`from` is a position: { resource, id }, both non-empty strings');
+  if (!owner)
+    throw new Error('an entry with `from` needs setup(entries, { owner }): whoever granted it');
+  if ((entry as GrantEntry).id !== undefined)
+    throw new Error('`from` with `id`: a single row is `where: { field: "id", … }`');
+  if (
+    Object.values(entry.actions).some((value) => value !== undefined && typeof value !== 'boolean')
+  )
+    throw new Error('entitlement actions are booleans');
+  if (entry.where !== undefined && entry.where !== null) {
+    const result = validateRule(entry.where);
+    if (!result.ok) {
+      const issues = result.errors.map((issue) => `${issue.path}: ${issue.message}`).join('; ');
+      throw new Error(`invalid entitlement \`where\`: ${issues}`);
+    }
+    if (listBindings(entry.where).length)
+      throw new Error('an entitlement `where` takes no bind: resolve it when the grant is written');
+  }
+};
+
 /**
  * A thin, role-agnostic wrapper over `permix`. Holds the actor's granted actions (keyed by
- * `resource` or `resource:id`), a superadmin bypass, and the current actor (its id plus app-supplied meta). App code populates
- * it from roles/entitlements (hydration stays app-side); the rebac {@link createRebacCheck} engine
- * reads it back through the {@link PermixLike} slice.
+ * `resource` or `resource:id`), its entitlements (kept beside the table, each with the table of
+ * whoever granted it), a superadmin bypass, and the current actor (its id plus app-supplied meta).
+ * App code populates it from roles/entitlements (hydration stays app-side); the rebac
+ * {@link createRebacCheck} engine reads it back through the {@link PermixLike} slice.
  */
 export type Permix<Action extends string = string, A extends Actor = Actor> = {
   check: (resource: string, action: Action, id?: string, data?: unknown) => boolean;
   setup: (
     perms: PermissionEntry<Action> | PermissionEntry<Action>[],
-    options?: { replace?: boolean },
+    options?: SetupOptions,
   ) => Promise<void>;
+  entitlements: (resource: string, action: Action) => Entitlement[];
   setSuperadmin: (value: boolean) => void;
   isSuperadmin: () => boolean;
   setActor: (actor: A) => void;
@@ -43,6 +103,7 @@ export const createPermissions = <
   let isSuperadmin = false;
   let actor: A | null = null;
   let accumulated: PermissionState = {};
+  let entitlements: (Entitlement & { resource: string; actions: ActionState })[] = [];
 
   return {
     check: (resource, action, id, data) => {
@@ -57,9 +118,25 @@ export const createPermissions = <
       return granted(resource);
     },
     setup: async (perms, options) => {
-      if (options?.replace) accumulated = {};
       const entries = castArray(perms);
-      for (const { resource, id, actions } of entries) {
+      for (const entry of entries) validate(entry, options?.owner);
+      if (options?.replace) {
+        accumulated = {};
+        entitlements = [];
+      }
+      for (const entry of entries) {
+        if (isEntitlement(entry)) {
+          const { resource, from, where, actions } = entry;
+          entitlements.push({
+            resource,
+            from,
+            where,
+            actions,
+            owner: options?.owner as PermixLike,
+          });
+          continue;
+        }
+        const { resource, id, actions } = entry;
         const key = id ? `${resource}:${id}` : resource;
         // Merge, don't overwrite: successive setups for the same key are additive — e.g. a `read`
         // grant then a `manage` grant on `organization:o1` must leave both actions in place.
@@ -67,6 +144,10 @@ export const createPermissions = <
       }
       await permix.setup(accumulated as Parameters<typeof permix.setup>[0]);
     },
+    entitlements: (resource, action) =>
+      entitlements
+        .filter((e) => e.resource === resource && e.actions[action] === true)
+        .map(({ from, where, owner }) => ({ from, where, owner })),
     setSuperadmin: (value) => {
       isSuperadmin = value;
     },

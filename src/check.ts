@@ -1,6 +1,7 @@
 import {
   type Bridge,
   type BridgeDictionary,
+  type Condition,
   check as checkRule,
   indexBridges,
   listBindings,
@@ -11,6 +12,7 @@ import type {
   ActionRule,
   Actor,
   PermixLike,
+  Position,
   RebacSchema,
   ResolveRelation,
   Row,
@@ -19,16 +21,62 @@ import type {
 
 // Stable identity for cycle detection that does NOT depend on `record.id` — an id may be absent or
 // collide across resources, both of which would make an id-based key falsely report a cycle. A
-// WeakMap assigns each visited record object a process-unique number; entries are GC'd with records.
-let nodeCounter = 0;
-const nodeIds = new WeakMap<object, number>();
-const nodeId = (record: object): number => {
-  let id = nodeIds.get(record);
-  if (id === undefined) {
-    id = ++nodeCounter;
-    nodeIds.set(record, id);
-  }
-  return id;
+// WeakMap assigns each visited object a process-unique number; entries are GC'd with the objects.
+const identity = (): ((value: object) => number) => {
+  let counter = 0;
+  const ids = new WeakMap<object, number>();
+  return (value) => {
+    let id = ids.get(value);
+    if (id === undefined) {
+      id = ++counter;
+      ids.set(value, id);
+    }
+    return id;
+  };
+};
+const nodeId = identity();
+const tableId = identity();
+
+// An entitlement's owner walk runs on a slice of the owner's table (its grants, the request's
+// actor). The slice is a fresh object per walk, so for cycle detection it resolves back to the
+// table it was cut from: the same table re-entering the same node and action is a loop.
+const origin = new WeakMap<PermixLike, PermixLike>();
+const permixId = (permix: PermixLike): number => tableId(origin.get(permix) ?? permix);
+
+const asOwner = (owner: PermixLike, actor: Actor | null): PermixLike => {
+  const slice: PermixLike = {
+    check: (resource, action, id, data) => owner.check(resource, action, id, data),
+    isSuperadmin: () => owner.isSuperadmin?.() ?? false,
+    entitlements: (resource, action) => owner.entitlements?.(resource, action) ?? [],
+    getActor: () => actor,
+  };
+  origin.set(slice, origin.get(owner) ?? owner);
+  return slice;
+};
+
+// A `where` is literals and record paths only — whatever referred to the holder was written in
+// when the entitlement was granted — so it needs no bindings and nothing about the actor. An
+// absent path reads as NULL: write `where` positively, a negation passes on what is not loaded.
+const holds = (where: Condition | null, record: Row): boolean =>
+  where !== null && checkRule(where, record) === true;
+
+// The relations a resource's own rules walk: the first segment of every `rel` arm, any depth.
+const parentFieldsOf = new WeakMap<object, Set<string>>();
+const parentFields = (schema: RebacSchema<string>, resource: string): Set<string> => {
+  const actions = schema.permissions[resource]?.actions;
+  if (!actions) return new Set();
+  const cached = parentFieldsOf.get(actions);
+  if (cached) return cached;
+  const fields = new Set<string>();
+  const visit = (rule: ActionRule): void => {
+    if (!rule || typeof rule !== 'object') return;
+    if ('rel' in rule) fields.add(rule.rel.split('.')[0]);
+    else if ('any' in rule) rule.any.forEach(visit);
+    else if ('all' in rule) rule.all.forEach(visit);
+  };
+  Object.values(actions).forEach(visit);
+  parentFieldsOf.set(actions, fields);
+  return fields;
 };
 
 const splitResource = (resource: string): [string, string] => {
@@ -153,8 +201,8 @@ export const createRebacCheck = <R extends string = string>(
       if (permix.check(resource, actionOrRule, recordId(record))) return true;
 
       // Key by resource too: the same record object reached as a different resource (a self-join) is
-      // a distinct node, not a cycle.
-      const key = `${nodeId(record)}:${resource}:${actionOrRule}`;
+      // a distinct node, not a cycle. Key by table too: an owner walk legitimately revisits the node.
+      const key = `${permixId(permix)}:${nodeId(record)}:${resource}:${actionOrRule}`;
       if (visited.has(key)) {
         throw new Error(`Cycle detected in permission graph: ${resource}.${actionOrRule}`);
       }
@@ -166,7 +214,8 @@ export const createRebacCheck = <R extends string = string>(
       // Row-level override is additive (OR) with the schema rule — a per-record grant can only widen.
       const merged: ActionRule =
         rowRule !== undefined ? { any: [schemaRule, rowRule] } : schemaRule;
-      return evaluate(permix, schema, getDict, resource, record, merged, visited);
+      if (evaluate(permix, schema, getDict, resource, record, merged, visited)) return true;
+      return entitled(permix, schema, getDict, resource, record, actionOrRule, visited);
     }
 
     const rule = actionOrRule;
@@ -207,7 +256,7 @@ export const createRebacCheck = <R extends string = string>(
         throw new Error('A self arm needs createRebacCheck(resolveRelation, { selfResource })');
       const userId = permix.getActor()?.id ?? null;
       if (userId === null || record[rule.self] !== userId) return false;
-      const selfKey = `self:${options.selfResource}:${userId}:${rule.action}`;
+      const selfKey = `self:${permixId(permix)}:${options.selfResource}:${userId}:${rule.action}`;
       if (visited.has(selfKey)) {
         throw new Error(
           `Cycle detected in permission graph: ${options.selfResource}.${rule.action}`,
@@ -249,6 +298,61 @@ export const createRebacCheck = <R extends string = string>(
     }
 
     return false;
+  };
+
+  // The position is the record itself or an ancestor on the resource's natural tree: the relations
+  // the schema's own `rel` arms name for that resource, nothing else. A hydrated sideways foreign
+  // key (`replacedBy`, `defaultIntegration`) is not a position. Off the tree, the entitlement is
+  // not acting from where it says.
+  const onPath = (
+    schema: RebacSchema<R>,
+    resource: R,
+    record: Row,
+    from: Position,
+    seen: WeakSet<object> = new WeakSet(),
+  ): boolean => {
+    if (seen.has(record)) return false;
+    seen.add(record);
+    if (resource === from.resource && recordId(record) === from.id) return true;
+    return [...parentFields(schema, resource)].some((field) => {
+      const value = record[field];
+      if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+      const next = resolveRelation(resource, field);
+      return next !== null && onPath(schema, next, value as Row, from, seen);
+    });
+  };
+
+  // Entitlements are consulted after the table and the schema both miss, at the node the holder's
+  // own walk reached, with the record in hand. One applies when its position is on the record's
+  // path, its `where` holds, and whoever granted it can still do the action on this record: the
+  // owner's own table, walked from here. A space moved to another org stops reaching its grantor.
+  // An owner that is already on this walk for this node and action is a loop built from grant
+  // data, not a schema bug: it denies instead of throwing, so it can never hide a sibling.
+  const entitled = (
+    permix: PermixLike,
+    schema: RebacSchema<R>,
+    getDict: () => BridgeDictionary | undefined,
+    resource: R,
+    record: Row,
+    action: string,
+    visited: Set<string>,
+  ): boolean => {
+    const actor = permix.getActor();
+    return (permix.entitlements?.(resource, action) ?? []).some(
+      ({ from, where, owner }) =>
+        !visited.has(`${permixId(owner)}:${nodeId(record)}:${resource}:${action}`) &&
+        onPath(schema, resource, record, from) &&
+        (where === undefined || holds(where, record)) &&
+        evaluate(
+          asOwner(owner, actor),
+          schema,
+          getDict,
+          resource,
+          record,
+          action,
+          new Set(visited),
+        ),
+    );
   };
 
   return (permix, schema, subject, actionOrRule, visited = new Set()) => {
