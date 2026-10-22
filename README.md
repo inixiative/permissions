@@ -109,7 +109,10 @@ const check = createRebacCheck<Resource>((resource, segment) => relationTargets[
 
 Cycle detection uses **object identity** (a `WeakMap`), not `record.id` — so id-less or
 id-colliding records never produce a false "cycle", and a genuine self/mutual delegation
-(`read: 'read'`) throws instead of overflowing the stack.
+(`read: 'read'`) throws instead of overflowing the stack. The key includes the table being
+walked, so an entitlement's owner revisiting the same node is not a cycle. A loop built from grant
+data (two holders owning each other's entitlements) is not a schema bug and does not throw: the
+back edge contributes nothing, and only a chain that reaches a real grant allows.
 
 ## The actor
 
@@ -209,9 +212,60 @@ permix.setActor({ id: 'u1' });
 permix.check('organization', 'own', 'o1'); // true
 ```
 
-Holds the actor's role-derived grants (keyed by `resource` / `resource:id`), a superadmin bypass,
-and the actor id. App code populates it from roles/entitlements (hydration); the check engine reads
-it back through the `PermixLike` slice.
+Holds the actor's role-derived grants (keyed by `resource` / `resource:id`), its entitlements, a
+superadmin bypass, and the actor. App code populates it from roles and entitlements (hydration
+stays app-side); the check engine reads it back through the `PermixLike` slice.
+
+### Entitlements
+
+A grant says what a role holds. An entitlement says what a holder (a token, a membership, an
+integration) was given beyond its role: **an action, on a resource, from a position, with an
+optional `where`**. It is installed with the table of whoever granted it, bound once per `setup`
+call because the grantor is on the holder's row, never in the entitlement:
+
+```ts
+const o1 = createPermissions();
+await o1.setup({ resource: 'db:organization', id: 'o1', actions: { own: true } });
+
+await permix.setup(
+  [
+    // manage space s1 (and what is under it)
+    { resource: 'db:space', from: { resource: 'db:space', id: 's1' }, actions: { manage: true } },
+    // manage the slack integrations of s1
+    {
+      resource: 'db:integration',
+      from: { resource: 'db:space', id: 's1' },
+      where: { field: 'provider', operator: Operator.equals, value: 'slack' },
+      actions: { manage: true },
+    },
+  ],
+  { owner: o1 },
+);
+```
+
+Entitlements never enter the table. The engine consults them at a node only after the table and
+the schema rule both miss, with the record in hand, and one applies when all three hold:
+
+- **`from` is on the record's natural tree** — the record itself, or an ancestor reached through
+  the relations that resource's own `rel` arms name. A hydrated sideways foreign key is not a
+  position. Off the tree, the entitlement is not acting from where it says.
+- **`where` holds** — plain json-rules over the record at that node, `field` and `path` both
+  starting there and free to climb hydrated parents (`space.organizationId`). No binds: whatever
+  referred to the holder (its own id, its user) was written in when the grant was made. An absent
+  path reads as NULL, so write `where` positively. `where: false` or `null` is a `where` that fails,
+  not its absence.
+- **The grantor is still in control** — the owner's table, walked from this very record through
+  the normal schema, allows the action. That is the only tenancy check and it is live: a space
+  moved to another org stops reaching the grantor on the next request, no fetch. The record's
+  schema guards run inside that walk, and `{ actor }` / `{ self }` arms met there still see the
+  request's actor. A holder can never exceed its owner on the same record and action; owners nest
+  (token ← membership ← org) because an owner's table carries its own entitlements.
+
+`setup` refuses an entitlement without an `owner`, a `where` without a `from`, an `id` beside a
+`from` (a single row is `where: { field: 'id', … }`), a non-boolean action, a bind, or a malformed
+rule, before touching any state. `replace: true` clears entitlements with the table. `getJSON`
+carries grants only. Tenancy is as live as the owner's grants are id-keyed: an owner table with a
+resource-wide grant, or the superadmin flag, short-circuits before any walk.
 
 ## Hydration (Prisma example)
 
@@ -275,8 +329,8 @@ resolver or a custom hydration step.
 ## Boundary
 
 This package owns the **wrapping and checking**. It does **not** own hydration — loading records,
-deriving the relation map, mapping roles → grants, or populating permix from a user graph all stay
-in the consuming app (e.g. [`@template/permissions`](https://github.com/inixiative/template) injects
+deriving the relation map, mapping roles → grants, building an entitlement's owner table, or
+populating permix from a user graph all stay in the consuming app (e.g. [`@template/permissions`](https://github.com/inixiative/template) injects
 its Prisma-derived `resolveRelation`, app `rebacSchema`, and role mappings — including app-specific
 action sets like `ownerActions`). Action and role **naming conventions** also stay in the app —
 this core makes no assumptions about what actions or roles are called.

@@ -72,9 +72,20 @@ export type ResolveRelation<R extends string = string> = (
   relationSegment: string,
 ) => R | null;
 
+/** A node on a record's chain: the position an entitlement acts from. */
+export type Position = { resource: string; id: string };
+
+/**
+ * An installed entitlement, as the engine reads it back: it applies to a record only when `from`
+ * is on the record's hydrated path, `where` holds, and the `owner` (the table of whoever granted
+ * it) still allows the action on that record through the normal walk.
+ */
+export type Entitlement = { from: Position; where?: Condition | null; owner: PermixLike };
+
 /** The slice of the permix wrapper the rebac check engine consumes. */
 export type PermixLike = {
   check: (resource: string, action: string, id?: string, data?: unknown) => boolean;
   isSuperadmin?: () => boolean;
   getActor: () => Actor | null;
+  entitlements?: (resource: string, action: string) => Entitlement[];
 };
