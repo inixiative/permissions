@@ -36,8 +36,20 @@ export type ActionRule =
   | boolean // terminal allow (`true`) / deny (`false`)
   | null; // terminal deny (equivalent to `false`)
 
-/** One resource's permission entry: `actions: { name → ActionRule }`. */
-export type ResourcePermission = { actions: Record<string, ActionRule> };
+/**
+ * One resource's permission entry. `actions` are checked on an existing row. `collections` are
+ * checked on a scope row (the owner's keys, no id) or a draft row (the row about to be created):
+ * they name what may be done to the resource as a whole under that owner, which is why a collection
+ * rule is usually a proxy for an action on the owner. Inside a collection rule a string names a
+ * row action of the same resource, evaluated on the scope row.
+ */
+export type ResourcePermission = {
+  actions: Record<string, ActionRule>;
+  collections?: Record<string, ActionRule>;
+};
+
+/** Check a collection rule (`schema.permissions[resource].collections[name]`) instead of a row action. */
+export type CollectionCheck = { collection: string };
 
 /**
  * The permission schema. `permissions` maps a (map-qualified) resource — e.g. `db:User` — to its

@@ -10,6 +10,7 @@ import { isNil } from 'lodash-es';
 import type {
   ActionRule,
   Actor,
+  CollectionCheck,
   PermixLike,
   RebacSchema,
   ResolveRelation,
@@ -112,9 +113,19 @@ export type RebacCheck<R extends string = string> = (
   permix: PermixLike,
   schema: RebacSchema<R>,
   subject: Subject<R>,
-  actionOrRule: ActionRule,
+  actionOrRule: ActionRule | CollectionCheck,
   visited?: Set<string>,
 ) => boolean;
+
+export const isCollectionCheck = (value: ActionRule | CollectionCheck): value is CollectionCheck =>
+  typeof value === 'object' && value !== null && 'collection' in value;
+
+/** A collection's rule, or `null` (deny) when the resource declares none. */
+export const collectionRule = <R extends string>(
+  schema: RebacSchema<R>,
+  resource: R,
+  name: string,
+): ActionRule => schema.permissions[resource]?.collections?.[name] ?? null;
 
 /**
  * Build the rebac check, bound to an intra-map relation resolver.
@@ -252,6 +263,9 @@ export const createRebacCheck = <R extends string = string>(
   };
 
   return (permix, schema, subject, actionOrRule, visited = new Set()) => {
+    const rule = isCollectionCheck(actionOrRule)
+      ? collectionRule(schema, subject.resource, actionOrRule.collection)
+      : actionOrRule;
     // Built lazily on the first bridge hop: a check that never crosses a bridge must not pay for —
     // or be crashed by (indexBridges throws on malformed `data`) — a dictionary it never reads.
     let built = false;
@@ -265,14 +279,6 @@ export const createRebacCheck = <R extends string = string>(
       }
       return dict;
     };
-    return evaluate(
-      permix,
-      schema,
-      getDict,
-      subject.resource,
-      subject.record,
-      actionOrRule,
-      visited,
-    );
+    return evaluate(permix, schema, getDict, subject.resource, subject.record, rule, visited);
   };
 };

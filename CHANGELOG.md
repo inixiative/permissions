@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.0 — collections
+
+- **`collections` on a resource.** Beside `actions`, a resource may declare `collections: { name → ActionRule }`, checked with `{ collection: name }` in place of the action on a **scope row** (the owner's keys, no id) or a **draft row** (the row about to be created). A collection names what may be done to the resource as a whole under that owner — `readMany`, `create` — so its rule is usually a proxy for an action on the owner. Inside a collection rule a bare string names a row action of the same resource, evaluated on the scope row. A resource with no rule for the collection denies; a collection name is never a row action.
+- `RebacCheck` accepts `ActionRule | CollectionCheck`; `isCollectionCheck` and `collectionRule` are exported.
+
 ## 0.5.0 — the actor carries meta; self names its action
 
 - **Breaking: `setUserId`/`getUserId` become `setActor`/`getActor`.** The actor is `{ id, ...meta }`: plain data about who is acting (kind of principal, bound integration, …). `PermixLike` exposes `getActor`. `{ self }` reads `actor.id`.

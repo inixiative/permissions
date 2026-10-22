@@ -21,7 +21,7 @@ type ActionRule =
 ```
 
 A `RebacSchema` is `{ bridges?, permissions }` — `permissions` maps a (map-qualified) **resource**,
-e.g. `db:User`, to `{ actions: { name → ActionRule } }`; `bridges` are the cross-source edges a `rel`
+e.g. `db:User`, to `{ actions: { name → ActionRule }, collections?: { name → ActionRule } }`; `bridges` are the cross-source edges a `rel`
 walk may cross (see [Bridges](#bridges-cross-source-rel-walks)). A single-source schema omits
 `bridges` and can use bare resource keys.
 
@@ -161,6 +161,26 @@ resource.
 
 **Row rules can read the actor too.** A record's `permissionRules` may use `{ actor }` and actor
 binds; they still only widen (OR) that record's access.
+
+## Collections
+
+A row action is checked on a row. Some decisions are about the resource **as a whole under an
+owner** — may I list the contacts of this organization, may I create one here — and there is no row
+yet, or no single row. Declare those as `collections`, checked with `{ collection: name }` on a
+**scope row** (the owner's keys, no id) or a **draft row** (the row about to be created). The scope
+row has the same FK shape as a real row, so the same `rel` walks apply, which makes a collection a
+proxy for an action on the owner. Inside a collection rule a string names a row action of the same
+resource, evaluated on the scope row. A resource without a rule for the collection denies.
+
+```ts
+contact: {
+  actions:     { read: { rel: 'organization', action: 'read' }, manage: { rel: 'organization', action: 'manage' } },
+  collections: { readMany: 'read', create: { rel: 'organization', action: 'manage' } },
+},
+
+check(permix, schema, { resource: 'contact', record: { organizationId, organization } }, { collection: 'readMany' });
+check(permix, schema, { resource: 'contact', record: draft }, { collection: 'create' });
+```
 
 ## Bridges (cross-source `rel` walks)
 
