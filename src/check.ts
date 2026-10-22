@@ -163,10 +163,15 @@ export const createRebacCheck = <R extends string = string>(
       const schemaRule = schema.permissions[resource]?.actions[actionOrRule] ?? null;
       const rowRules = record.permissionRules as Record<string, ActionRule> | null | undefined;
       const rowRule = rowRules?.[actionOrRule];
-      // Row-level override is additive (OR) with the schema rule — a per-record grant can only widen.
-      const merged: ActionRule =
-        rowRule !== undefined ? { any: [schemaRule, rowRule] } : schemaRule;
-      return evaluate(permix, schema, getDict, resource, record, merged, visited);
+      const id = recordId(record);
+      const ruleEntries = (permix.rules?.(resource, actionOrRule) ?? [])
+        .filter((entry) => entry.id === undefined || entry.id === id)
+        .map((entry) => entry.rule);
+      // A row-level override and a rule-valued entry are additive (OR) with the schema rule: they only widen.
+      const arms = [schemaRule, ...(rowRule !== undefined ? [rowRule] : []), ...ruleEntries];
+      return arms.some((arm) =>
+        evaluate(permix, schema, getDict, resource, record, arm, new Set(visited)),
+      );
     }
 
     const rule = actionOrRule;

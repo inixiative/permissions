@@ -72,9 +72,22 @@ export type ResolveRelation<R extends string = string> = (
   relationSegment: string,
 ) => R | null;
 
+/**
+ * A holder's entitlements, keyed by grant key: `resource` is every row of it, `resource:<id>` is
+ * that row. Each key maps an action to `true` or an {@link ActionRule} over the row. Turn them into
+ * permix entries with `entitlementEntries`; where they take effect is the app's call (a holder's
+ * keys land only where its owner reaches them).
+ */
+export type Entitlements = Record<string, Record<string, true | ActionRule>> | null;
+
+/** A rule-valued entry: on the whole resource (no `id`) or on one row. */
+export type RuleEntry = { id?: string; rule: ActionRule };
+
 /** The slice of the permix wrapper the rebac check engine consumes. */
 export type PermixLike = {
   check: (resource: string, action: string, id?: string, data?: unknown) => boolean;
   isSuperadmin?: () => boolean;
   getActor: () => Actor | null;
+  /** Rule-valued entries on `resource` for `action`, OR'd with the schema rule at the merge point. */
+  rules?: (resource: string, action: string) => RuleEntry[];
 };

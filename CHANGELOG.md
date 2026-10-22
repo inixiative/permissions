@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.0 — keyed entitlements, rule-valued entries, write-time binding
+
+- **Entitlements are keyed by resource.** `Entitlements = Record<key, Record<action, true | ActionRule>> | null`; `db:integration` is every integration, `db:integration:i7` is that row, `db:integration:self` is the holder's own row (the app resolves it). `parseGrantKey` and `entitlementEntries` (keys → permix entries) are exported. Where a holder's keys take effect is the app's call: a holder's keys land only where its owner reaches them.
+- **Rule-valued entries.** A permix entry's action may be an `ActionRule`; the engine ORs matching entries (resource-wide, or keyed to the record's id) with the schema rule and the row rule at the merge point. `Permix.rules(resource, action)` reads them back.
+- **Write-time binding.** `createInterpolator(roots)` returns a binder: keys name rows by `self` or `$<root>` (that root's `id`), rule values may be `{ bind: '<root>.<path>' }`; a literal on an `id` / `*Id` field, or a root the writer did not register, throws `BindError`. Ids are bound, never written.
+- `PermixLike` gains optional `rules`.
+
 ## 0.5.0 — the actor carries meta; self names its action
 
 - **Breaking: `setUserId`/`getUserId` become `setActor`/`getActor`.** The actor is `{ id, ...meta }`: plain data about who is acting (kind of principal, bound integration, …). `PermixLike` exposes `getActor`. `{ self }` reads `actor.id`.
