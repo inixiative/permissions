@@ -685,6 +685,24 @@ describe('the chain: token ← org-user’s entitlement ← organization’s rig
     expect(manage(t, 'db:space', s1)).toBe(false);
   });
 
+  test('an integration in the middle: token ← integration ← org-user ← org, intact', async () => {
+    const integrationOf = (orgUserRow: PermixLike) => tokenOf(orgUserRow, [manageS1]);
+    const t = await tokenOf(await integrationOf(await orgUser('member', [manageS1])), [manageS1]);
+    expect(manage(t, 'db:space', s1)).toBe(true);
+    expect(manage(t, 'db:space', s1moved)).toBe(false);
+    const grounded = await tokenOf(await integrationOf(await orgUser('admin')), [manageS1]);
+    expect(manage(grounded, 'db:space', s1)).toBe(true);
+  });
+
+  test('both ends hold it, the integration in the middle does not: nothing', async () => {
+    const member = await orgUser('member', [manageS1]);
+    const readOnlyIntegration = await tokenOf(member, [readS1]);
+    expect(manage(await tokenOf(readOnlyIntegration, [manageS1]), 'db:space', s1)).toBe(false);
+    const emptyIntegration = createPermissions();
+    await entitle(emptyIntegration, [], member);
+    expect(manage(await tokenOf(emptyIntegration, [manageS1]), 'db:space', s1)).toBe(false);
+  });
+
   test('a user-owned holder (a scoped JWT): the owner is the user’s memberships', async () => {
     const readO1: EntitlementEntry = {
       resource: 'db:organization',
