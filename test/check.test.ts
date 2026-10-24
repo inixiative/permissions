@@ -32,7 +32,7 @@ const schema: RebacSchema = {
     },
     membership: {
       actions: {
-        leave: { self: 'userId', action: 'operate' },
+        leave: { rel: 'user', action: 'operate' },
         manage: { rel: 'organization', action: 'manage' },
       },
     },
@@ -49,10 +49,10 @@ const schema: RebacSchema = {
 };
 
 const relations: Record<string, Record<string, string>> = {
-  membership: { organization: 'organization' },
+  membership: { organization: 'organization', user: 'user' },
 };
 const resolveRelation: ResolveRelation = (resource, seg) => relations[resource]?.[seg] ?? null;
-const check = createRebacCheck(resolveRelation, { selfResource: 'user' });
+const check = createRebacCheck(resolveRelation);
 
 describe('rebac check', () => {
   test('ABAC { rule } leaf', () => {
@@ -92,70 +92,59 @@ describe('rebac check', () => {
     getActor: () => (userId ? { id: userId } : null),
   });
   const leave = (permix: PermixLike, userId: string) =>
-    check(permix, schema, { resource: 'membership', record: { userId } }, 'leave');
+    check(
+      permix,
+      schema,
+      { resource: 'membership', record: { userId, user: { id: userId } } },
+      'leave',
+    );
 
-  test("{ self, action } needs the id to match AND the action on the actor's own entry", () => {
+  test('your own row is a walk to your own entry: the user relation, then the action there', () => {
     expect(leave(actor('u1', 'own'), 'u1')).toBe(true);
     expect(leave(actor('u1', 'own'), 'u2')).toBe(false);
     expect(leave(actor(null), 'u1')).toBe(false);
   });
 
-  test("{ self, action } walks the self resource's delegation chain", () => {
+  test('the walk follows the user entry’s delegation chain', () => {
     expect(leave(actor('u1', 'operate'), 'u1')).toBe(true);
     expect(leave(actor('u1', 'manage'), 'u1')).toBe(true);
   });
 
-  test('{ self, action } refuses a narrowed actor that lacks the action on itself', () => {
+  test('a narrowed actor that lacks the action on itself is refused on its own row', () => {
     expect(leave(actor('u1', 'read'), 'u1')).toBe(false);
     expect(leave(actor('u1'), 'u1')).toBe(false);
   });
 
-  test('{ self, action } takes any user action, custom ones included', () => {
+  test('any user action works there, custom ones included', () => {
     const s: RebacSchema = {
       permissions: {
         ...schema.permissions,
-        membership: { actions: { export: { self: 'userId', action: 'report.export' } } },
+        membership: { actions: { export: { rel: 'user', action: 'report.export' } } },
       },
     };
     const run = (permix: PermixLike) =>
-      check(permix, s, { resource: 'membership', record: { userId: 'u1' } }, 'export');
+      check(
+        permix,
+        s,
+        { resource: 'membership', record: { userId: 'u1', user: { id: 'u1' } } },
+        'export',
+      );
     expect(run(actor('u1', 'report.export'))).toBe(true);
     expect(run(actor('u1', 'own'))).toBe(false);
   });
 
-  test('a bare { self } is an error, not a silent pass', () => {
-    const s: RebacSchema = {
-      permissions: { membership: { actions: { leave: { self: 'userId' } as never } } },
-    };
-    expect(() =>
-      check(actor('u1', 'own'), s, { resource: 'membership', record: { userId: 'u1' } }, 'leave'),
-    ).toThrow('A self arm must name an action');
-  });
-
-  test('a self arm without a configured selfResource is an error', () => {
-    const noSelf = createRebacCheck(resolveRelation);
-    expect(() =>
-      noSelf(
+  test('a row without its user loaded is denied, never guessed from the key', () => {
+    expect(
+      check(
         actor('u1', 'own'),
         schema,
         { resource: 'membership', record: { userId: 'u1' } },
         'leave',
       ),
-    ).toThrow('selfResource');
+    ).toBe(false);
   });
 
-  test("a self arm that loops back through the actor's own entry is a cycle, not a hang", () => {
-    const s: RebacSchema = {
-      permissions: {
-        user: { actions: { loop: { self: 'id', action: 'loop' } } },
-      },
-    };
-    expect(() => check(actor('u1'), s, { resource: 'user', record: { id: 'u1' } }, 'loop')).toThrow(
-      'Cycle detected',
-    );
-  });
-
-  test('a superadmin passes a self arm', () => {
+  test('a superadmin passes on anyone’s row', () => {
     expect(leave(stub({ superadmin: true }), 'someone-else')).toBe(true);
   });
 
@@ -638,13 +627,13 @@ describe('dictionary is built lazily (adversarial: malformed data must not crash
       ],
       permissions: {
         'db:User': {
-          actions: { own: true, leave: { self: 'userId', action: 'own' } },
+          actions: { leave: { rule: { field: 'userId', operator: Operator.equals, value: 'me' } } },
         },
       },
     };
-    const c = createRebacCheck<string>(() => null, { selfResource: 'db:User' });
+    const c = createRebacCheck<string>(() => null);
     // Duplicate "one"-side (Account.id) rows would make indexBridges throw — but this check
-    // resolves via { self } and never hops, so the dictionary must never be built.
+    // resolves on the record and never hops, so the dictionary must never be built.
     const subject = {
       resource: 'db:User',
       record: { id: 'u1', userId: 'me' },
@@ -729,7 +718,7 @@ describe('cycle detection (regressions for the adversarial findings)', () => {
 });
 
 describe('actor meta: { actor } predicates and actor.<field> binds in { rule }', () => {
-  const check = createRebacCheck<string>(() => null, { selfResource: 'user' });
+  const check = createRebacCheck<string>(() => null);
   const as = (actor: Actor | null): PermixLike => ({
     check: () => false,
     isSuperadmin: () => false,

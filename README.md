@@ -12,7 +12,6 @@ core stays small and never imports a database layer itself. Record **hydration s
 type ActionRule =
   | string                       // rbac: delegate to another action on the same resource
   | { rel: string; action: string }  // rebac: walk a relation, then check `action` on the target
-  | { self: string; action: string } // record[field] === actor id AND the actor holds `action` on itself
   | { rule: Condition }          // abac: a json-rules predicate over the record (actor fields bound as `actor.<field>`)
   | { actor: Condition }         // abac: a json-rules predicate over the actor itself
   | { any: ActionRule[] }        // OR
@@ -45,8 +44,8 @@ const schema: RebacSchema = {
     },
     membership: {
       actions: {
-        read: { any: [{ self: 'userId', action: 'read' }, { rel: 'organization', action: 'read' }] },
-        leave: { self: 'userId', action: 'operate' }, // the actor's own row, if it may act as itself
+        read: { any: [{ rel: 'user', action: 'read' }, { rel: 'organization', action: 'read' }] },
+        leave: { rel: 'user', action: 'operate' }, // your own row: a walk to your own user entry
         manage: { rel: 'organization', action: 'manage' },
       },
     },
@@ -80,21 +79,19 @@ import { createRebacCheck } from '@inixiative/permissions';
 // inject the ORM-specific INTRA-map relation resolver (e.g. derived from a Prisma model map)
 const check = createRebacCheck(
   (resource, segment) => relationTargets[resource]?.[segment] ?? null,
-  { selfResource: 'user' }, // where `{ self, action }` checks the actor's own action
 );
 
 check(permix, schema, { resource: 'membership', record }, 'manage');
 // string → permix grant or schema delegation; { rel } walks `record.organization` (or a bridge —
-// see below); { self, action } matches the actor and checks `action` on its own entry; { rule } evals json-rules; any/all compose. Cycles throw.
+// see below); { rule } evals json-rules over the record; { actor } over the actor; any/all compose. Cycles throw.
 ```
 
-**`self` is paired with an action.** `{ self: 'userId', action: 'operate' }` passes only when
-`record.userId` is the actor's id **and** the actor holds `operate` on its own entry: the
-`selfResource` record `{ id: actorId }`, evaluated through the schema like any other check, so the
-delegation chain (`read → operate → manage → own`) and custom user actions (`'report.export'`) work.
-A full principal holds `own` on itself and passes as before; a narrowed one (say a credential that
-only holds `read` on its user) no longer passes a write arm on identity alone. A bare `{ self }`
-throws, and `actionRuleSchema` rejects it.
+**There is no `self` arm. Identity lives in the table.** A principal holds grants only on its own
+user entry, so acting on your own row is `{ rel: 'user', action }`: the walk reaches the hydrated
+`record.user` and checks `action` there, through the delegation chain and custom user actions alike.
+A full principal holds `own` on itself; a narrowed one (a credential holding only `read` on its
+user) fails a write arm on its own row; a row without its `user` loaded is denied, never guessed
+from the foreign key. `actionRuleSchema` rejects `self`.
 
 The check takes a **subject** — `{ resource, record, data? }` — not a bare record; `data` is the
 supplemental rows that back cross-source bridge hops (below). `createRebacCheck` is generic over the
@@ -118,9 +115,8 @@ back edge contributes nothing, and only a chain that reaches a real grant allows
 
 The actor is plain data, like a record: an `id` plus whatever the app knows about who is acting
 (what kind of principal it is, the integrations a credential may reach, …). The app sets it once
-per request with `permix.setActor({ id, ...meta })`; rules read it three ways:
+per request with `permix.setActor({ id, ...meta })`; rules read it two ways, never for identity:
 
-- `{ self, action }` matches `record[self]` against `actor.id`;
 - `{ actor: Condition }` is a json-rules predicate over the actor itself;
 - `{ rule: Condition }` may compare the record against the actor with `{ bind: 'actor.<field>' }`.
 
@@ -189,7 +185,7 @@ const schema: RebacSchema = {
 
 Bridges **don't hydrate** (they aren't FK relations) — the engine traverses them *synthetically*.
 The join key is a scalar already on the record (`User.accountId`), so a hop ending in an rbac grant
-needs nothing extra. When a downstream action reads the far record's *fields* (abac / `self`), pass
+needs nothing extra. When a downstream action reads the far record's *fields* (abac), pass
 those rows as `subject.data` (keyed `map:model` — the `indexBridges` shape) and the engine
 builds the lookup itself:
 
@@ -257,7 +253,7 @@ the schema rule both miss, with the record in hand, and one applies when all thr
 - **The grantor is still in control** — the owner's table, walked from this very record through
   the normal schema, allows the action. That is the only tenancy check and it is live: a space
   moved to another org stops reaching the grantor on the next request, no fetch. The record's
-  schema guards run inside that walk, and `{ actor }` / `{ self }` arms met there still see the
+  schema guards run inside that walk, and `{ actor }` arms met there still see the
   request's actor. A holder can never exceed its owner on the same record and action; owners nest
   (token ← membership ← org) because an owner's table carries its own entitlements.
 

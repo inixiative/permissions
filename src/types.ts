@@ -4,18 +4,14 @@ export type { Row };
 
 export type RelationCheck = { rel: string; action: string }; // walk a relation, then check `action`
 export type RuleCheck = { rule: Condition }; // ABAC predicate (json-rules) over the record
-/**
- * `record[self]` is the actor's id AND the actor holds `action` on its own entry (the check's
- * `selfResource`, e.g. `db:user:<id>`). `action` is any action of that resource, custom ones included.
- */
-export type SelfCheck = { self: string; action: string };
 /** An ABAC predicate (json-rules) over the actor itself: `{ actor: { field: 'kind', … } }`. */
 export type ActorCheck = { actor: Condition };
 
 /**
  * Who is acting: an id plus whatever the app knows about them — plain data, like a record (what
- * kind of principal it is, the integration it is bound to, …). `{ self }` reads its `id`;
- * `{ actor }` evaluates a condition over it; `{ rule }` reads its fields as `actor.<field>` binds.
+ * kind of principal it is, the integration it is bound to, …). `{ actor }` evaluates a condition
+ * over it; `{ rule }` reads its fields as `actor.<field>` binds. Identity is never read from it:
+ * acting on your own row is `{ rel: '<relation to yourself>', action }`, a walk to your own entry.
  * Give every actor the same fields (type them through `createPermissions<Action, YourActor>()`):
  * a rule that binds a field an actor lacks throws, and an `{ actor }` condition reads it as null.
  */
@@ -29,7 +25,6 @@ export type ActionRule =
   | string // delegate to another action on the same resource
   | RelationCheck
   | RuleCheck
-  | SelfCheck
   | ActorCheck
   | { any: ActionRule[] } // OR
   | { all: ActionRule[] } // AND
