@@ -1,4 +1,4 @@
-import type { ActionRule, RebacSchema, Row } from './types';
+import type { ActionRule, RebacSchema } from './types';
 
 // The relations a resource's own rules walk: the first segment of every `rel` arm, any depth.
 const parentFieldsOf = new WeakMap<object, Set<string>>();
@@ -18,8 +18,3 @@ export const parentFields = (schema: RebacSchema<string>, resource: string): Set
   parentFieldsOf.set(actions, fields);
   return fields;
 };
-
-// permix keys grants by string id; coerce so a numeric `record.id` matches (the bridge path
-// already does `String(farId)` — keep the direct path consistent).
-export const recordId = (record: Row): string | undefined =>
-  record.id == null ? undefined : String(record.id);

@@ -8,7 +8,8 @@ import {
   type RuleValue,
 } from '@inixiative/json-rules';
 import { isNil } from 'lodash-es';
-import { parentFields, recordId } from './tree';
+import { parentFields } from './parentFields';
+import { recordId } from './recordId';
 import type {
   ActionRule,
   Actor,
