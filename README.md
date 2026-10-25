@@ -263,6 +263,30 @@ rule, before touching any state. `replace: true` clears entitlements with the ta
 carries grants only. Tenancy is as live as the owner's grants are id-keyed: an owner table with a
 resource-wide grant, or the superadmin flag, short-circuits before any walk.
 
+#### Granting one
+
+A grant is an action, and grant time mirrors read time through the same check. Build the grant
+check with the same resolver as the rebac check, then ask it with the writer's table and the
+hydrated record at `from`:
+
+```ts
+const canGrantEntitlement = createCanGrantEntitlement(resolveRelation);
+
+canGrantEntitlement(writer, schema, {
+  resource: 'db:integration',
+  from: { resource: 'db:space', id: 's1' },
+  actions: { manage: true },
+}, s1); // can the writer manage every integration under s1?
+```
+
+Each action the entry grants is checked on a stand-in record of `entry.resource` placed under the
+position along that resource's own `rel` tree. The writer's own entitlements and owner chain apply,
+so a token never grants past its holder, and `{ actor }` arms see the writer's actor. A `where` only
+narrows, so the writer must cover the whole collection at the position. A granted action skips its
+rule, so an action whose rule puts a condition on the record or the actor is granted at its
+strongest: the writer must also hold the resource's terminal (`null`) actions, and on a resource
+without one only a superadmin grants it.
+
 ## Hydration (Prisma example)
 
 `check` walks relation **fields on the record you pass in** — it never queries. The robust pattern

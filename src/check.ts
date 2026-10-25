@@ -8,6 +8,7 @@ import {
   type RuleValue,
 } from '@inixiative/json-rules';
 import { isNil } from 'lodash-es';
+import { parentFields, recordId } from './tree';
 import type {
   ActionRule,
   Actor,
@@ -60,34 +61,10 @@ const asOwner = (owner: PermixLike, actor: Actor | null): PermixLike => {
 const holds = (where: Condition | null, record: Row): boolean =>
   where !== null && checkRule(where, record) === true;
 
-// The relations a resource's own rules walk: the first segment of every `rel` arm, any depth.
-const parentFieldsOf = new WeakMap<object, Set<string>>();
-const parentFields = (schema: RebacSchema<string>, resource: string): Set<string> => {
-  const actions = schema.permissions[resource]?.actions;
-  if (!actions) return new Set();
-  const cached = parentFieldsOf.get(actions);
-  if (cached) return cached;
-  const fields = new Set<string>();
-  const visit = (rule: ActionRule): void => {
-    if (!rule || typeof rule !== 'object') return;
-    if ('rel' in rule) fields.add(rule.rel.split('.')[0]);
-    else if ('any' in rule) rule.any.forEach(visit);
-    else if ('all' in rule) rule.all.forEach(visit);
-  };
-  Object.values(actions).forEach(visit);
-  parentFieldsOf.set(actions, fields);
-  return fields;
-};
-
 const splitResource = (resource: string): [string, string] => {
   const i = resource.indexOf(':');
   return i === -1 ? ['', resource] : [resource.slice(0, i), resource.slice(i + 1)];
 };
-
-// permix keys grants by string id; coerce so a numeric `record.id` matches (the bridge path
-// already does `String(farId)` — keep the direct path consistent).
-const recordId = (record: Row): string | undefined =>
-  record.id == null ? undefined : String(record.id);
 
 type BridgeHop = {
   farResource: string;
