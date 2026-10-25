@@ -70,12 +70,12 @@ const at = (resource: string, id: string) => ({ resource, id });
 
 const entry = (
   resource: string,
-  from: { resource: string; id: string },
+  anchor: { resource: string; id: string },
   actions: string[],
   where?: EntitlementEntry['where'],
 ): EntitlementEntry => ({
   resource,
-  from,
+  anchor,
   actions: Object.fromEntries(actions.map((a) => [a, true])),
   ...(where === undefined ? {} : { where }),
 });
@@ -89,10 +89,10 @@ const writer = async (entries: PermissionEntry[], model = 'User') => {
 const holding = (resource: string, id: string, actions: string[]) =>
   writer([{ resource, id, actions: Object.fromEntries(actions.map((a) => [a, true])) }]);
 
-const may = (permix: Permix, granted: EntitlementEntry, position: Row) =>
-  canGrantEntitlement(permix, schema, granted, position);
+const may = (permix: Permix, granted: EntitlementEntry, anchor: Row) =>
+  canGrantEntitlement(permix, schema, granted, anchor);
 
-describe('canGrantEntitlement: never more than the writer could do from that position', () => {
+describe('canGrantEntitlement: never more than the writer could do from that anchor', () => {
   test('a manager grants manage on the organization, not own', async () => {
     const manager = await holding('db:organization', 'o1', ['manage']);
     expect(
@@ -122,7 +122,7 @@ describe('canGrantEntitlement: never more than the writer could do from that pos
     expect(may(await holding('db:organization', 'o1', ['own']), assign, s1)).toBe(false);
   });
 
-  test('a child resource from a position: the integrations of s1, judged on a stand-in under s1', async () => {
+  test('a child resource from an anchor: the integrations of s1, judged on a stand-in under s1', async () => {
     const integrations = entry('db:integration', at('db:space', 's1'), ['manage']);
     expect(may(await holding('db:space', 's1', ['manage']), integrations, s1)).toBe(true);
     expect(may(await holding('db:space', 's1', ['read']), integrations, s1)).toBe(false);
@@ -134,19 +134,19 @@ describe('canGrantEntitlement: never more than the writer could do from that pos
     expect(may(await holding('db:space', 's1', ['manage']), integrations, o1)).toBe(false);
   });
 
-  test('a position off the resource tree grants nothing', async () => {
+  test('an anchor off the resource tree grants nothing', async () => {
     const offTree = entry('db:integration', at('db:user', 'u1'), ['read']);
     expect(may(await holding('db:user', 'u1', ['own']), offTree, { id: 'u1' })).toBe(false);
   });
 
-  test('the position must be the record the entitlement names', async () => {
+  test('the anchor must be the record the entitlement names', async () => {
     const owner = await holding('db:organization', 'o1', ['own']);
     expect(may(owner, entry('db:organization', at('db:organization', 'o9'), ['read']), o1)).toBe(
       false,
     );
   });
 
-  test('a where only narrows: the writer must cover the whole collection at that position', async () => {
+  test('a where only narrows: the writer must cover the whole collection at that anchor', async () => {
     const slack = { field: 'provider', operator: Operator.equals, value: 'slack' };
     const granted = entry('db:integration', at('db:space', 's1'), ['manage'], slack);
     expect(may(await holding('db:space', 's1', ['manage']), granted, s1)).toBe(true);
@@ -156,7 +156,7 @@ describe('canGrantEntitlement: never more than the writer could do from that pos
   test('false actions grant nothing and need nothing', async () => {
     const granted: EntitlementEntry = {
       resource: 'db:organization',
-      from: at('db:organization', 'o1'),
+      anchor: at('db:organization', 'o1'),
       actions: { own: false },
     };
     expect(may(await holding('db:organization', 'o1', ['read']), granted, o1)).toBe(true);

@@ -1,7 +1,7 @@
 import { type Condition, validateRule } from '@inixiative/json-rules';
 import { castArray } from 'lodash-es';
 import { createPermix } from 'permix';
-import type { Actor, Entitlement, PermixLike, Position } from './types';
+import type { Actor, Anchor, Entitlement, PermixLike } from './types';
 
 export type ActionState<Action extends string = string> = Partial<
   Record<Action, boolean | ((data?: unknown) => boolean)>
@@ -15,7 +15,7 @@ export type GrantEntry<Action extends string = string> = {
 };
 
 /**
- * An entitlement: `actions` on `resource`, acting FROM a position on the record's chain, narrowed
+ * An entitlement: `actions` on `resource`, acting from an anchor on the record's chain, narrowed
  * by `where` — plain json-rules over the record at that node, literals and record paths only;
  * whatever referred to the holder (its own id, its user) was written in when the grant was made.
  * Whoever granted it is the `owner` of the `setup` call that installs it, and at check time the
@@ -23,7 +23,7 @@ export type GrantEntry<Action extends string = string> = {
  */
 export type EntitlementEntry<Action extends string = string> = {
   resource: string;
-  from: Position;
+  anchor: Anchor;
   where?: Condition | null;
   actions: Partial<Record<Action, boolean>>;
 };
@@ -37,28 +37,28 @@ export type SetupOptions = { replace?: boolean; owner?: PermixLike };
 type PermissionState = Record<string, ActionState>;
 
 const isEntitlement = (entry: PermissionEntry): entry is EntitlementEntry =>
-  (entry as EntitlementEntry).from !== undefined;
+  (entry as EntitlementEntry).anchor !== undefined;
 
-const isPosition = (value: unknown): value is Position =>
+const isAnchor = (value: unknown): value is Anchor =>
   typeof value === 'object' &&
   value !== null &&
-  typeof (value as Position).resource === 'string' &&
-  (value as Position).resource.length > 0 &&
-  typeof (value as Position).id === 'string' &&
-  (value as Position).id.length > 0;
+  typeof (value as Anchor).resource === 'string' &&
+  (value as Anchor).resource.length > 0 &&
+  typeof (value as Anchor).id === 'string' &&
+  (value as Anchor).id.length > 0;
 
 const validate = (entry: PermissionEntry, owner: PermixLike | undefined): void => {
   if (!isEntitlement(entry)) {
     if ((entry as EntitlementEntry).where !== undefined)
-      throw new Error('`where` needs `from`: an entitlement acts from a position');
+      throw new Error('`where` needs `anchor`: an entitlement acts from an anchor');
     return;
   }
-  if (!isPosition(entry.from))
-    throw new Error('`from` is a position: { resource, id }, both non-empty strings');
+  if (!isAnchor(entry.anchor))
+    throw new Error('`anchor` is { resource, id }, both non-empty strings');
   if (!owner)
-    throw new Error('an entry with `from` needs setup(entries, { owner }): whoever granted it');
+    throw new Error('an entry with `anchor` needs setup(entries, { owner }): whoever granted it');
   if ((entry as GrantEntry).id !== undefined)
-    throw new Error('`from` with `id`: a single row is `where: { field: "id", … }`');
+    throw new Error('`anchor` with `id`: a single row is `where: { field: "id", … }`');
   if (
     Object.values(entry.actions).some((value) => value !== undefined && typeof value !== 'boolean')
   )
@@ -124,10 +124,10 @@ export const createPermissions = <
       }
       for (const entry of entries) {
         if (isEntitlement(entry)) {
-          const { resource, from, where, actions } = entry;
+          const { resource, anchor, where, actions } = entry;
           entitlements.push({
             resource,
-            from,
+            anchor,
             where,
             actions,
             owner: options?.owner as PermixLike,
@@ -145,7 +145,7 @@ export const createPermissions = <
     entitlements: (resource, action) =>
       entitlements
         .filter((e) => e.resource === resource && e.actions[action] === true)
-        .map(({ from, where, owner }) => ({ from, where, owner })),
+        .map(({ anchor, where, owner }) => ({ anchor, where, owner })),
     setSuperadmin: (value) => {
       isSuperadmin = value;
     },

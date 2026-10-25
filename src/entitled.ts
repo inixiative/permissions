@@ -10,7 +10,7 @@ const holds = (where: Condition | null, record: Row): boolean =>
   where !== null && checkRule(where, record) === true;
 
 // Entitlements are consulted after the table and the schema both miss, at the node the holder's
-// own walk reached, with the record in hand. One applies when its position is on the record's
+// own walk reached, with the record in hand. One applies when its anchor is on the record's
 // path, its `where` holds, and whoever granted it can still do the action on this record: the
 // owner's own table, walked from here. A space moved to another org stops reaching its grantor.
 // An owner that is already on this walk for this node and action is a loop built from grant
@@ -25,9 +25,9 @@ export const entitled = <R extends string>(
 ): boolean => {
   const actor = permix.getActor();
   return (permix.entitlements?.(resource, action) ?? []).some(
-    ({ from, where, owner }) =>
+    ({ anchor, where, owner }) =>
       !visited.has(`${permixId(owner)}:${nodeId(record)}:${resource}:${action}`) &&
-      onPath(walk.resolveRelation, walk.schema, resource, record, from) &&
+      onPath(walk.resolveRelation, walk.schema, resource, record, anchor) &&
       (where === undefined || holds(where, record)) &&
       evaluate(walk, asOwner(owner, actor), resource, record, action, new Set(visited)),
   );

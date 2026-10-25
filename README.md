@@ -184,7 +184,7 @@ stays app-side); the check engine reads it back through the `PermixLike` slice.
 ### Entitlements
 
 A grant says what a role holds. An entitlement says what a holder (a token, a membership, an
-integration) was given beyond its role: **an action, on a resource, from a position, with an
+integration) was given beyond its role: **an action, on a resource, from an anchor, with an
 optional `where`**. It is installed with the table of whoever granted it, bound once per `setup`
 call because the grantor is on the holder's row, never in the entitlement:
 
@@ -195,11 +195,11 @@ await o1.setup({ resource: 'db:organization', id: 'o1', actions: { own: true } }
 await permix.setup(
   [
     // manage space s1 (and what is under it)
-    { resource: 'db:space', from: { resource: 'db:space', id: 's1' }, actions: { manage: true } },
+    { resource: 'db:space', anchor: { resource: 'db:space', id: 's1' }, actions: { manage: true } },
     // manage the slack integrations of s1
     {
       resource: 'db:integration',
-      from: { resource: 'db:space', id: 's1' },
+      anchor: { resource: 'db:space', id: 's1' },
       where: { field: 'provider', operator: Operator.equals, value: 'slack' },
       actions: { manage: true },
     },
@@ -211,9 +211,9 @@ await permix.setup(
 Entitlements never enter the table. The engine consults them at a node only after the table and
 the schema rule both miss, with the record in hand, and one applies when all three hold:
 
-- **`from` is on the record's natural tree** — the record itself, or an ancestor reached through
+- **`anchor` is on the record's natural tree** — the record itself, or an ancestor reached through
   the relations that resource's own `rel` arms name. A hydrated sideways foreign key is not a
-  position. Off the tree, the entitlement is not acting from where it says.
+  anchor. Off the tree, the entitlement is not acting from where it says.
 - **`where` holds** — plain json-rules over the record at that node, `field` and `path` both
   starting there and free to climb hydrated parents (`space.organizationId`). Whatever referred to
   the holder (its own id, its user) is written in as a literal when the grant is made. An absent
@@ -226,8 +226,8 @@ the schema rule both miss, with the record in hand, and one applies when all thr
   request's actor as `__actor`. A holder can never exceed its owner on the same record and action; owners nest
   (token ← membership ← org) because an owner's table carries its own entitlements.
 
-`setup` refuses an entitlement without an `owner`, a `where` without a `from`, an `id` beside a
-`from` (a single row is `where: { field: 'id', … }`), a non-boolean action, or a malformed
+`setup` refuses an entitlement without an `owner`, a `where` without a `anchor`, an `id` beside a
+`anchor` (a single row is `where: { field: 'id', … }`), a non-boolean action, or a malformed
 rule, before touching any state. `replace: true` clears entitlements with the table. `getJSON`
 carries grants only. Tenancy is as live as the owner's grants are id-keyed: an owner table with a
 resource-wide grant, or the superadmin flag, short-circuits before any walk.
@@ -236,22 +236,22 @@ resource-wide grant, or the superadmin flag, short-circuits before any walk.
 
 A grant is an action, and grant time mirrors read time through the same check. Build the grant
 check with the same resolver as the rebac check, then ask it with the writer's table and the
-hydrated record at `from`:
+hydrated record at `anchor`:
 
 ```ts
 const canGrantEntitlement = createCanGrantEntitlement(resolveRelation);
 
 canGrantEntitlement(writer, schema, {
   resource: 'db:integration',
-  from: { resource: 'db:space', id: 's1' },
+  anchor: { resource: 'db:space', id: 's1' },
   actions: { manage: true },
 }, s1); // can the writer manage every integration under s1?
 ```
 
 Each action the entry grants is checked on a stand-in record of `entry.resource` placed under the
-position along that resource's own `rel` tree. The writer's own entitlements and owner chain apply,
+anchor along that resource's own `rel` tree. The writer's own entitlements and owner chain apply,
 so a token never grants past its holder, and a `{ rule }` sees the writer's actor as `__actor`. A `where` only
-narrows, so the writer must cover the whole collection at the position.
+narrows, so the writer must cover the whole collection at the anchor.
 
 An action's rule is ReBAC (walks to parents) plus ABAC (`{ rule }` conditions on the record,
 conditions on `__actor`, who acts). An entitlement holds the action outright: its holder never
