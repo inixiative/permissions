@@ -12,9 +12,7 @@ core stays small and never imports a database layer itself. Record **hydration s
 type ActionRule =
   | string                       // rbac: delegate to another action on the same resource
   | { rel: string; action: string }  // rebac: walk a relation, then check `action` on the target
-  | { self: string; action: string } // record[field] === actor id AND the actor holds `action` on itself
-  | { rule: Condition }          // abac: a json-rules predicate over the record (actor fields bound as `actor.<field>`)
-  | { actor: Condition }         // abac: a json-rules predicate over the actor itself
+  | { rule: Condition }          // abac: a json-rules predicate over the record, the actor under `__actor`
   | { any: ActionRule[] }        // OR
   | { all: ActionRule[] }        // AND
   | null;                        // terminal deny
@@ -45,8 +43,8 @@ const schema: RebacSchema = {
     },
     membership: {
       actions: {
-        read: { any: [{ self: 'userId', action: 'read' }, { rel: 'organization', action: 'read' }] },
-        leave: { self: 'userId', action: 'operate' }, // the actor's own row, if it may act as itself
+        read: { any: [{ rel: 'user', action: 'read' }, { rel: 'organization', action: 'read' }] },
+        leave: { rel: 'user', action: 'operate' }, // your own row: a walk to your own user entry
         manage: { rel: 'organization', action: 'manage' },
       },
     },
@@ -80,21 +78,19 @@ import { createRebacCheck } from '@inixiative/permissions';
 // inject the ORM-specific INTRA-map relation resolver (e.g. derived from a Prisma model map)
 const check = createRebacCheck(
   (resource, segment) => relationTargets[resource]?.[segment] ?? null,
-  { selfResource: 'user' }, // where `{ self, action }` checks the actor's own action
 );
 
 check(permix, schema, { resource: 'membership', record }, 'manage');
 // string → permix grant or schema delegation; { rel } walks `record.organization` (or a bridge —
-// see below); { self, action } matches the actor and checks `action` on its own entry; { rule } evals json-rules; any/all compose. Cycles throw.
+// see below); { rule } evals json-rules over the record (the actor under __actor); any/all compose. Cycles throw.
 ```
 
-**`self` is paired with an action.** `{ self: 'userId', action: 'operate' }` passes only when
-`record.userId` is the actor's id **and** the actor holds `operate` on its own entry: the
-`selfResource` record `{ id: actorId }`, evaluated through the schema like any other check, so the
-delegation chain (`read → operate → manage → own`) and custom user actions (`'report.export'`) work.
-A full principal holds `own` on itself and passes as before; a narrowed one (say a credential that
-only holds `read` on its user) no longer passes a write arm on identity alone. A bare `{ self }`
-throws, and `actionRuleSchema` rejects it.
+**There is no `self` arm. Identity lives in the table.** A principal holds grants only on its own
+user entry, so acting on your own row is `{ rel: 'user', action }`: the walk reaches the hydrated
+`record.user` and checks `action` there, through the delegation chain and custom user actions alike.
+A full principal holds `own` on itself; a narrowed one (a credential holding only `read` on its
+user) fails a write arm on its own row; a row without its `user` loaded is denied, never guessed
+from the foreign key. `actionRuleSchema` rejects `self`.
 
 The check takes a **subject** — `{ resource, record, data? }` — not a bare record; `data` is the
 supplemental rows that back cross-source bridge hops (below). `createRebacCheck` is generic over the
@@ -116,54 +112,23 @@ back edge contributes nothing, and only a chain that reaches a real grant allows
 
 ## The actor
 
-The actor is plain data, like a record: an `id` plus whatever the app knows about who is acting
-(what kind of principal it is, the integrations a credential may reach, …). The app sets it once
-per request with `permix.setActor({ id, ...meta })`; rules read it three ways:
-
-- `{ self, action }` matches `record[self]` against `actor.id`;
-- `{ actor: Condition }` is a json-rules predicate over the actor itself;
-- `{ rule: Condition }` may compare the record against the actor with `{ bind: 'actor.<field>' }`.
+The actor is who is acting: what kind of credential (`model`) and its row (`record`). The app sets
+it once per request; a `{ rule }` reads it under the reserved key `__actor`, like any other data:
 
 ```ts
-// the actor's id is required; the rest is yours. Naming its model says what kind of principal acts.
-type AppActor = Actor & {
-  model: 'User' | 'Token';
-  integrationReach: 'all' | 'listed';
-  integrationIds: string[];
-};
-const permix = createPermissions<Action, AppActor>();
+permix.setActor({ model: 'User', record: user });   // a person, acting directly
+permix.setActor({ model: 'Token', record: token }); // a token, with whatever owner relations you loaded
 
-// a person reaches every integration its roles allow
-permix.setActor({ id: userId, model: 'User', integrationReach: 'all', integrationIds: [] });
-// a token bound to integration i1, reaching only its own (or [] for none, or a list)
-permix.setActor({ id: userId, model: 'Token', integrationReach: 'listed', integrationIds: ['i1'] });
-
-// the fence: role reach AND (reaches all, or this id is listed)
-const reach: ActionRule = {
-  any: [
-    { actor: { field: 'integrationReach', operator: Operator.equals, value: 'all' } },
-    { rule: { field: 'id', operator: Operator.in, bind: 'actor.integrationIds' } },
-  ],
-};
-integration: { actions: { manage: { all: [{ rel: 'owner', action: 'manage' }, reach] } } },
+// person-only
+{ rule: { field: '__actor.model', operator: Operator.equals, value: 'User' } }
+// the record against the actor's row
+{ rule: { field: 'ownerId', operator: Operator.equals, path: '__actor.record.userId' } }
 ```
 
-**Every actor carries the same fields.** Type them through `createPermissions<Action, YourActor>()`.
-A `{ rule }` that binds a field the actor lacks throws (json-rules' missing-bind contract), while an
-`{ actor }` condition reads a missing field as null, so write actor predicates positively
-(`kind equals 'person'`, not `kind notEquals 'token'`). Actor fields are flat: scalars, dates or
-lists of ids.
-
-**With nobody acting,** `{ actor }` denies, and so does any `{ rule }` that binds an `actor.` field,
-optional binds included.
-
-**A fence is a schema rule, so what skips the schema skips it:** a superadmin, and a direct permix
-grant on the fenced resource itself (the grant short-circuits before the rule). Put the fence on
-every action of the resource, not just `manage`, and grant through the owner, not on the fenced
-resource.
-
-**Row rules can read the actor too.** A record's `permissionRules` may use `{ actor }` and actor
-binds; they still only widen (OR) that record's access.
+It is just a rule. With nobody acting, `__actor` is null and the rule runs as written; a rule that
+needs someone acting says so (`{ field: '__actor', operator: 'notEmpty', value: true }` inside its
+`all`). A row's `permissionRules` read it the same way and still only widen. A superadmin skips
+the schema, so it skips these too.
 
 ## Bridges (cross-source `rel` walks)
 
@@ -189,7 +154,7 @@ const schema: RebacSchema = {
 
 Bridges **don't hydrate** (they aren't FK relations) — the engine traverses them *synthetically*.
 The join key is a scalar already on the record (`User.accountId`), so a hop ending in an rbac grant
-needs nothing extra. When a downstream action reads the far record's *fields* (abac / `self`), pass
+needs nothing extra. When a downstream action reads the far record's *fields* (abac), pass
 those rows as `subject.data` (keyed `map:model` — the `indexBridges` shape) and the engine
 builds the lookup itself:
 
@@ -250,22 +215,69 @@ the schema rule both miss, with the record in hand, and one applies when all thr
   the relations that resource's own `rel` arms name. A hydrated sideways foreign key is not a
   position. Off the tree, the entitlement is not acting from where it says.
 - **`where` holds** — plain json-rules over the record at that node, `field` and `path` both
-  starting there and free to climb hydrated parents (`space.organizationId`). No binds: whatever
-  referred to the holder (its own id, its user) was written in when the grant was made. An absent
+  starting there and free to climb hydrated parents (`space.organizationId`). Whatever referred to
+  the holder (its own id, its user) is written in as a literal when the grant is made. An absent
   path reads as NULL, so write `where` positively. `where: false` or `null` is a `where` that fails,
   not its absence.
 - **The grantor is still in control** — the owner's table, walked from this very record through
   the normal schema, allows the action. That is the only tenancy check and it is live: a space
   moved to another org stops reaching the grantor on the next request, no fetch. The record's
-  schema guards run inside that walk, and `{ actor }` / `{ self }` arms met there still see the
-  request's actor. A holder can never exceed its owner on the same record and action; owners nest
+  schema guards run inside that walk, and a `{ rule }` met there still sees the
+  request's actor as `__actor`. A holder can never exceed its owner on the same record and action; owners nest
   (token ← membership ← org) because an owner's table carries its own entitlements.
 
 `setup` refuses an entitlement without an `owner`, a `where` without a `from`, an `id` beside a
-`from` (a single row is `where: { field: 'id', … }`), a non-boolean action, a bind, or a malformed
+`from` (a single row is `where: { field: 'id', … }`), a non-boolean action, or a malformed
 rule, before touching any state. `replace: true` clears entitlements with the table. `getJSON`
 carries grants only. Tenancy is as live as the owner's grants are id-keyed: an owner table with a
 resource-wide grant, or the superadmin flag, short-circuits before any walk.
+
+#### Granting one
+
+A grant is an action, and grant time mirrors read time through the same check. Build the grant
+check with the same resolver as the rebac check, then ask it with the writer's table and the
+hydrated record at `from`:
+
+```ts
+const canGrantEntitlement = createCanGrantEntitlement(resolveRelation);
+
+canGrantEntitlement(writer, schema, {
+  resource: 'db:integration',
+  from: { resource: 'db:space', id: 's1' },
+  actions: { manage: true },
+}, s1); // can the writer manage every integration under s1?
+```
+
+Each action the entry grants is checked on a stand-in record of `entry.resource` placed under the
+position along that resource's own `rel` tree. The writer's own entitlements and owner chain apply,
+so a token never grants past its holder, and a `{ rule }` sees the writer's actor as `__actor`. A `where` only
+narrows, so the writer must cover the whole collection at the position.
+
+An action's rule is ReBAC (walks to parents) plus ABAC (`{ rule }` conditions on the record,
+conditions on `__actor`, who acts). An entitlement holds the action outright: its holder never
+meets the ABAC. So the writer passing the plain check is not enough when the action carries a
+condition, because the writer may only pass it on the condition's easy branch. Such an action is a
+conditional entitlement, and it is granted at its strongest: the writer must also hold the
+resource's terminal (`null`) actions, and on a resource without one only a superadmin grants it.
+
+```ts
+// assign: high roles need own, others need manage
+assign: {
+  any: [
+    { all: [{ rule: { field: 'role', operator: 'in', value: ['owner', 'admin'] } }, 'own'] },
+    { all: [{ rule: { field: 'role', operator: 'notIn', value: ['owner', 'admin'] } }, 'manage'] },
+  ],
+}
+// An admin (manage) passes assign on a member-role record, but an entitlement holding assign
+// skips the role condition and would assign owners: granting it needs own.
+
+// token.create: { all: [{ rule: { field: '__actor.model', operator: 'equals', value: 'User' } }, 'operate'] }
+// A member passes operate, but the integration's token holding token.create would mint despite
+// the person-only condition: granting it needs own.
+```
+
+`read` delegating to `operate → manage → own` carries no condition, so granting it needs only
+`read`.
 
 ## Hydration (Prisma example)
 

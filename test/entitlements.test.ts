@@ -22,18 +22,13 @@ const is = (field: string, value: string): Condition => ({
   operator: Operator.equals,
   value,
 });
-const isActor = (field: string, actorField: string): Condition => ({
-  field,
-  operator: Operator.equals,
-  bind: `actor.${actorField}`,
-});
 
-const inPerson: Condition = { field: 'model', operator: Operator.equals, value: 'User' };
+const inPerson: Condition = { field: '__actor.model', operator: Operator.equals, value: 'User' };
 
 const schema: RebacSchema = {
   permissions: {
     'db:organization': { actions: { own: null, manage: 'own', read: 'manage' } },
-    'db:user': { actions: { own: null, 'token.create': { all: [{ actor: inPerson }, 'own'] } } },
+    'db:user': { actions: { own: null, 'token.create': { all: [{ rule: inPerson }, 'own'] } } },
     'db:space': {
       actions: {
         own: { rel: 'organization', action: 'own' },
@@ -53,7 +48,13 @@ const schema: RebacSchema = {
         own: { rel: 'space', action: 'own' },
         manage: {
           all: [
-            { rule: { field: 'valueKey', operator: Operator.notEquals, bind: 'actor.email' } },
+            {
+              rule: {
+                field: 'valueKey',
+                operator: Operator.notEquals,
+                path: '__actor.record.email',
+              },
+            },
             { any: ['own', { rel: 'space', action: 'manage' }] },
           ],
         },
@@ -260,7 +261,7 @@ describe('entitlements: an action on a model from a position, owner on the row',
 
   test('8. a schema guard survives: the owner’s walk runs it on the record', async () => {
     const holder = createPermissions();
-    holder.setActor({ id: 'u1', model: 'User', email: 'me@example.com' });
+    holder.setActor({ model: 'User', record: { id: 'u1', email: 'me@example.com' } });
     await entitle(
       holder,
       [{ resource: 'db:contact', from: AT_S1, actions: { manage: true } }],
@@ -352,12 +353,9 @@ describe('entitlements: an action on a model from a position, owner on the row',
     expect(manage(holder, 'db:space', s1)).toBe(false);
   });
 
-  test('14. `where` is literal by the time it is installed: a bind or a malformed rule is refused', async () => {
+  test('14. a malformed `where` is refused when it is installed', async () => {
     const holder = createPermissions();
     const entry = { resource: 'db:space', from: AT_S1, actions: { manage: true } };
-    await expect(
-      entitle(holder, [{ ...entry, where: isActor('name', 'id') }], await o1Table()),
-    ).rejects.toThrow(/bind/);
     await expect(
       entitle(
         holder,
@@ -383,9 +381,9 @@ describe('entitlements: an action on a model from a position, owner on the row',
   test('16. the actor is always the request’s actor, inside the owner’s walk too', async () => {
     // The owner is the person u1, acting in person; its table would pass the in-person arm on its own.
     const owner = await table(own('db:user', 'u1'));
-    owner.setActor({ id: 'u1', model: 'User' });
+    owner.setActor({ model: 'User', record: { id: 'u1' } });
     const holder = createPermissions();
-    holder.setActor({ id: 't1', model: 'Token' });
+    holder.setActor({ model: 'Token', record: { id: 't1' } });
     await entitle(
       holder,
       [{ resource: 'db:user', from: at('db:user', 'u1'), actions: { 'token.create': true } }],
@@ -394,7 +392,7 @@ describe('entitlements: an action on a model from a position, owner on the row',
     // token.create = all[in person, own]: the token has no `own`, so it needs the owner's walk, and
     // inside that walk the in-person arm must still see the token, not the owner.
     expect(check(holder, schema, { resource: 'db:user', record: u1 }, 'token.create')).toBe(false);
-    holder.setActor({ id: 'u1', model: 'User' });
+    holder.setActor({ model: 'User', record: { id: 'u1' } });
     expect(check(holder, schema, { resource: 'db:user', record: u1 }, 'token.create')).toBe(true);
   });
 
@@ -426,7 +424,7 @@ describe('entitlements: an action on a model from a position, owner on the row',
       await o1Table(),
     );
     const t1 = createPermissions();
-    t1.setActor({ id: 't1', model: 'Token', email: 'token@example.com' });
+    t1.setActor({ model: 'Token', record: { id: 't1', email: 'token@example.com' } });
     await entitle(t1, [{ resource: 'db:contact', from: AT_S1, actions: { manage: true } }], m1);
     expect(manage(t1, 'db:contact', contact('c1', s1, { userId: 'u1', valueKey: 'k' }))).toBe(true);
     expect(manage(t1, 'db:contact', contact('c2', s1, { userId: 'u2', valueKey: 'k' }))).toBe(
@@ -436,7 +434,7 @@ describe('entitlements: an action on a model from a position, owner on the row',
 
   test('16d. `where` sees the record at the entitlement’s node, not the subject', async () => {
     const holder = createPermissions();
-    holder.setActor({ id: 'u1', model: 'User', email: 'me@example.com' });
+    holder.setActor({ model: 'User', record: { id: 'u1', email: 'me@example.com' } });
     await entitle(
       holder,
       [{ resource: 'db:space', from: AT_S1, actions: { manage: true }, where: is('name', 'x') }],

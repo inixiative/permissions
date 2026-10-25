@@ -9,7 +9,7 @@ const stub = (
 ): PermixLike => ({
   check: (_resource, action) => action === opts.grant,
   isSuperadmin: () => opts.superadmin ?? false,
-  getActor: () => (opts.userId ? { id: opts.userId } : null),
+  getActor: () => (opts.userId ? { model: 'User', record: { id: opts.userId } } : null),
 });
 
 // stub permix that grants specific resource:action to specific ids — for rbac-terminal bridge walks.
@@ -32,7 +32,7 @@ const schema: RebacSchema = {
     },
     membership: {
       actions: {
-        leave: { self: 'userId', action: 'operate' },
+        leave: { rel: 'user', action: 'operate' },
         manage: { rel: 'organization', action: 'manage' },
       },
     },
@@ -49,10 +49,10 @@ const schema: RebacSchema = {
 };
 
 const relations: Record<string, Record<string, string>> = {
-  membership: { organization: 'organization' },
+  membership: { organization: 'organization', user: 'user' },
 };
 const resolveRelation: ResolveRelation = (resource, seg) => relations[resource]?.[seg] ?? null;
-const check = createRebacCheck(resolveRelation, { selfResource: 'user' });
+const check = createRebacCheck(resolveRelation);
 
 describe('rebac check', () => {
   test('ABAC { rule } leaf', () => {
@@ -89,73 +89,62 @@ describe('rebac check', () => {
     check: (resource, action, id) =>
       resource === 'user' && id === userId && userActions.includes(action),
     isSuperadmin: () => false,
-    getActor: () => (userId ? { id: userId } : null),
+    getActor: () => (userId ? { model: 'User', record: { id: userId } } : null),
   });
   const leave = (permix: PermixLike, userId: string) =>
-    check(permix, schema, { resource: 'membership', record: { userId } }, 'leave');
+    check(
+      permix,
+      schema,
+      { resource: 'membership', record: { userId, user: { id: userId } } },
+      'leave',
+    );
 
-  test("{ self, action } needs the id to match AND the action on the actor's own entry", () => {
+  test('your own row is a walk to your own entry: the user relation, then the action there', () => {
     expect(leave(actor('u1', 'own'), 'u1')).toBe(true);
     expect(leave(actor('u1', 'own'), 'u2')).toBe(false);
     expect(leave(actor(null), 'u1')).toBe(false);
   });
 
-  test("{ self, action } walks the self resource's delegation chain", () => {
+  test('the walk follows the user entry’s delegation chain', () => {
     expect(leave(actor('u1', 'operate'), 'u1')).toBe(true);
     expect(leave(actor('u1', 'manage'), 'u1')).toBe(true);
   });
 
-  test('{ self, action } refuses a narrowed actor that lacks the action on itself', () => {
+  test('a narrowed actor that lacks the action on itself is refused on its own row', () => {
     expect(leave(actor('u1', 'read'), 'u1')).toBe(false);
     expect(leave(actor('u1'), 'u1')).toBe(false);
   });
 
-  test('{ self, action } takes any user action, custom ones included', () => {
+  test('any user action works there, custom ones included', () => {
     const s: RebacSchema = {
       permissions: {
         ...schema.permissions,
-        membership: { actions: { export: { self: 'userId', action: 'report.export' } } },
+        membership: { actions: { export: { rel: 'user', action: 'report.export' } } },
       },
     };
     const run = (permix: PermixLike) =>
-      check(permix, s, { resource: 'membership', record: { userId: 'u1' } }, 'export');
+      check(
+        permix,
+        s,
+        { resource: 'membership', record: { userId: 'u1', user: { id: 'u1' } } },
+        'export',
+      );
     expect(run(actor('u1', 'report.export'))).toBe(true);
     expect(run(actor('u1', 'own'))).toBe(false);
   });
 
-  test('a bare { self } is an error, not a silent pass', () => {
-    const s: RebacSchema = {
-      permissions: { membership: { actions: { leave: { self: 'userId' } as never } } },
-    };
-    expect(() =>
-      check(actor('u1', 'own'), s, { resource: 'membership', record: { userId: 'u1' } }, 'leave'),
-    ).toThrow('A self arm must name an action');
-  });
-
-  test('a self arm without a configured selfResource is an error', () => {
-    const noSelf = createRebacCheck(resolveRelation);
-    expect(() =>
-      noSelf(
+  test('a row without its user loaded is denied, never guessed from the key', () => {
+    expect(
+      check(
         actor('u1', 'own'),
         schema,
         { resource: 'membership', record: { userId: 'u1' } },
         'leave',
       ),
-    ).toThrow('selfResource');
+    ).toBe(false);
   });
 
-  test("a self arm that loops back through the actor's own entry is a cycle, not a hang", () => {
-    const s: RebacSchema = {
-      permissions: {
-        user: { actions: { loop: { self: 'id', action: 'loop' } } },
-      },
-    };
-    expect(() => check(actor('u1'), s, { resource: 'user', record: { id: 'u1' } }, 'loop')).toThrow(
-      'Cycle detected',
-    );
-  });
-
-  test('a superadmin passes a self arm', () => {
+  test('a superadmin passes on anyone’s row', () => {
     expect(leave(stub({ superadmin: true }), 'someone-else')).toBe(true);
   });
 
@@ -638,13 +627,13 @@ describe('dictionary is built lazily (adversarial: malformed data must not crash
       ],
       permissions: {
         'db:User': {
-          actions: { own: true, leave: { self: 'userId', action: 'own' } },
+          actions: { leave: { rule: { field: 'userId', operator: Operator.equals, value: 'me' } } },
         },
       },
     };
-    const c = createRebacCheck<string>(() => null, { selfResource: 'db:User' });
+    const c = createRebacCheck<string>(() => null);
     // Duplicate "one"-side (Account.id) rows would make indexBridges throw — but this check
-    // resolves via { self } and never hops, so the dictionary must never be built.
+    // resolves on the record and never hops, so the dictionary must never be built.
     const subject = {
       resource: 'db:User',
       record: { id: 'u1', userId: 'me' },
@@ -728,166 +717,71 @@ describe('cycle detection (regressions for the adversarial findings)', () => {
   });
 });
 
-describe('actor meta: { actor } predicates and actor.<field> binds in { rule }', () => {
-  const check = createRebacCheck<string>(() => null, { selfResource: 'user' });
+describe('the actor is data: a { rule } reads it as __actor', () => {
+  const check = createRebacCheck<string>(() => null);
   const as = (actor: Actor | null): PermixLike => ({
     check: () => false,
     isSuperadmin: () => false,
     getActor: () => actor,
   });
-  // An integration-bound credential reaches `all` integrations, or only the ids it lists.
-  const reach: ActionRule = {
-    any: [
-      { actor: { field: 'integrationReach', operator: Operator.equals, value: 'all' } },
-      { rule: { field: 'id', operator: Operator.in, bind: 'actor.integrationIds' } },
-    ],
-  };
-  const fenced: RebacSchema = {
-    permissions: {
-      integration: { actions: { manage: { all: [true, reach] } } },
-      user: {
-        actions: {
-          'token.create': { actor: { field: 'kind', operator: Operator.equals, value: 'person' } },
-        },
-      },
-    },
-  };
-  const manage = (actor: Actor | null, id: string) =>
-    check(as(actor), fenced, { resource: 'integration', record: { id } }, 'manage');
+  const person: Actor = { model: 'User', record: { id: 'u1' } };
+  const token: Actor = { model: 'Token', record: { id: 't1', userId: 'u1' } };
+  const schemaOf = (read: ActionRule): RebacSchema => ({
+    permissions: { doc: { actions: { read } } },
+  });
+  const read = (rule: ActionRule, actor: Actor | null, record: Record<string, unknown> = {}) =>
+    check(as(actor), schemaOf(rule), { resource: 'doc', record }, 'read');
 
-  test('{ actor } evaluates a condition over the actor itself', () => {
-    const create = (actor: Actor | null) =>
-      check(as(actor), fenced, { resource: 'user', record: { id: 'u1' } }, 'token.create');
-    expect(create({ id: 'u1', kind: 'person' })).toBe(true);
-    expect(create({ id: 'u1', kind: 'token' })).toBe(false);
-    expect(create(null)).toBe(false);
+  test("person-only is a rule on the actor's model", () => {
+    const personOnly = {
+      rule: { field: '__actor.model', operator: Operator.equals, value: 'User' },
+    };
+    expect(read(personOnly, person)).toBe(true);
+    expect(read(personOnly, token)).toBe(false);
+    expect(read(personOnly, null)).toBe(false);
   });
 
-  test("{ rule } compares the record against the actor's fields", () => {
-    const own = { id: 't1', integrationReach: 'some', integrationIds: ['i1'] };
-    expect(manage(own, 'i1')).toBe(true);
-    expect(manage(own, 'i2')).toBe(false);
-    expect(manage({ id: 't1', integrationReach: 'some', integrationIds: [] }, 'i1')).toBe(false);
-    expect(manage({ id: 't1', integrationReach: 'all', integrationIds: [] }, 'i2')).toBe(true);
+  test("a rule compares the record against the actor's row", () => {
+    const mine = {
+      rule: { field: 'ownerId', operator: Operator.equals, path: '__actor.record.userId' },
+    };
+    expect(read(mine, token, { ownerId: 'u1' })).toBe(true);
+    expect(read(mine, token, { ownerId: 'u2' })).toBe(false);
   });
 
-  test('a rule that reads the actor denies when nobody is acting', () => {
-    expect(manage(null, 'i1')).toBe(false);
-  });
-
-  test('an actor missing a field the rule binds is a caller bug and throws', () => {
-    expect(() => manage({ id: 't1', integrationReach: 'some' }, 'i1')).toThrow(
-      /actor.integrationIds/,
-    );
-  });
-
-  test('a rule that reads no actor field still runs with nobody acting', () => {
-    const open: RebacSchema = {
-      permissions: {
-        doc: {
-          actions: {
-            read: { rule: { field: 'isPublic', operator: Operator.equals, value: true } },
-          },
-        },
+  test('with nobody acting, __actor is null and the rule runs as written', () => {
+    const notMine = {
+      rule: { field: 'ownerId', operator: Operator.notEquals, path: '__actor.record.id' },
+    };
+    expect(read(notMine, null, { ownerId: 'u1' })).toBe(true);
+    const notMineAndActing = {
+      rule: {
+        all: [
+          { field: '__actor', operator: Operator.notEmpty, value: true },
+          { field: 'ownerId', operator: Operator.notEquals, path: '__actor.record.id' },
+        ],
       },
     };
-    expect(check(as(null), open, { resource: 'doc', record: { isPublic: true } }, 'read')).toBe(
-      true,
-    );
+    expect(read(notMineAndActing, null, { ownerId: 'u1' })).toBe(false);
+    expect(read(notMineAndActing, person, { ownerId: 'u2' })).toBe(true);
   });
 
-  test('a person (reach all, no listed ids) passes; the full shape never throws', () => {
-    expect(manage({ id: 'u1', integrationReach: 'all', integrationIds: [] }, 'i9')).toBe(true);
-  });
-
-  test('an optional actor bind still denies with nobody acting (fail closed)', () => {
-    const notMine: RebacSchema = {
-      permissions: {
-        doc: {
-          actions: {
-            read: {
-              rule: {
-                field: 'ownerId',
-                operator: Operator.notEquals,
-                bind: 'actor.id',
-                bindOptional: true,
-              },
-            },
-          },
-        },
-      },
+  test('a superadmin passes', () => {
+    const admin: PermixLike = { ...as(token), isSuperadmin: () => true };
+    const personOnly = {
+      rule: { field: '__actor.model', operator: Operator.equals, value: 'User' },
     };
-    const read = (actor: Actor | null) =>
-      check(as(actor), notMine, { resource: 'doc', record: { ownerId: 'u1' } }, 'read');
-    expect(read(null)).toBe(false);
-    expect(read({ id: 'u2' })).toBe(true);
-    expect(read({ id: 'u1' })).toBe(false);
-  });
-
-  test('{ actor } reads a missing field as null, so a negative predicate passes (write them positively)', () => {
-    const notToken: RebacSchema = {
-      permissions: {
-        doc: {
-          actions: {
-            read: { actor: { field: 'kind', operator: Operator.notEquals, value: 'token' } },
-          },
-        },
-      },
-    };
-    const read = (actor: Actor) =>
-      check(as(actor), notToken, { resource: 'doc', record: {} }, 'read');
-    expect(read({ id: 'u1' })).toBe(true);
-    expect(read({ id: 't1', kind: 'token' })).toBe(false);
-  });
-
-  test('a superadmin skips the fence', () => {
-    const admin: PermixLike = {
-      ...as({ id: 't1', integrationReach: 'listed', integrationIds: [] }),
-      isSuperadmin: () => true,
-    };
-    expect(check(admin, fenced, { resource: 'integration', record: { id: 'i1' } }, 'manage')).toBe(
-      true,
-    );
+    expect(check(admin, schemaOf(personOnly), { resource: 'doc', record: {} }, 'read')).toBe(true);
   });
 
   test('a row rule may read the actor, and only widens', () => {
-    const closed: RebacSchema = { permissions: { doc: { actions: { read: false } } } };
     const record = {
       id: 'd1',
       permissionRules: {
-        read: { actor: { field: 'kind', operator: Operator.equals, value: 'reviewer' } },
+        read: { rule: { field: '__actor.model', operator: Operator.equals, value: 'User' } },
       },
     };
-    const read = (actor: Actor) => check(as(actor), closed, { resource: 'doc', record }, 'read');
-    expect(read({ id: 'u1', kind: 'reviewer' })).toBe(true);
-    expect(read({ id: 'u1', kind: 'person' })).toBe(false);
-  });
-
-  test('actor binds resolve inside if / then and array conditions', () => {
-    const nested: RebacSchema = {
-      permissions: {
-        doc: {
-          actions: {
-            read: {
-              rule: {
-                if: { field: 'isShared', operator: Operator.equals, value: true },
-                then: {
-                  field: 'tags',
-                  arrayOperator: 'any',
-                  condition: { field: 'teamId', operator: Operator.in, bind: 'actor.teamIds' },
-                },
-                else: { field: 'ownerId', operator: Operator.equals, bind: 'actor.id' },
-              },
-            },
-          },
-        },
-      },
-    };
-    const read = (record: Record<string, unknown>) =>
-      check(as({ id: 'u1', teamIds: ['t1'] }), nested, { resource: 'doc', record }, 'read');
-    expect(read({ isShared: true, tags: [{ teamId: 't1' }] })).toBe(true);
-    expect(read({ isShared: true, tags: [{ teamId: 't2' }] })).toBe(false);
-    expect(read({ isShared: false, ownerId: 'u1' })).toBe(true);
-    expect(read({ isShared: false, ownerId: 'u2' })).toBe(false);
+    expect(read(false, person, record)).toBe(true);
+    expect(read(false, token, record)).toBe(false);
   });
 });

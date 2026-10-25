@@ -3,22 +3,15 @@ import { Operator } from '@inixiative/json-rules';
 import { actionRuleSchema } from '../src/actionRuleSchema';
 
 describe('actionRuleSchema', () => {
-  it('accepts the rbac/rebac/self branches', () => {
+  it('accepts the rbac/rebac/actor branches', () => {
     expect(actionRuleSchema.safeParse('manage').success).toBe(true);
     expect(actionRuleSchema.safeParse(null).success).toBe(true);
     expect(actionRuleSchema.safeParse({ rel: 'organization', action: 'read' }).success).toBe(true);
-    expect(actionRuleSchema.safeParse({ self: 'userId', action: 'operate' }).success).toBe(true);
-    expect(actionRuleSchema.safeParse({ self: 'userId', action: 'report.export' }).success).toBe(
-      true,
-    );
   });
 
   it('composes any/all recursively', () => {
     const rule = {
-      any: [
-        { self: 'userId', action: 'read' },
-        { all: [{ rel: 'org', action: 'read' }, 'manage'] },
-      ],
+      any: [{ rel: 'user', action: 'read' }, { all: [{ rel: 'org', action: 'read' }, 'manage'] }],
     };
     expect(actionRuleSchema.safeParse(rule).success).toBe(true);
   });
@@ -39,15 +32,20 @@ describe('actionRuleSchema', () => {
     expect(actionRuleSchema.safeParse({ bogus: true }).success).toBe(false);
   });
 
-  it('accepts an actor predicate and rejects a malformed one', () => {
+  it('has no actor arm: who acts is read by a rule, as __actor', () => {
     expect(
       actionRuleSchema.safeParse({ actor: { field: 'kind', operator: 'equals', value: 'person' } })
         .success,
+    ).toBe(false);
+    expect(
+      actionRuleSchema.safeParse({
+        rule: { field: '__actor.model', operator: 'equals', value: 'User' },
+      }).success,
     ).toBe(true);
-    expect(actionRuleSchema.safeParse({ actor: 'kind' }).success).toBe(false);
   });
 
-  it('rejects a bare self: every self arm names the action it needs', () => {
+  it('rejects a self arm: acting on your own row is a walk to your own entry', () => {
+    expect(actionRuleSchema.safeParse({ self: 'userId', action: 'operate' }).success).toBe(false);
     expect(actionRuleSchema.safeParse({ self: 'userId' }).success).toBe(false);
   });
 });

@@ -1,4 +1,4 @@
-import { type Condition, listBindings, validateRule } from '@inixiative/json-rules';
+import { type Condition, validateRule } from '@inixiative/json-rules';
 import { castArray } from 'lodash-es';
 import { createPermix } from 'permix';
 import type { Actor, Entitlement, PermixLike, Position } from './types';
@@ -69,8 +69,6 @@ const validate = (entry: PermissionEntry, owner: PermixLike | undefined): void =
       const issues = result.errors.map((issue) => `${issue.path}: ${issue.message}`).join('; ');
       throw new Error(`invalid entitlement \`where\`: ${issues}`);
     }
-    if (listBindings(entry.where).length)
-      throw new Error('an entitlement `where` takes no bind: resolve it when the grant is written');
   }
 };
 
