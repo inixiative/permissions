@@ -32,12 +32,16 @@ describe('actionRuleSchema', () => {
     expect(actionRuleSchema.safeParse({ bogus: true }).success).toBe(false);
   });
 
-  it('accepts an actor predicate and rejects a malformed one', () => {
+  it('has no actor arm: who acts is read by a rule, as __actor', () => {
     expect(
       actionRuleSchema.safeParse({ actor: { field: 'kind', operator: 'equals', value: 'person' } })
         .success,
+    ).toBe(false);
+    expect(
+      actionRuleSchema.safeParse({
+        rule: { field: '__actor.model', operator: 'equals', value: 'User' },
+      }).success,
     ).toBe(true);
-    expect(actionRuleSchema.safeParse({ actor: 'kind' }).success).toBe(false);
   });
 
   it('rejects a self arm: acting on your own row is a walk to your own entry', () => {

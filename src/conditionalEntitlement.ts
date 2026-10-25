@@ -15,7 +15,7 @@ export const isConditionalEntitlement = (
     seen.add(rule);
     return isConditionalEntitlement(actions, actions[rule], seen);
   }
-  if ('rule' in rule || 'actor' in rule) return true;
+  if ('rule' in rule) return true;
   if ('any' in rule) return rule.any.some((r) => isConditionalEntitlement(actions, r, seen));
   if ('all' in rule) return rule.all.some((r) => isConditionalEntitlement(actions, r, seen));
   return false;

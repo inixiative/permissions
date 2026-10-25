@@ -1,6 +1,5 @@
 import { type BridgeDictionary, check as checkRule } from '@inixiative/json-rules';
 import { isNil } from 'lodash-es';
-import { actorBindings, readsActor } from './actorBindings';
 import { bridgeHop, lookupFar } from './bridgeHop';
 import { entitled } from './entitled';
 import { nodeId, permixId } from './identity';
@@ -77,16 +76,8 @@ export const evaluate = <R extends string>(
     return evaluate(walk, permix, currentResource, current, rule.action, visited);
   }
 
-  if ('actor' in rule) {
-    const actor = permix.getActor();
-    return actor !== null && checkRule(rule.actor, actor as Row) === true;
-  }
-
   if ('rule' in rule) {
-    const actor = permix.getActor();
-    // No actor to compare against: a rule that reads one denies rather than throwing.
-    if (actor === null && readsActor(rule.rule)) return false;
-    return checkRule(rule.rule, record, { bindings: actorBindings(actor) }) === true;
+    return checkRule(rule.rule, { ...record, __actor: permix.getActor() }) === true;
   }
   // Fork `visited` per branch — parallel paths through any/all aren't cycles.
   if ('any' in rule) {

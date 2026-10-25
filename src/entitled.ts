@@ -4,9 +4,8 @@ import { asOwner, nodeId, permixId } from './identity';
 import { onPath } from './onPath';
 import type { PermixLike, Row } from './types';
 
-// A `where` is literals and record paths only — whatever referred to the holder was written in
-// when the entitlement was granted — so it needs no bindings and nothing about the actor. An
-// absent path reads as NULL: write `where` positively, a negation passes on what is not loaded.
+// A `where` is literals and record paths, checked against the record at the entitlement's node.
+// An absent path reads as NULL: write `where` positively, a negation passes on what is not loaded.
 const holds = (where: Condition | null, record: Row): boolean =>
   where !== null && checkRule(where, record) === true;
 

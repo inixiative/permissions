@@ -3,29 +3,17 @@ import type { Bridge, Condition, Row } from '@inixiative/json-rules';
 export type { Row };
 
 export type RelationCheck = { rel: string; action: string }; // walk a relation, then check `action`
-export type RuleCheck = { rule: Condition }; // ABAC predicate (json-rules) over the record
-/** An ABAC predicate (json-rules) over the actor itself: `{ actor: { field: 'kind', … } }`. */
-export type ActorCheck = { actor: Condition };
+/** ABAC (json-rules) over the record, with who is acting under the reserved key `__actor`. */
+export type RuleCheck = { rule: Condition };
 
-/**
- * Who is acting: an id plus whatever the app knows about them — plain data, like a record (what
- * kind of principal it is, the integration it is bound to, …). `{ actor }` evaluates a condition
- * over it; `{ rule }` reads its fields as `actor.<field>` binds. Identity is never read from it:
- * acting on your own row is `{ rel: '<relation to yourself>', action }`, a walk to your own entry.
- * Give every actor the same fields (type them through `createPermissions<Action, YourActor>()`):
- * a rule that binds a field an actor lacks throws, and an `{ actor }` condition reads it as null.
- */
-export type Actor = { id: string } & { [field: string]: ActorValue };
-
-/** One flat actor field: a scalar or a list of ids. Flat, so `{ actor }` and `actor.<field>` binds read it alike. */
-export type ActorValue = string | number | boolean | Date | null | readonly (string | number)[];
+/** Who is acting: what kind of credential (`model`) and its row (`record`). A `{ rule }` reads it as `__actor`. */
+export type Actor = { model: string; record: Row };
 
 /** The serializable permission algebra: rebac (`rel`) + abac (`rule`) + rbac (`string` delegation). */
 export type ActionRule =
   | string // delegate to another action on the same resource
   | RelationCheck
   | RuleCheck
-  | ActorCheck
   | { any: ActionRule[] } // OR
   | { all: ActionRule[] } // AND
   | boolean // terminal allow (`true`) / deny (`false`)

@@ -13,7 +13,7 @@ import {
 // A grant is an action: the writer could take every action the holder would hold, from where it
 // would act. Grant time mirrors read time through the same check (Aron, 2026-10-22 and 2026-10-25).
 
-const person = { actor: { field: 'model', operator: Operator.equals, value: 'User' } };
+const person = { rule: { field: '__actor.model', operator: Operator.equals, value: 'User' } };
 const highRoles = ['owner', 'admin'];
 
 const schema: RebacSchema = {
@@ -83,7 +83,7 @@ const entry = (
 const writer = async (entries: PermissionEntry[], model = 'User') => {
   const permix = createPermissions();
   await permix.setup(entries);
-  permix.setActor({ id: 'w1', model });
+  permix.setActor({ model, record: { id: 'w1' } });
   return permix;
 };
 const holding = (resource: string, id: string, actions: string[]) =>
@@ -179,7 +179,7 @@ describe('canGrantEntitlement: never more than the writer could do from that pos
     await token.setup([entry('db:organization', at('db:organization', 'o1'), ['manage', 'read'])], {
       owner: readOnlyOwner,
     });
-    token.setActor({ id: 't1', model: 'Token' });
+    token.setActor({ model: 'Token', record: { id: 't1' } });
     const manage = entry('db:organization', at('db:organization', 'o1'), ['manage']);
     expect(may(token, manage, o1)).toBe(false);
     expect(may(token, entry('db:organization', at('db:organization', 'o1'), ['read']), o1)).toBe(
