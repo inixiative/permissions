@@ -10,9 +10,11 @@ export type CanGrantEntitlement<R extends string = string> = (
   position: Row,
 ) => boolean;
 
-// A condition on the record or the actor, here or in an action of the same resource this one
-// delegates to. A granted action skips it; a walk to a parent does not.
-const isConditional = (
+// An action's rule is ReBAC (walks) plus ABAC (`rule` conditions on the record, `actor` conditions
+// on who acts). An entitlement holds the action outright, so its holder never meets the ABAC: true
+// when the rule, or a same-resource action it delegates to, carries any. A `rel` walk is not
+// skipped, so it is not followed.
+const isConditionalEntitlement = (
   actions: Record<string, ActionRule>,
   rule: ActionRule | undefined,
   seen: Set<string>,
@@ -21,11 +23,11 @@ const isConditional = (
   if (typeof rule === 'string') {
     if (seen.has(rule)) return false;
     seen.add(rule);
-    return isConditional(actions, actions[rule], seen);
+    return isConditionalEntitlement(actions, actions[rule], seen);
   }
   if ('rule' in rule || 'actor' in rule) return true;
-  if ('any' in rule) return rule.any.some((r) => isConditional(actions, r, seen));
-  if ('all' in rule) return rule.all.some((r) => isConditional(actions, r, seen));
+  if ('any' in rule) return rule.any.some((r) => isConditionalEntitlement(actions, r, seen));
+  if ('all' in rule) return rule.all.some((r) => isConditionalEntitlement(actions, r, seen));
   return false;
 };
 
@@ -37,10 +39,10 @@ const isConditional = (
  * record at `entry.from`). Each action is judged on a stand-in record of `entry.resource` placed
  * under the position along the resource's own `rel` tree, through the normal check: grant time
  * mirrors read time. A `where` only narrows, so it is not consulted: the writer covers the whole
- * collection at the position. A granted action holds outright, skipping the conditions its rule
- * puts on the record or the actor, so a conditional action is granted at its strongest: the writer
- * must also hold every terminal (`null`) action of the resource, and on a resource with none it is
- * granted by nobody but a superadmin. A position
+ * collection at the position. A granted action holds outright, so its holder never meets the ABAC
+ * in its rule (conditions on the record or the actor); such an action is granted at its strongest:
+ * the writer must also hold every terminal (`null`) action of the resource, and on a resource with
+ * none it is granted by nobody but a superadmin. A position
  * off the resource's tree, or one that is not the record `from` names, grants nothing.
  */
 export const createCanGrantEntitlement = <R extends string = string>(
@@ -81,7 +83,7 @@ export const createCanGrantEntitlement = <R extends string = string>(
       .every(
         ([action]) =>
           may(action) &&
-          (!isConditional(actions, action, new Set()) ||
+          (!isConditionalEntitlement(actions, action, new Set()) ||
             permix.isSuperadmin?.() === true ||
             (terminals.length > 0 && terminals.every(may))),
       );

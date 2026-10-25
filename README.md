@@ -282,10 +282,33 @@ canGrantEntitlement(writer, schema, {
 Each action the entry grants is checked on a stand-in record of `entry.resource` placed under the
 position along that resource's own `rel` tree. The writer's own entitlements and owner chain apply,
 so a token never grants past its holder, and `{ actor }` arms see the writer's actor. A `where` only
-narrows, so the writer must cover the whole collection at the position. A granted action skips its
-rule, so an action whose rule puts a condition on the record or the actor is granted at its
-strongest: the writer must also hold the resource's terminal (`null`) actions, and on a resource
-without one only a superadmin grants it.
+narrows, so the writer must cover the whole collection at the position.
+
+An action's rule is ReBAC (walks to parents) plus ABAC (`{ rule }` conditions on the record,
+`{ actor }` conditions on who acts). An entitlement holds the action outright: its holder never
+meets the ABAC. So the writer passing the plain check is not enough when the action carries a
+condition, because the writer may only pass it on the condition's easy branch. Such an action is a
+conditional entitlement, and it is granted at its strongest: the writer must also hold the
+resource's terminal (`null`) actions, and on a resource without one only a superadmin grants it.
+
+```ts
+// assign: high roles need own, others need manage
+assign: {
+  any: [
+    { all: [{ rule: { field: 'role', operator: 'in', value: ['owner', 'admin'] } }, 'own'] },
+    { all: [{ rule: { field: 'role', operator: 'notIn', value: ['owner', 'admin'] } }, 'manage'] },
+  ],
+}
+// An admin (manage) passes assign on a member-role record, but an entitlement holding assign
+// skips the role condition and would assign owners: granting it needs own.
+
+// token.create: { all: [{ actor: { field: 'model', operator: 'equals', value: 'User' } }, 'operate'] }
+// A member passes operate, but the integration's token holding token.create would mint despite
+// the person-only condition: granting it needs own.
+```
+
+`read` delegating to `operate → manage → own` carries no condition, so granting it needs only
+`read`.
 
 ## Hydration (Prisma example)
 
