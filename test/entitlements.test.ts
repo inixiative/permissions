@@ -722,12 +722,21 @@ describe('the chain: token ← org-user’s entitlement ← organization’s rig
   });
 });
 
-test('`where: null` is a broken permission: it fails at check, it is not absence', async () => {
+test('`where: null` is refused at setup', async () => {
   const holder = createPermissions();
-  await entitle(
-    holder,
-    [{ resource: 'db:space', anchor: AT_S1, actions: { manage: true }, where: null }],
-    await o1Table(),
-  );
-  expect(manage(holder, 'db:space', s1)).toBe(false);
+  await expect(
+    entitle(
+      holder,
+      [
+        {
+          resource: 'db:space',
+          anchor: AT_S1,
+          actions: { manage: true },
+          where: null as unknown as Condition,
+        },
+      ],
+      await o1Table(),
+    ),
+  ).rejects.toThrow(/`where: null`/);
+  expect(holder.entitlements('db:space', 'manage')).toEqual([]);
 });

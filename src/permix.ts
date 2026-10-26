@@ -24,7 +24,7 @@ export type GrantEntry<Action extends string = string> = {
 export type EntitlementEntry<Action extends string = string> = {
   resource: string;
   anchor: Anchor;
-  where?: Condition | null;
+  where?: Condition;
   actions: Partial<Record<Action, boolean>>;
 };
 
@@ -63,7 +63,9 @@ const validate = (entry: PermissionEntry, owner: PermixLike | undefined): void =
     Object.values(entry.actions).some((value) => value !== undefined && typeof value !== 'boolean')
   )
     throw new Error('entitlement actions are booleans');
-  if (entry.where !== undefined && entry.where !== null) {
+  if (entry.where === null)
+    throw new Error('`where: null` is not a rule: omit `where` for none, or write the rule');
+  if (entry.where !== undefined) {
     const result = validateRule(entry.where);
     if (!result.ok) {
       const issues = result.errors.map((issue) => `${issue.path}: ${issue.message}`).join('; ');

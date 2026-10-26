@@ -152,17 +152,16 @@ const schema: RebacSchema = {
 };
 ```
 
-Bridges **don't hydrate** (they aren't FK relations) — the engine traverses them *synthetically*.
-The join key is a scalar already on the record (`User.accountId`), so a hop ending in an rbac grant
-needs nothing extra. When a downstream action reads the far record's *fields* (abac), pass
-those rows as `subject.data` (keyed `map:model` — the `indexBridges` shape) and the engine
-builds the lookup itself:
+Bridges **don't hydrate** (they aren't FK relations). The join key is a scalar on the record
+(`User.accountId`); pass the far rows as `subject.data` (keyed `map:model` — the `indexBridges`
+shape) and the engine builds the lookup itself. A far row absent from `subject.data` denies the
+walk, whatever the far action is, an rbac grant on the far id included:
 
 ```ts
 check(permix, schema, {
   resource: 'db:User',
   record: { id: 'u1', accountId: 'acc1' },
-  data: { 'crm:Account': [{ id: 'acc1', tier: 'gold' }] }, // only when far fields are needed
+  data: { 'crm:Account': [{ id: 'acc1', tier: 'gold' }] },
 }, 'read');
 ```
 
@@ -217,8 +216,8 @@ the schema rule both miss, with the record in hand, and one applies when all thr
 - **`where` holds** — plain json-rules over the record at that node, `field` and `path` both
   starting there and free to climb hydrated parents (`space.organizationId`). Whatever referred to
   the holder (its own id, its user) is written in as a literal when the grant is made. An absent
-  path reads as NULL, so write `where` positively. `where: false` or `null` is a `where` that fails,
-  not its absence.
+  path reads as NULL, so write `where` positively. `where: false` is a `where` that fails, not its
+  absence; `where: null` is refused at setup.
 - **The grantor is still in control** — the owner's table, walked from this very record through
   the normal schema, allows the action. That is the only tenancy check and it is live: a space
   moved to another org stops reaching the grantor on the next request, no fetch. The record's
@@ -227,8 +226,8 @@ the schema rule both miss, with the record in hand, and one applies when all thr
   (token ← membership ← org) because an owner's table carries its own entitlements.
 
 `setup` refuses an entitlement without an `owner`, a `where` without a `anchor`, an `id` beside a
-`anchor` (a single row is `where: { field: 'id', … }`), a non-boolean action, or a malformed
-rule, before touching any state. `replace: true` clears entitlements with the table. `getJSON`
+`anchor` (a single row is `where: { field: 'id', … }`), a non-boolean action, `where: null`, or a
+malformed rule, before touching any state. `replace: true` clears entitlements with the table. `getJSON`
 carries grants only. Tenancy is as live as the owner's grants are id-keyed: an owner table with a
 resource-wide grant, or the superadmin flag, short-circuits before any walk.
 

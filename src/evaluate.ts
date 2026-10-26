@@ -57,12 +57,9 @@ export const evaluate = <R extends string>(
       if (hop) {
         const farId = current[hop.localOn];
         if (isNil(farId)) return false;
-        // Synthetic hop: the far record isn't hydrated. The join-key scalar is enough for an rbac
-        // grant; the dictionary supplies its fields only when a downstream action needs them. The
-        // scalar is the far record's `farOn` value — key it there, NOT unconditionally under `id`:
-        // when the far join key is a non-id field, an id-keyed grant on an unrelated record whose
-        // id merely equals the join value must not match (recordId() then finds no id to probe).
-        current = lookupFar(walk.getDict(), hop, String(farId)) ?? { [hop.farOn]: farId };
+        const far = lookupFar(walk.getDict(), hop, String(farId));
+        if (!far) return false;
+        current = far;
         currentResource = hop.farResource as R;
       } else {
         const related = current[segment] as Row | null | undefined;
