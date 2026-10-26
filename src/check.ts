@@ -15,11 +15,10 @@ export type RebacCheck<R extends string = string> = (
  *
  * `resolveRelation(resource, segment)` maps a hydrated relation field to the resource it points at
  * (the ORM-specific seam the app injects). Cross-source `rel` hops are resolved by the engine from
- * `schema.bridges` — synthetically, via the join-key scalar on the record, looking the far row up in
- * a `BridgeDictionary` the engine builds from `subject.data` (only needed when a downstream action
- * reads the far record's fields). `string` delegates (rbac via permix or schema), `{ rule }` is an
- * ABAC predicate over the record (the actor's fields bound as `actor.<field>`), `{ actor }` one over
- * the actor, `any`/`all` compose. Cycles throw rather than loop.
+ * `schema.bridges`: the join-key scalar on the record looks the far row up in a `BridgeDictionary`
+ * the engine builds from `subject.data`; a far row absent there denies the walk. `string` delegates
+ * (rbac via permix or schema), `{ rule }` is an ABAC predicate over the record and the actor (read
+ * by path at `__actor`), `any`/`all` compose. Cycles throw rather than loop.
  */
 export const createRebacCheck = <R extends string = string>(
   resolveRelation: ResolveRelation<R>,

@@ -214,7 +214,7 @@ describe('rebac check — bridge (cross-map) rel walks', () => {
     },
   ];
 
-  test('rbac-terminal: walk the bridge via the join-key scalar → permix grant on the far resource', () => {
+  test('rbac-terminal: walk the bridge to the far row → permix grant on the far resource', () => {
     const s: RebacSchema = {
       bridges,
       permissions: {
@@ -224,15 +224,20 @@ describe('rebac check — bridge (cross-map) rel walks', () => {
     };
     const c = createRebacCheck(() => null);
     const granted = grantStub({ 'crm:Account:own': ['acc1'] });
-    // no subject.data needed — the far id is the scalar already on the record
+    const data = { 'crm:Account': [{ id: 'acc1' }, { id: 'other' }] };
     expect(
-      c(granted, s, { resource: 'db:User', record: { id: 'u1', accountId: 'acc1' } }, 'read'),
+      c(granted, s, { resource: 'db:User', record: { id: 'u1', accountId: 'acc1' }, data }, 'read'),
     ).toBe(true);
     expect(
-      c(granted, s, { resource: 'db:User', record: { id: 'u1', accountId: 'other' } }, 'read'),
+      c(
+        granted,
+        s,
+        { resource: 'db:User', record: { id: 'u1', accountId: 'other' }, data },
+        'read',
+      ),
     ).toBe(false);
     expect(
-      c(granted, s, { resource: 'db:User', record: { id: 'u1', accountId: null } }, 'read'),
+      c(granted, s, { resource: 'db:User', record: { id: 'u1', accountId: null }, data }, 'read'),
     ).toBe(false);
   });
 
@@ -354,7 +359,10 @@ describe('bridge — complex traversals (multi-hop, mixed-path, composition)', (
     const subject = {
       resource: 'db:User',
       record: { id: 'u1', accountId: 'acc1' },
-      data: { 'crm:Account': [{ id: 'acc1', subscriptionId: 'sub1' }] },
+      data: {
+        'crm:Account': [{ id: 'acc1', subscriptionId: 'sub1' }],
+        'billing:Subscription': [{ id: 'sub1' }],
+      },
     };
     expect(c(granted, s, subject, 'read')).toBe(true);
   });
@@ -371,7 +379,7 @@ describe('bridge — complex traversals (multi-hop, mixed-path, composition)', (
     };
     const c = createRebacCheck(() => null);
     const granted = grantStub({ 'billing:Subscription:own': ['sub1'] });
-    // No Account in data → synthetic { id: 'acc1' } carries no subscriptionId → second hop can't resolve.
+    // No Account in data → the first hop finds no far row → denied.
     const subject = { resource: 'db:User', record: { id: 'u1', accountId: 'acc1' } };
     expect(c(granted, s, subject, 'read')).toBe(false);
   });
@@ -399,7 +407,7 @@ describe('bridge — complex traversals (multi-hop, mixed-path, composition)', (
       resource === 'crm:Account' && seg === 'owner' ? 'crm:Contact' : null;
     const c = createRebacCheck(resolve);
     const granted = grantStub({ 'crm:Contact:own': ['c1'] });
-    // The far Account is supplied WITH its nested owner — the synthetic walk reads current['owner'].
+    // The far Account is supplied WITH its nested owner — the walk reads current['owner'].
     const subject = {
       resource: 'db:User',
       record: { id: 'u1', accountId: 'acc1' },
@@ -408,7 +416,7 @@ describe('bridge — complex traversals (multi-hop, mixed-path, composition)', (
     expect(c(granted, s, subject, 'read')).toBe(true);
   });
 
-  test('a post-bridge intra-source rel fails closed when the far record is synthetic (no data → no relation fields)', () => {
+  test('a post-bridge intra-source rel fails closed when the far record is absent', () => {
     const s: RebacSchema = {
       bridges: oneBridge,
       permissions: {
@@ -420,7 +428,7 @@ describe('bridge — complex traversals (multi-hop, mixed-path, composition)', (
       resource === 'crm:Account' && seg === 'owner' ? 'crm:Contact' : null;
     const c = createRebacCheck(resolve);
     const granted = grantStub({ 'crm:Contact:own': ['c1'] });
-    // No data → far Account is synthetic { id: 'acc1' } with no `owner` field → walk aborts.
+    // No data → no far Account → walk aborts.
     const subject = { resource: 'db:User', record: { id: 'u1', accountId: 'acc1' } };
     expect(c(granted, s, subject, 'read')).toBe(false);
   });
@@ -436,11 +444,17 @@ describe('bridge — complex traversals (multi-hop, mixed-path, composition)', (
     const c = createRebacCheck(() => null);
     // The grant is only on `own`; reaching it requires read → manage → own on the far resource.
     const granted = grantStub({ 'crm:Account:own': ['acc1'] });
+    const data = { 'crm:Account': [{ id: 'acc1' }, { id: 'other' }] };
     expect(
-      c(granted, s, { resource: 'db:User', record: { id: 'u1', accountId: 'acc1' } }, 'read'),
+      c(granted, s, { resource: 'db:User', record: { id: 'u1', accountId: 'acc1' }, data }, 'read'),
     ).toBe(true);
     expect(
-      c(granted, s, { resource: 'db:User', record: { id: 'u1', accountId: 'other' } }, 'read'),
+      c(
+        granted,
+        s,
+        { resource: 'db:User', record: { id: 'u1', accountId: 'other' }, data },
+        'read',
+      ),
     ).toBe(false);
   });
 
@@ -463,12 +477,13 @@ describe('bridge — complex traversals (multi-hop, mixed-path, composition)', (
     };
     const c = createRebacCheck(() => null);
     const granted = grantStub({ 'crm:Account:own': ['acc1'] });
+    const data = { 'crm:Account': [{ id: 'acc1' }, { id: 'other' }] };
     // Local rule fails (isAdmin false) but the bridge branch grants.
     expect(
       c(
         granted,
         s,
-        { resource: 'db:User', record: { id: 'u1', accountId: 'acc1', isAdmin: false } },
+        { resource: 'db:User', record: { id: 'u1', accountId: 'acc1', isAdmin: false }, data },
         'read',
       ),
     ).toBe(true);
@@ -477,7 +492,7 @@ describe('bridge — complex traversals (multi-hop, mixed-path, composition)', (
       c(
         granted,
         s,
-        { resource: 'db:User', record: { id: 'u1', accountId: 'other', isAdmin: false } },
+        { resource: 'db:User', record: { id: 'u1', accountId: 'other', isAdmin: false }, data },
         'read',
       ),
     ).toBe(false);
@@ -506,9 +521,12 @@ describe('oneToOne bridge is walkable from both endpoints (symmetric)', () => {
     };
     const c = createRebacCheck(() => null);
     const granted = grantStub({ 'crm:Profile:own': ['p1'] });
-    expect(
-      c(granted, s, { resource: 'db:User', record: { id: 'u1', profileId: 'p1' } }, 'read'),
-    ).toBe(true);
+    const subject = {
+      resource: 'db:User',
+      record: { id: 'u1', profileId: 'p1' },
+      data: { 'crm:Profile': [{ id: 'p1' }] },
+    };
+    expect(c(granted, s, subject, 'read')).toBe(true);
   });
 
   test('reverse: crm:Profile → db:User (allowed — oneToOne is to-one both ways)', () => {
@@ -531,7 +549,7 @@ describe('oneToOne bridge is walkable from both endpoints (symmetric)', () => {
   });
 });
 
-describe('bridge synthetic far-record joins on the actual far key (not always `id`)', () => {
+describe('a bridge on a non-id far key never matches an id-keyed grant by the join value', () => {
   // crm:Team (the "one", endpoints[0]) joins on a NON-id unique field `code`;
   // db:User (the "many", endpoints[1]) joins on `teamCode`. Walking db:User → crm:Team lands on a
   // far endpoint whose join key is `code`, NOT `id`.
@@ -576,6 +594,56 @@ describe('bridge synthetic far-record joins on the actual far key (not always `i
       data: { 'crm:Team': [{ id: 'realTeam', code: 'collidingValue' }] },
     };
     expect(c(granted, s, subject, 'read')).toBe(false);
+  });
+});
+
+describe('an absent far row denies the bridge walk', () => {
+  const bridges: Bridge[] = [
+    {
+      endpoints: [
+        { fieldMap: 'crm', model: 'Account', on: 'id' },
+        { fieldMap: 'db', model: 'User', on: 'accountId' },
+      ],
+      cardinality: 'oneToMany',
+    },
+  ];
+  const c = createRebacCheck(() => null);
+  const record = { id: 'u1', accountId: 'acc1' };
+
+  test('a negative rule on the far row denies without the row, and judges the row when supplied', () => {
+    const s: RebacSchema = {
+      bridges,
+      permissions: {
+        'db:User': { actions: { read: { rel: 'crm:Account', action: 'view' } } },
+        'crm:Account': {
+          actions: {
+            view: { rule: { field: 'status', operator: Operator.notEquals, value: 'blocked' } },
+          },
+        },
+      },
+    };
+    expect(c(stub(), s, { resource: 'db:User', record }, 'read')).toBe(false);
+    const withStatus = (status: string) => ({
+      resource: 'db:User',
+      record,
+      data: { 'crm:Account': [{ id: 'acc1', status }] },
+    });
+    expect(c(stub(), s, withStatus('active'), 'read')).toBe(true);
+    expect(c(stub(), s, withStatus('blocked'), 'read')).toBe(false);
+  });
+
+  test('an id-keyed grant on the far record needs the far row, not just the join value', () => {
+    const s: RebacSchema = {
+      bridges,
+      permissions: {
+        'db:User': { actions: { read: { rel: 'crm:Account', action: 'own' } } },
+        'crm:Account': { actions: { own: null } },
+      },
+    };
+    const granted = grantStub({ 'crm:Account:own': ['acc1'] });
+    expect(c(granted, s, { resource: 'db:User', record }, 'read')).toBe(false);
+    const subject = { resource: 'db:User', record, data: { 'crm:Account': [{ id: 'acc1' }] } };
+    expect(c(granted, s, subject, 'read')).toBe(true);
   });
 });
 

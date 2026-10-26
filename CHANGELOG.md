@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.0 — an entitlement acts from an anchor
+
+- **Breaking: an entitlement's `from` is `anchor`**, and the `Position` type is `Anchor`: `{ resource, anchor: { resource, id }, where?, actions }`. `canGrantEntitlement(permix, schema, entry, anchor)` takes the hydrated anchor record. Setup's refusals name `anchor`. No behaviour change.
+- **Removed: the conditional-entitlement clause in `canGrantEntitlement`.** A writer grants an action iff it could take that action on the stand-in record under the anchor through the normal check. The extra demand that a rule-gated action (a `{ rule }` on the record or on `__actor`) also needs every terminal action of the resource, and on a resource without one a superadmin, is gone: its premise was false. The holder's read runs the action through the writer's walk on the real record with the request's actor, so the rule's conditions hold at read time. A manager now grants a rule-gated `assign` and its holder reaches exactly the manager's reach.
+- **Breaking: a bridge hop to an absent far row denies.** The engine no longer stands in `{ [farOn]: joinValue }` for a far row missing from `subject.data`: the walk returns false, whatever the far action is. A rule on the far row is judged only against the row (a negation such as `status notEquals 'blocked'` no longer passes on missing data), and an rbac grant keyed by the far record's id needs that row in `subject.data` too. With the row supplied, decisions are unchanged.
+- **Breaking: `where: null` is refused at setup.** It was accepted and denied at check. `EntitlementEntry.where` and `Entitlement.where` are `Condition`, no longer `Condition | null`; omit `where` for none.
+- Migration: rename `from` to `anchor` in every entitlement entry and in stored entitlement rows; `Position` → `Anchor`. Supply every far row a bridge walk crosses in `subject.data`. Drop `where: null` from entitlement entries and stored rows.
+
 ## 0.7.0 — no self arm
 
 - **Breaking: the `{ self, action }` arm and `createRebacCheck`'s `selfResource` option are gone.** Identity is not read from the actor. Acting on your own row is a walk to your own entry: `{ rel: 'user', action }` on a row hydrated with its `user`, where the actor's table holds its grants on that user. A row without the relation loaded is denied, never guessed from the key. `actionRuleSchema` rejects `self`.
