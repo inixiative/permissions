@@ -247,7 +247,7 @@ canGrantEntitlement(writer, schema, {
 }, s1); // can the writer manage every integration under s1?
 ```
 
-Each action the entry grants is checked on a stand-in record of `entry.resource` placed under the
+Each action the entry grants is checked on a pseudo record of `entry.resource` placed under the
 anchor along that resource's own `rel` tree. The writer's own entitlements and owner chain apply,
 so a token never grants past its holder, and a `{ rule }` sees the writer's actor as `__actor`. A `where` only
 narrows, so the writer must cover the whole collection at the anchor.

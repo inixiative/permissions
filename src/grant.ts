@@ -16,7 +16,7 @@ export type CanGrantEntitlement<R extends string = string> = (
  *
  * A grant is an action: `canGrantEntitlement` holds when the writer (`permix`: its table, its own
  * entitlements, its actor) could take every action `entry` names, from `anchor` (the hydrated
- * record at `entry.anchor`). Each action is judged on a stand-in record of `entry.resource` placed
+ * record at `entry.anchor`). Each action is judged on a pseudo record of `entry.resource` placed
  * under the anchor along the resource's own `rel` tree, through the normal check: grant time
  * mirrors read time. A `where` only narrows, so it is not consulted: the writer covers the whole
  * collection at the anchor. The holder's read runs the action through the writer's walk on the real
