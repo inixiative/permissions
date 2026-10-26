@@ -3,6 +3,7 @@ import { Operator } from '@inixiative/json-rules';
 import {
   createCanGrantEntitlement,
   createPermissions,
+  createRebacCheck,
   type EntitlementEntry,
   type PermissionEntry,
   type Permix,
@@ -60,9 +61,12 @@ const relations: Record<string, Record<string, string>> = {
   'db:space': { organization: 'db:organization' },
   'db:integration': { space: 'db:space' },
 };
-const canGrantEntitlement = createCanGrantEntitlement(
-  (resource, segment) => relations[resource]?.[segment] ?? null,
-);
+const resolveRelation = (resource: string, segment: string) =>
+  relations[resource]?.[segment] ?? null;
+const canGrantEntitlement = createCanGrantEntitlement(resolveRelation);
+const rebac = createRebacCheck(resolveRelation);
+const check = (permix: Permix, resource: string, record: Row, action: string) =>
+  rebac(permix, schema, { resource, record }, action);
 
 const o1 = { id: 'o1' };
 const s1 = { id: 's1', organizationId: 'o1', organization: o1 };
@@ -111,15 +115,48 @@ describe('canGrantEntitlement: never more than the writer could do from that anc
     );
   });
 
-  test('a rule-gated action is granted at its strongest: a granted assign skips its rule', async () => {
+  test('a rule-gated action is granted by whoever could take it at the anchor', async () => {
     const assign = entry('db:organization', at('db:organization', 'o1'), ['assign']);
-    expect(may(await holding('db:organization', 'o1', ['manage']), assign, o1)).toBe(false);
+    expect(may(await holding('db:organization', 'o1', ['read']), assign, o1)).toBe(false);
+    expect(may(await holding('db:organization', 'o1', ['manage']), assign, o1)).toBe(true);
     expect(may(await holding('db:organization', 'o1', ['own']), assign, o1)).toBe(true);
   });
 
-  test('a rule-gated action on a resource with no terminal action is granted by nobody', async () => {
+  test('a granted rule-gated action reaches exactly as far as its writer: the owner walk runs the rule', async () => {
+    const assign = entry('db:organization', at('db:organization', 'o1'), ['assign']);
+    const assignFrom = async (owner: Permix) => {
+      const holder = createPermissions();
+      await holder.setup([assign], { owner });
+      holder.setActor({ model: 'User', record: { id: 'h1' } });
+      return holder;
+    };
+    const fromManager = await assignFrom(await holding('db:organization', 'o1', ['manage']));
+    expect(check(fromManager, 'db:organization', { ...o1, role: 'member' }, 'assign')).toBe(true);
+    expect(check(fromManager, 'db:organization', { ...o1, role: 'owner' }, 'assign')).toBe(false);
+    const fromOwner = await assignFrom(await holding('db:organization', 'o1', ['own']));
+    expect(check(fromOwner, 'db:organization', { ...o1, role: 'owner' }, 'assign')).toBe(true);
+  });
+
+  test('a rule-only action is granted by anyone who could take it, and its holder still meets the rule', async () => {
     const assign = entry('db:space', at('db:space', 's1'), ['assign']);
-    expect(may(await holding('db:organization', 'o1', ['own']), assign, s1)).toBe(false);
+    const nobody = await writer([]);
+    expect(may(nobody, assign, s1)).toBe(true);
+    const holder = createPermissions();
+    await holder.setup([assign], { owner: nobody });
+    expect(check(holder, 'db:space', { ...s1, role: 'member' }, 'assign')).toBe(true);
+    expect(check(holder, 'db:space', { ...s1, role: 'admin' }, 'assign')).toBe(false);
+  });
+
+  test('a granted actor-gated action still meets the actor: a token holding token.create mints nothing', async () => {
+    const mint = entry('db:organization', at('db:organization', 'o1'), ['token.create']);
+    const holderAs = async (model: string) => {
+      const holder = createPermissions();
+      await holder.setup([mint], { owner: await holding('db:organization', 'o1', ['manage']) });
+      holder.setActor({ model, record: { id: 'h1' } });
+      return holder;
+    };
+    expect(check(await holderAs('User'), 'db:organization', o1, 'token.create')).toBe(true);
+    expect(check(await holderAs('Token'), 'db:organization', o1, 'token.create')).toBe(false);
   });
 
   test('a child resource from an anchor: the integrations of s1, judged on a stand-in under s1', async () => {

@@ -254,11 +254,9 @@ so a token never grants past its holder, and a `{ rule }` sees the writer's acto
 narrows, so the writer must cover the whole collection at the anchor.
 
 An action's rule is ReBAC (walks to parents) plus ABAC (`{ rule }` conditions on the record,
-conditions on `__actor`, who acts). An entitlement holds the action outright: its holder never
-meets the ABAC. So the writer passing the plain check is not enough when the action carries a
-condition, because the writer may only pass it on the condition's easy branch. Such an action is a
-conditional entitlement, and it is granted at its strongest: the writer must also hold the
-resource's terminal (`null`) actions, and on a resource without one only a superadmin grants it.
+conditions on `__actor`, who acts). Granting checks the ReBAC at the anchor; the ABAC runs at read
+time, because the holder's check walks the writer's table on the real record with the request's
+actor. A holder of a granted action reaches exactly as far as its writer would on that record.
 
 ```ts
 // assign: high roles need own, others need manage
@@ -268,16 +266,11 @@ assign: {
     { all: [{ rule: { field: 'role', operator: 'notIn', value: ['owner', 'admin'] } }, 'manage'] },
   ],
 }
-// An admin (manage) passes assign on a member-role record, but an entitlement holding assign
-// skips the role condition and would assign owners: granting it needs own.
+// An admin (manage) grants assign; its holder assigns member-role records, never owners.
 
 // token.create: { all: [{ rule: { field: '__actor.model', operator: 'equals', value: 'User' } }, 'operate'] }
-// A member passes operate, but the integration's token holding token.create would mint despite
-// the person-only condition: granting it needs own.
+// A member grants token.create; a token holding it mints nothing, because the actor is a token.
 ```
-
-`read` delegating to `operate → manage → own` carries no condition, so granting it needs only
-`read`.
 
 ## Hydration (Prisma example)
 

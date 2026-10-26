@@ -1,5 +1,4 @@
 import { createRebacCheck } from './check';
-import { isConditionalEntitlement } from './conditionalEntitlement';
 import { pathTo } from './pathTo';
 import type { EntitlementEntry } from './permix';
 import { recordId } from './recordId';
@@ -20,11 +19,9 @@ export type CanGrantEntitlement<R extends string = string> = (
  * record at `entry.anchor`). Each action is judged on a stand-in record of `entry.resource` placed
  * under the anchor along the resource's own `rel` tree, through the normal check: grant time
  * mirrors read time. A `where` only narrows, so it is not consulted: the writer covers the whole
- * collection at the anchor. A granted action holds outright, so its holder never meets the ABAC
- * in its rule (conditions on the record or the actor); such an action is granted at its strongest:
- * the writer must also hold every terminal (`null`) action of the resource, and on a resource with
- * none it is granted by nobody but a superadmin. An anchor off the resource's tree, or one that is
- * not the record `anchor` names, grants nothing.
+ * collection at the anchor. The holder's read runs the action through the writer's walk on the real
+ * record, so the rule's conditions (on the record and on `__actor`) hold there. An anchor off the
+ * resource's tree, or one that is not the record `anchor` names, grants nothing.
  */
 export const createCanGrantEntitlement = <R extends string = string>(
   resolveRelation: ResolveRelation<R>,
@@ -39,17 +36,9 @@ export const createCanGrantEntitlement = <R extends string = string>(
 
     const record = path.reduceRight<Row>((inner, field) => ({ [field]: inner }), anchor);
     const may = (action: string) => check(permix, schema, { resource, record }, action);
-    const actions = schema.permissions[resource]?.actions ?? {};
-    const terminals = Object.keys(actions).filter((action) => actions[action] === null);
 
     return Object.entries(entry.actions)
       .filter(([, held]) => held === true)
-      .every(
-        ([action]) =>
-          may(action) &&
-          (!isConditionalEntitlement(actions, action, new Set()) ||
-            permix.isSuperadmin?.() === true ||
-            (terminals.length > 0 && terminals.every(may))),
-      );
+      .every(([action]) => may(action));
   };
 };
