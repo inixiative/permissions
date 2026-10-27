@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.2 — no anchor matching, no Zod
+
+- **Breaking: the library does not read `anchor`.** `directOwner`, `onPath` and the `DirectOwner` type are gone, and so is the grant check's anchor test. An entitlement applies when its `where` holds and its owner still allows the action; the app folds where the entitlement sits into its `where` at install (the anchor row itself: `id equals`; a record under it: the columns that place it there) and refuses an anchor it cannot place under.
+- **Breaking: `actionRuleSchema` and the `./actionRuleSchema` entry are gone, and Zod is no longer a peer.** `validateActionRule(rule)` checks an action rule's shape and every `{ rule }` as a positive json-rules condition, returning json-rules' `{ ok, errors }`.
+- Migration: drop `directOwner` from both factories; add the anchor's placement to each entitlement's `where` before `setup`; validate stored action rules with `validateActionRule` where you validated with `actionRuleSchema`.
+
 ## 0.9.1 — actionRuleSchema serializes
 
 - **Fix: `actionRuleSchema`'s `rule` branch is a boolean or an object refined by json-rules `validateRule(…, { positive: true })`**, not a `z.custom`, so OpenAPI and JSON Schema generators can describe it. Validation is unchanged.

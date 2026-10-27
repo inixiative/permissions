@@ -1,5 +1,4 @@
 import { createRebacCheck } from './check';
-import { onPath } from './onPath';
 import type { EntitlementEntry } from './permix';
 import type { CheckOptions, PermixLike, RebacSchema, ResolveRelation, Row } from './types';
 
@@ -24,14 +23,12 @@ export type CanGrantEntitlement<R extends string = string> = (
  */
 export const createCanGrantEntitlement = <R extends string = string>(
   resolveRelation: ResolveRelation<R>,
-  options: CheckOptions<R> = {},
+  options: CheckOptions = {},
 ): CanGrantEntitlement<R> => {
   const check = createRebacCheck(resolveRelation, { ...options, absent: 'unknown' });
-  const directOwner = options.directOwner ?? (() => null);
 
   return (permix, schema, entry, placed) => {
     const resource = entry.resource as R;
-    if (!onPath(directOwner, resource, placed, entry.anchor)) return false;
     return Object.entries(entry.actions)
       .filter(([, held]) => held === true)
       .every(([action]) => check(permix, schema, { resource, record: placed }, action));
