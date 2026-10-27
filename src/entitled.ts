@@ -26,7 +26,7 @@ export const entitled = <R extends string>(
   return (permix.entitlements?.(resource, action) ?? []).some(
     ({ anchor, where, owner }) =>
       !visited.has(`${permixId(owner)}:${nodeId(record)}:${resource}:${action}`) &&
-      onPath(walk.resolveRelation, walk.schema, resource, record, anchor) &&
+      onPath(walk.directOwner, resource, record, anchor) &&
       (where === undefined || holds(where, record)) &&
       evaluate(walk, asOwner(owner, actor), resource, record, action, new Set(visited)),
   );

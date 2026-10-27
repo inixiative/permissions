@@ -68,7 +68,21 @@ const relations: Record<string, Record<string, string>> = {
   'db:integration': { space: 'db:space', replacedBy: 'db:integration' },
   'db:contact': { space: 'db:space' },
 };
-const check = createRebacCheck((resource, segment) => relations[resource]?.[segment] ?? null);
+const owners: Record<string, string> = {
+  'db:space': 'organization',
+  'db:integration': 'space',
+  'db:contact': 'space',
+};
+const directOwner = (resource: string, record: Row) => {
+  const field = owners[resource];
+  const owner = field ? (record[field] as Row | undefined) : undefined;
+  return field && owner && typeof owner === 'object'
+    ? { resource: relations[resource]?.[field] ?? '', id: String(owner.id) }
+    : null;
+};
+const check = createRebacCheck((resource, segment) => relations[resource]?.[segment] ?? null, {
+  directOwner,
+});
 
 const o1 = { id: 'o1' };
 const o2 = { id: 'o2' };

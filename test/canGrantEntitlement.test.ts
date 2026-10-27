@@ -63,14 +63,26 @@ const relations: Record<string, Record<string, string>> = {
 };
 const resolveRelation = (resource: string, segment: string) =>
   relations[resource]?.[segment] ?? null;
-const canGrantEntitlement = createCanGrantEntitlement(resolveRelation);
-const rebac = createRebacCheck(resolveRelation);
+const owners: Record<string, string> = {
+  'db:space': 'organization',
+  'db:integration': 'space',
+};
+const directOwner = (resource: string, record: Row) => {
+  const field = owners[resource];
+  const owner = field ? (record[field] as Row | undefined) : undefined;
+  return field && owner && typeof owner === 'object'
+    ? { resource: relations[resource]?.[field] ?? '', id: String(owner.id) }
+    : null;
+};
+const canGrantEntitlement = createCanGrantEntitlement(resolveRelation, { directOwner });
+const rebac = createRebacCheck(resolveRelation, { directOwner });
 const check = (permix: Permix, resource: string, record: Row, action: string) =>
   rebac(permix, schema, { resource, record }, action);
 
 const o1 = { id: 'o1' };
 const s1 = { id: 's1', organizationId: 'o1', organization: o1 };
 const at = (resource: string, id: string) => ({ resource, id });
+const integrationUnder = (space: Row) => ({ id: '', spaceId: space.id, space });
 
 const entry = (
   resource: string,
@@ -159,16 +171,29 @@ describe('canGrantEntitlement: never more than the writer could do from that anc
     expect(check(await holderAs('Token'), 'db:organization', o1, 'token.create')).toBe(false);
   });
 
-  test('a child resource from an anchor: the integrations of s1, judged on a stand-in under s1', async () => {
+  test('a child resource from its direct owner: the integrations of s1, judged on the record the app placed under s1', async () => {
     const integrations = entry('db:integration', at('db:space', 's1'), ['manage']);
-    expect(may(await holding('db:space', 's1', ['manage']), integrations, s1)).toBe(true);
-    expect(may(await holding('db:space', 's1', ['read']), integrations, s1)).toBe(false);
+    expect(
+      may(await holding('db:space', 's1', ['manage']), integrations, integrationUnder(s1)),
+    ).toBe(true);
+    expect(may(await holding('db:space', 's1', ['read']), integrations, integrationUnder(s1))).toBe(
+      false,
+    );
   });
 
-  test('two hops up: the integrations of every space of o1', async () => {
+  test('an anchor acts at its direct owner: integrations from o1, two hops up, are refused even to its owner', async () => {
     const integrations = entry('db:integration', at('db:organization', 'o1'), ['manage']);
-    expect(may(await holding('db:organization', 'o1', ['manage']), integrations, o1)).toBe(true);
-    expect(may(await holding('db:space', 's1', ['manage']), integrations, o1)).toBe(false);
+    expect(
+      may(await holding('db:organization', 'o1', ['own']), integrations, integrationUnder(s1)),
+    ).toBe(false);
+  });
+
+  test('a placed record must sit at the anchor: not under another record', async () => {
+    const integrations = entry('db:integration', at('db:space', 's1'), ['manage']);
+    const s2 = { id: 's2', organizationId: 'o1', organization: o1 };
+    expect(
+      may(await holding('db:organization', 'o1', ['own']), integrations, integrationUnder(s2)),
+    ).toBe(false);
   });
 
   test('an anchor off the resource tree grants nothing', async () => {
@@ -186,8 +211,12 @@ describe('canGrantEntitlement: never more than the writer could do from that anc
   test('a where only narrows: the writer must cover the whole collection at that anchor', async () => {
     const slack = { field: 'provider', operator: Operator.equals, value: 'slack' };
     const granted = entry('db:integration', at('db:space', 's1'), ['manage'], slack);
-    expect(may(await holding('db:space', 's1', ['manage']), granted, s1)).toBe(true);
-    expect(may(await holding('db:space', 's1', ['read']), granted, s1)).toBe(false);
+    expect(may(await holding('db:space', 's1', ['manage']), granted, integrationUnder(s1))).toBe(
+      true,
+    );
+    expect(may(await holding('db:space', 's1', ['read']), granted, integrationUnder(s1))).toBe(
+      false,
+    );
   });
 
   test('false actions grant nothing and need nothing', async () => {

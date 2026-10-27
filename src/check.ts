@@ -1,6 +1,13 @@
 import { type BridgeDictionary, indexBridges } from '@inixiative/json-rules';
 import { evaluate } from './evaluate';
-import type { ActionRule, PermixLike, RebacSchema, ResolveRelation, Subject } from './types';
+import type {
+  ActionRule,
+  CheckOptions,
+  PermixLike,
+  RebacSchema,
+  ResolveRelation,
+  Subject,
+} from './types';
 
 export type RebacCheck<R extends string = string> = (
   permix: PermixLike,
@@ -22,6 +29,7 @@ export type RebacCheck<R extends string = string> = (
  */
 export const createRebacCheck = <R extends string = string>(
   resolveRelation: ResolveRelation<R>,
+  { directOwner = () => null }: CheckOptions<R> = {},
 ): RebacCheck<R> => {
   return (permix, schema, subject, actionOrRule, visited = new Set()) => {
     // Built lazily on the first bridge hop: a check that never crosses a bridge must not pay for —
@@ -38,7 +46,7 @@ export const createRebacCheck = <R extends string = string>(
       return dict;
     };
     return evaluate(
-      { resolveRelation, schema, getDict },
+      { resolveRelation, directOwner, schema, getDict },
       permix,
       subject.resource,
       subject.record,
