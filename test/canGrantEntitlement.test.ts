@@ -44,6 +44,9 @@ const schema: RebacSchema = {
         manage: { any: ['own', { rel: 'organization', action: 'manage' }] },
         read: { any: ['manage', { rel: 'organization', action: 'read' }] },
         assign: { rule: { field: 'role', operator: Operator.notIn, value: highRoles } },
+        rename: {
+          all: [{ rule: { field: 'label', operator: Operator.equals, value: null } }, 'read'],
+        },
       },
     },
     'db:integration': {
@@ -257,5 +260,37 @@ describe('canGrantEntitlement: never more than the writer could do from that anc
     const superadmin = await writer([]);
     superadmin.setSuperadmin(true);
     expect(may(superadmin, entry('db:space', at('db:space', 's1'), ['assign']), s1)).toBe(true);
+  });
+});
+
+describe('canGrantEntitlement on a placed record: a field it does not carry is unknown, not null', () => {
+  const rename = entry('db:space', at('db:space', 's1'), ['rename']);
+
+  test('a rule for records with no label does not grant records the placed one leaves open', async () => {
+    expect(may(await holding('db:space', 's1', ['read']), rename, s1)).toBe(false);
+  });
+
+  test('a placed record that pins label null is granted: null === null', async () => {
+    expect(may(await holding('db:space', 's1', ['read']), rename, { ...s1, label: null })).toBe(
+      true,
+    );
+  });
+
+  test("the writer's own entitlement where reads the placed record the same way", async () => {
+    const unnamed = entry('db:integration', at('db:space', 's1'), ['manage'], {
+      field: 'name',
+      operator: Operator.equals,
+      value: null,
+    });
+    const holder = createPermissions();
+    await holder.setup([unnamed], { owner: await holding('db:space', 's1', ['manage']) });
+    holder.setActor({ model: 'User', record: { id: 'h1' } });
+    const integrations = entry('db:integration', at('db:space', 's1'), ['manage']);
+    expect(may(holder, integrations, integrationUnder(s1))).toBe(false);
+    expect(may(holder, integrations, { ...integrationUnder(s1), name: null })).toBe(true);
+  });
+
+  test('a check at run time still reads a field the record does not carry as null', async () => {
+    expect(check(await holding('db:space', 's1', ['read']), 'db:space', s1, 'rename')).toBe(true);
   });
 });

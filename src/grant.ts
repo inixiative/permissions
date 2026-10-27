@@ -18,14 +18,15 @@ export type CanGrantEntitlement<R extends string = string> = (
  * `entry.resource` the app built at the anchor: the anchor row itself for a grant anchored on its
  * own model, else a record whose direct owner is the anchor, with its columns, hydrated. The library
  * builds no record of its own (it does not own hydration). `placed` must sit at the anchor, or the
- * grant is refused. A `where` only narrows, so it is not consulted: the writer covers the whole set at
- * the anchor.
+ * grant is refused. The app gives `placed` the values the entry's `where` pins exactly; a field it
+ * does not carry is unknown (json-rules `absent: 'unknown'`), so the writer covers every record the
+ * `where` admits.
  */
 export const createCanGrantEntitlement = <R extends string = string>(
   resolveRelation: ResolveRelation<R>,
   options: CheckOptions<R> = {},
 ): CanGrantEntitlement<R> => {
-  const check = createRebacCheck(resolveRelation, options);
+  const check = createRebacCheck(resolveRelation, { ...options, absent: 'unknown' });
   const directOwner = options.directOwner ?? (() => null);
 
   return (permix, schema, entry, placed) => {

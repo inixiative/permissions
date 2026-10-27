@@ -1,4 +1,4 @@
-import type { Bridge, Condition, Row } from '@inixiative/json-rules';
+import type { Absent, Bridge, Condition, Row } from '@inixiative/json-rules';
 
 export type { Row };
 
@@ -65,7 +65,10 @@ export type Anchor = { resource: string; id: string };
  */
 export type DirectOwner<R extends string = string> = (resource: R, record: Row) => Anchor | null;
 
-export type CheckOptions<R extends string = string> = { directOwner?: DirectOwner<R> };
+export type CheckOptions<R extends string = string> = {
+  directOwner?: DirectOwner<R>;
+  absent?: Absent;
+};
 
 /**
  * An installed entitlement, as the engine reads it back: it applies to a record only when `anchor`

@@ -29,7 +29,7 @@ export type RebacCheck<R extends string = string> = (
  */
 export const createRebacCheck = <R extends string = string>(
   resolveRelation: ResolveRelation<R>,
-  { directOwner = () => null }: CheckOptions<R> = {},
+  { directOwner = () => null, absent = 'null' }: CheckOptions<R> = {},
 ): RebacCheck<R> => {
   return (permix, schema, subject, actionOrRule, visited = new Set()) => {
     // Built lazily on the first bridge hop: a check that never crosses a bridge must not pay for —
@@ -46,7 +46,7 @@ export const createRebacCheck = <R extends string = string>(
       return dict;
     };
     return evaluate(
-      { resolveRelation, directOwner, schema, getDict },
+      { resolveRelation, directOwner, absent, schema, getDict },
       permix,
       subject.resource,
       subject.record,

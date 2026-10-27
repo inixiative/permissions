@@ -379,6 +379,18 @@ describe('entitlements: an action on a model from an anchor, owner on the row', 
     ).rejects.toThrow();
   });
 
+  test('14b. a `where` that can hold on a missing value is refused: write it positively', async () => {
+    const holder = createPermissions();
+    const entry = { resource: 'db:space', anchor: AT_S1, actions: { manage: true } };
+    await expect(
+      entitle(
+        holder,
+        [{ ...entry, where: { field: 'name', operator: Operator.isEmpty } }],
+        await o1Table(),
+      ),
+    ).rejects.toThrow();
+  });
+
   test('15. `from` needs an owner; a false action grants nothing', async () => {
     const holder = createPermissions();
     await expect(
@@ -533,20 +545,21 @@ describe('entitlements: edges the review asked for', () => {
     expect(manage(holder, 'db:space', s1)).toBe(false);
   });
 
-  test('a negated `where` on an unloaded path passes: write `where` positively', async () => {
+  test('a negated `where` is refused: it would pass on an unloaded path', async () => {
     const holder = createPermissions();
-    await entitle(
-      holder,
-      [
-        {
-          ...integrationsOfS1,
-          anchor: at('db:integration', 'i1'),
-          where: { field: 'space.archivedAt', operator: Operator.notEquals, value: 'x' },
-        },
-      ],
-      await table({ resource: 'db:integration', id: 'i1', actions: { manage: true } }),
-    );
-    expect(manage(holder, 'db:integration', { id: 'i1', provider: 'slack' })).toBe(true);
+    await expect(
+      entitle(
+        holder,
+        [
+          {
+            ...integrationsOfS1,
+            anchor: at('db:integration', 'i1'),
+            where: { field: 'space.archivedAt', operator: Operator.notEquals, value: 'x' },
+          },
+        ],
+        await table({ resource: 'db:integration', id: 'i1', actions: { manage: true } }),
+      ),
+    ).rejects.toThrow();
   });
 
   test('a superadmin owner is unfenced: `from` and `where` still narrow, tenancy does not', async () => {

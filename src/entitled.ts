@@ -1,12 +1,11 @@
-import { type Condition, check as checkRule } from '@inixiative/json-rules';
+import { type Absent, type Condition, check as checkRule } from '@inixiative/json-rules';
 import { evaluate, type Walk } from './evaluate';
 import { asOwner, nodeId, permixId } from './identity';
 import { onPath } from './onPath';
 import type { PermixLike, Row } from './types';
 
-// A `where` is literals and record paths, checked against the record at the entitlement's node.
-// An absent path reads as NULL: write `where` positively, a negation passes on what is not loaded.
-const holds = (where: Condition, record: Row): boolean => checkRule(where, record) === true;
+const holds = (where: Condition, record: Row, absent: Absent): boolean =>
+  checkRule(where, record, { absent }) === true;
 
 // Entitlements are consulted after the table and the schema both miss, at the node the holder's
 // own walk reached, with the record in hand. One applies when its anchor is on the record's
@@ -27,7 +26,7 @@ export const entitled = <R extends string>(
     ({ anchor, where, owner }) =>
       !visited.has(`${permixId(owner)}:${nodeId(record)}:${resource}:${action}`) &&
       onPath(walk.directOwner, resource, record, anchor) &&
-      (where === undefined || holds(where, record)) &&
+      (where === undefined || holds(where, record, walk.absent)) &&
       evaluate(walk, asOwner(owner, actor), resource, record, action, new Set(visited)),
   );
 };
