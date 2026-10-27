@@ -1,14 +1,27 @@
 import { type Absent, type Condition, check as checkRule } from '@inixiative/json-rules';
 import { evaluate, type Walk } from './evaluate';
-import { asOwner, fromAnchor, nodeId, permixId } from './identity';
-import type { PermixLike, Row } from './types';
+import { asOwner, nodeId, permixId } from './identity';
+import { recordId } from './recordId';
+import type { Anchor, PermixLike, Row } from './types';
 
 const holds = (where: Condition, record: Row, absent: Absent): boolean =>
   checkRule(where, record, { absent }) === true;
 
+const reaches = <R extends string>(walk: Walk<R>, resource: R, record: Row, anchor: Anchor) => {
+  let currentResource: R | null = resource;
+  let current: Row = record;
+  for (const segment of anchor.path?.split('.') ?? []) {
+    const related = current[segment] as Row | null | undefined;
+    if (!related || Array.isArray(related)) return false;
+    currentResource = walk.resolveRelation(currentResource, segment);
+    if (!currentResource) return false;
+    current = related;
+  }
+  return currentResource === anchor.resource && recordId(current) === anchor.id;
+};
+
 // Entitlements are consulted after the table and the schema both miss, at the node the holder's
-// own walk reached, with the record in hand. One applies when it is assessed from its anchor (the
-// normal walk from this record, for a holder of its actions on the anchor record, passes), its
+// own walk reached, with the record in hand. One applies when the record's path reaches its anchor, its
 // `where` holds, and whoever granted it can still do the action on this record: the
 // owner's own table, walked from here. A space moved to another org stops reaching its grantor.
 // An owner that is already on this walk for this node and action is a loop built from grant
@@ -23,17 +36,10 @@ export const entitled = <R extends string>(
 ): boolean => {
   const actor = permix.getActor();
   return (permix.entitlements?.(resource, action) ?? []).some(
-    ({ anchor, where, actions, owner }) =>
+    ({ anchor, where, owner }) =>
       !visited.has(`${permixId(owner)}:${nodeId(record)}:${resource}:${action}`) &&
       (where === undefined || holds(where, record, walk.absent)) &&
-      evaluate(
-        walk,
-        fromAnchor(anchor, actions, actor),
-        resource,
-        record,
-        action,
-        new Set(visited),
-      ) &&
+      reaches(walk, resource, record, anchor) &&
       evaluate(walk, asOwner(owner, actor), resource, record, action, new Set(visited)),
   );
 };

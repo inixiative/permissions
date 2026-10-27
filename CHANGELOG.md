@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.0 — the anchor carries its path
+
+- **Breaking: an anchor on another resource needs `path`**, the relations from the record up to the anchor (`'space.organization'`); a record anchored at itself has none. `setup` refuses either mismatch. An entitlement applies when the hydrated record at the end of the path is the anchor, its `where` holds, and its owner allows the action on the record. Only the anchor's id is fixed, so a record that moves inside the anchor stays reached; the path picks the side of a two-parent record; a list relation reaches nothing.
+- **The action is checked on the record again**, not asked of the anchor (0.9.3's anchor walk is gone, with `fromAnchor`). The grant check is the writer's check on `placed` only.
+- Migration: give every non-self anchor its `path`.
+
 ## 0.9.3 — an entitlement is assessed from its anchor
 
 - **Breaking: the library checks `anchor` again, with nothing from the app.** An entitlement applies to a record when the normal walk from the record passes for a holder whose only grant is the entitlement's actions on the anchor record, its `where` holds, and its owner allows the action on the record. The schema says how far an action at the anchor reaches; no callback, no ownership convention. The grant check requires the same on `placed`. `Entitlement` carries its `actions`.

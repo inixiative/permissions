@@ -55,16 +55,19 @@ export type ResolveRelation<R extends string = string> = (
   relationSegment: string,
 ) => R | null;
 
-/** A node on a record's chain: the anchor an entitlement acts from. */
-export type Anchor = { resource: string; id: string };
+/**
+ * The record an entitlement acts from, and the relation path that reaches it from the entitled
+ * record (`'space.organization'`). A record anchored at itself has no path.
+ */
+export type Anchor = { resource: string; id: string; path?: string };
 
 export type CheckOptions = {
   absent?: Absent;
 };
 
 /**
- * An installed entitlement, as the engine reads it back: it applies to a record only when `anchor`
- * is on the record's hydrated path, `where` holds, and the `owner` (the table of whoever granted
+ * An installed entitlement, as the engine reads it back: it applies to a record only when the
+ * record's hydrated `anchor.path` reaches the anchor, `where` holds, and the `owner` (the table of whoever granted
  * it) still allows the action on that record through the normal walk.
  */
 export type Entitlement = {
