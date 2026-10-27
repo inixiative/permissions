@@ -198,7 +198,7 @@ await permix.setup(
     // manage the slack integrations of s1
     {
       resource: 'db:integration',
-      anchor: { resource: 'db:space', id: 's1' },
+      anchor: { resource: 'db:space', id: 's1', path: 'space' },
       where: { field: 'provider', operator: Operator.equals, value: 'slack' },
       actions: { manage: true },
     },
@@ -210,12 +210,13 @@ await permix.setup(
 Entitlements never enter the table. The engine consults them at a node only after the table and
 the schema rule both miss, with the record in hand, and one applies when all three hold:
 
-- **It is assessed from its `anchor`** — the normal walk from the record, for a holder whose only
-  grant is the entitlement's actions on the anchor record, passes. The walk climbs the record's
-  hydrated relations exactly as any check does, so the schema says how far an action at the
-  anchor reaches: integrations anchored at an organization with `manage` reach that organization's
-  own integrations, and with `own` (which reaches its spaces) the spaces' integrations too. An
-  anchor on the record itself reaches that record. Nothing else defines ownership.
+- **Its `anchor` is reached along its `path`** — `anchor.path` names the relations from the
+  record up to the anchor (`'space.organization'`); the hydrated record at the end of the path is
+  the anchor (its resource and id). Only the anchor's id is fixed: a record that moves inside the
+  anchor stays reached, one that moves out stops. The path picks the side when a record hangs from
+  two parents of one model (`targetOrganization`, not `sourceOrganization`), so a relation the path
+  does not name never counts, and a path through a list relation reaches nothing. A record anchored
+  at itself has no path. The action is checked on the record, never asked of the anchor.
 - **`where` holds** — the `where` is plain json-rules over the record at that node, `field` and `path` both
   starting there and free to climb hydrated parents (`space.organizationId`). Whatever referred to
   the holder (its own id, its user) is written in as a literal when the grant is made. A `where`
@@ -230,7 +231,8 @@ the schema rule both miss, with the record in hand, and one applies when all thr
   request's actor as `__actor`. A holder can never exceed its owner on the same record and action; owners nest
   (token ← membership ← org) because an owner's table carries its own entitlements.
 
-`setup` refuses an entitlement without an `owner`, a `where` without a `anchor`, an `id` beside a
+`setup` refuses an entitlement without an `owner`, a `where` without a `anchor`, an `anchor` on
+another resource without a `path` or on its own resource with one, an `id` beside a
 `anchor` (a single row is `where: { field: 'id', … }`), a non-boolean action, `where: null`, or a
 malformed or non-positive rule, before touching any state. `replace: true` clears entitlements with the table. `getJSON`
 carries grants only. Tenancy is as live as the owner's grants are id-keyed: an owner table with a
@@ -248,7 +250,7 @@ const canGrantEntitlement = createCanGrantEntitlement(resolveRelation);
 const placed = await hydrate('Integration', { id: '', spaceId: 's1', provider: 'slack' });
 canGrantEntitlement(writer, schema, {
   resource: 'db:integration',
-  anchor: { resource: 'db:space', id: 's1' },
+  anchor: { resource: 'db:space', id: 's1', path: 'space' },
   where: { field: 'provider', operator: 'equals', value: 'slack' },
   actions: { manage: true },
 }, placed); // can the writer manage every Slack integration of s1?
@@ -257,8 +259,7 @@ canGrantEntitlement(writer, schema, {
 Each action the entry grants is checked on `placed`, the pseudo record of `entry.resource` that you
 build at the anchor (the anchor row itself, or a record placed under it, with its columns,
 hydrated) and give it the values the entry's `where` pins exactly (its `equals` leaves; `equals
-null` pins `null`) — the library builds no record of its own. The entitlement must be assessed from
-its anchor on `placed`, and the writer must take each action there. The check reads `placed` with json-rules `absent: 'unknown'`: a field
+null` pins `null`) — the library builds no record of its own. The writer must take each action there. The check reads `placed` with json-rules `absent: 'unknown'`: a field
 it does not carry fails every positive leaf, `equals null` included, so a writer whose authority
 reads a field the `where` leaves open is refused, and only a writer unfiltered on it passes. The
 writer's own entitlements and owner chain apply, so a token never grants past its holder, and a

@@ -45,7 +45,9 @@ const isAnchor = (value: unknown): value is Anchor =>
   typeof (value as Anchor).resource === 'string' &&
   (value as Anchor).resource.length > 0 &&
   typeof (value as Anchor).id === 'string' &&
-  (value as Anchor).id.length > 0;
+  (value as Anchor).id.length > 0 &&
+  ((value as Anchor).path === undefined ||
+    (typeof (value as Anchor).path === 'string' && (value as Anchor).path !== ''));
 
 const validate = (entry: PermissionEntry, owner: PermixLike | undefined): void => {
   if (!isEntitlement(entry)) {
@@ -54,7 +56,9 @@ const validate = (entry: PermissionEntry, owner: PermixLike | undefined): void =
     return;
   }
   if (!isAnchor(entry.anchor))
-    throw new Error('`anchor` is { resource, id }, both non-empty strings');
+    throw new Error('`anchor` is { resource, id, path? }, non-empty strings');
+  if ((entry.anchor.path === undefined) !== (entry.anchor.resource === entry.resource))
+    throw new Error('`anchor.path` reaches the anchor from the record: none at the record itself');
   if (!owner)
     throw new Error('an entry with `anchor` needs setup(entries, { owner }): whoever granted it');
   if ((entry as GrantEntry).id !== undefined)

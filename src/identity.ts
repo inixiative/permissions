@@ -1,4 +1,4 @@
-import type { Actor, Anchor, PermixLike } from './types';
+import type { Actor, PermixLike } from './types';
 
 // Stable identity for cycle detection that does NOT depend on `record.id` — an id may be absent or
 // collide across resources, both of which would make an id-based key falsely report a cycle. A
@@ -23,16 +23,6 @@ const tableId = identity();
 // table it was cut from: the same table re-entering the same node and action is a loop.
 const origin = new WeakMap<PermixLike, PermixLike>();
 export const permixId = (permix: PermixLike): number => tableId(origin.get(permix) ?? permix);
-
-export const fromAnchor = (
-  anchor: Anchor,
-  actions: Record<string, boolean | undefined>,
-  actor: Actor | null,
-): PermixLike => ({
-  check: (resource, action, id) =>
-    resource === anchor.resource && id === anchor.id && actions[action] === true,
-  getActor: () => actor,
-});
 
 export const asOwner = (owner: PermixLike, actor: Actor | null): PermixLike => {
   const slice: PermixLike = {

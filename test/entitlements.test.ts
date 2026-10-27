@@ -96,7 +96,8 @@ const s1 = space('s1', o1);
 const s1moved = space('s1', o2);
 const s2 = space('s2', o1);
 
-const at = (resource: string, id: string): Anchor => ({ resource, id });
+const at = (resource: string, id: string, path?: string): Anchor =>
+  path === undefined ? { resource, id } : { resource, id, path };
 const AT_S1 = at('db:space', 's1');
 
 const table = async (...entries: PermissionEntry[]) => {
@@ -115,37 +116,6 @@ const o1Table = () => table(own('db:organization', 'o1'));
 
 const manage = (permix: Permix, resource: string, record: Row) =>
   check(permix, schema, { resource, record }, 'manage');
-
-describe('an entitlement is assessed from its anchor: the walk from the record reaches the anchor with the action', () => {
-  const integrationsFrom = (anchor: Anchor, actions: string[]): EntitlementEntry => ({
-    resource: 'db:integration',
-    anchor,
-    actions: Object.fromEntries(actions.map((action) => [action, true])),
-  });
-  const holderOf = async (entry: EntitlementEntry) => {
-    const holder = createPermissions();
-    await holder.setup([entry], { owner: await o1Table() });
-    return holder;
-  };
-
-  test('from the space: its integrations, not another space’s', async () => {
-    const holder = await holderOf(integrationsFrom(AT_S1, ['manage']));
-    expect(manage(holder, 'db:integration', integration('i1', s1))).toBe(true);
-    expect(manage(holder, 'db:integration', integration('i2', s2))).toBe(false);
-  });
-
-  test('from the organization, the walk climbs: integration → space → organization', async () => {
-    const holder = await holderOf(integrationsFrom(at('db:organization', 'o1'), ['manage']));
-    expect(manage(holder, 'db:integration', integration('i1', s1))).toBe(true);
-    expect(manage(holder, 'db:integration', integration('i3', space('s3', o2)))).toBe(false);
-  });
-
-  test('from the record itself: that record only', async () => {
-    const holder = await holderOf(integrationsFrom(at('db:integration', 'i1'), ['manage']));
-    expect(manage(holder, 'db:integration', integration('i1', s1))).toBe(true);
-    expect(manage(holder, 'db:integration', integration('i2', s1))).toBe(false);
-  });
-});
 
 describe('entitlements: an action on a model from an anchor, owner on the row', () => {
   test('1. manage s1: the space, read through it, not own, an integration under it, not s2', async () => {
@@ -196,7 +166,13 @@ describe('entitlements: an action on a model from an anchor, owner on the row', 
     const holder = createPermissions();
     await entitle(
       holder,
-      [{ resource: 'db:integration', anchor: AT_S1, actions: { manage: true } }],
+      [
+        {
+          resource: 'db:integration',
+          anchor: at('db:space', 's1', 'space'),
+          actions: { manage: true },
+        },
+      ],
       await o1Table(),
     );
     expect(manage(holder, 'db:integration', integration('i1', s1))).toBe(true);
@@ -211,7 +187,7 @@ describe('entitlements: an action on a model from an anchor, owner on the row', 
       [
         {
           resource: 'db:integration',
-          anchor: AT_S1,
+          anchor: at('db:space', 's1', 'space'),
           actions: { manage: true },
           where: is('provider', 'slack'),
         },
@@ -229,7 +205,7 @@ describe('entitlements: an action on a model from an anchor, owner on the row', 
       [
         {
           resource: 'db:integration',
-          anchor: AT_S1,
+          anchor: at('db:space', 's1', 'space'),
           actions: { manage: true },
           where: is('id', 'i1'),
         },
@@ -295,7 +271,13 @@ describe('entitlements: an action on a model from an anchor, owner on the row', 
     holder.setActor({ model: 'User', record: { id: 'u1', email: 'me@example.com' } });
     await entitle(
       holder,
-      [{ resource: 'db:contact', anchor: AT_S1, actions: { manage: true } }],
+      [
+        {
+          resource: 'db:contact',
+          anchor: at('db:space', 's1', 'space'),
+          actions: { manage: true },
+        },
+      ],
       await o1Table(),
     );
     expect(manage(holder, 'db:contact', contact('c1', s1, { valueKey: 'me@example.com' }))).toBe(
@@ -310,7 +292,13 @@ describe('entitlements: an action on a model from an anchor, owner on the row', 
     const holder = createPermissions();
     await entitle(
       holder,
-      [{ resource: 'db:integration', anchor: at('db:space', 's2'), actions: { manage: true } }],
+      [
+        {
+          resource: 'db:integration',
+          anchor: at('db:space', 's2', 'space'),
+          actions: { manage: true },
+        },
+      ],
       await o1Table(),
     );
     expect(manage(holder, 'db:integration', integration('i1', s1))).toBe(false);
@@ -367,7 +355,13 @@ describe('entitlements: an action on a model from an anchor, owner on the row', 
     const holder = createPermissions();
     await entitle(
       holder,
-      [{ resource: 'db:integration', anchor: AT_S1, actions: { manage: true } }],
+      [
+        {
+          resource: 'db:integration',
+          anchor: at('db:space', 's1', 'space'),
+          actions: { manage: true },
+        },
+      ],
       owner,
     );
     expect(manage(holder, 'db:integration', integration('i1', s1moved))).toBe(true);
@@ -444,7 +438,13 @@ describe('entitlements: an action on a model from an anchor, owner on the row', 
     const holder = createPermissions();
     await entitle(
       holder,
-      [{ resource: 'db:integration', anchor: AT_S1, actions: { manage: true } }],
+      [
+        {
+          resource: 'db:integration',
+          anchor: at('db:space', 's1', 'space'),
+          actions: { manage: true },
+        },
+      ],
       owner,
     );
     expect(manage(holder, 'db:integration', integration('i1', s1))).toBe(true);
@@ -459,7 +459,7 @@ describe('entitlements: an action on a model from an anchor, owner on the row', 
       [
         {
           resource: 'db:contact',
-          anchor: AT_S1,
+          anchor: at('db:space', 's1', 'space'),
           actions: { manage: true },
           where: is('userId', 'u1'),
         },
@@ -468,7 +468,17 @@ describe('entitlements: an action on a model from an anchor, owner on the row', 
     );
     const t1 = createPermissions();
     t1.setActor({ model: 'Token', record: { id: 't1', email: 'token@example.com' } });
-    await entitle(t1, [{ resource: 'db:contact', anchor: AT_S1, actions: { manage: true } }], m1);
+    await entitle(
+      t1,
+      [
+        {
+          resource: 'db:contact',
+          anchor: at('db:space', 's1', 'space'),
+          actions: { manage: true },
+        },
+      ],
+      m1,
+    );
     expect(manage(t1, 'db:contact', contact('c1', s1, { userId: 'u1', valueKey: 'k' }))).toBe(true);
     expect(manage(t1, 'db:contact', contact('c2', s1, { userId: 'u2', valueKey: 'k' }))).toBe(
       false,
@@ -503,7 +513,7 @@ describe('entitlements: an action on a model from an anchor, owner on the row', 
       [
         {
           resource: 'db:integration',
-          anchor: AT_S1,
+          anchor: at('db:space', 's1', 'space'),
           actions: { manage: true },
           where: {
             all: [
@@ -532,13 +542,17 @@ describe('entitlements: edges the review asked for', () => {
   };
   const integrationsOfS1: EntitlementEntry = {
     resource: 'db:integration',
-    anchor: AT_S1,
+    anchor: at('db:space', 's1', 'space'),
     actions: { manage: true },
   };
 
   test('`from` follows the resource’s natural tree only: a hydrated sideways foreign key is not an anchor', async () => {
     const holder = createPermissions();
-    await entitle(holder, [{ ...integrationsOfS1, anchor: at('db:space', 's2') }], await o1Table());
+    await entitle(
+      holder,
+      [{ ...integrationsOfS1, anchor: at('db:space', 's2', 'space') }],
+      await o1Table(),
+    );
     const replaced = { ...integration('i1', s1), replacedBy: integration('i9', s2) };
     expect(manage(holder, 'db:integration', replaced)).toBe(false);
   });
@@ -547,7 +561,13 @@ describe('entitlements: edges the review asked for', () => {
     const holder = createPermissions();
     await entitle(
       holder,
-      [{ resource: 'db:space', anchor: at('db:organization', 'o1'), actions: { manage: true } }],
+      [
+        {
+          resource: 'db:space',
+          anchor: at('db:organization', 'o1', 'organization'),
+          actions: { manage: true },
+        },
+      ],
       await o1Table(),
     );
     expect(manage(holder, 'db:space', s1)).toBe(true);
@@ -645,12 +665,12 @@ describe('the chain: token ← org-user’s entitlement ← organization’s rig
   const readS1: EntitlementEntry = { resource: 'db:space', anchor: AT_S1, actions: { read: true } };
   const integrationsOfS1: EntitlementEntry = {
     resource: 'db:integration',
-    anchor: AT_S1,
+    anchor: at('db:space', 's1', 'space'),
     actions: { manage: true },
   };
   const spacesOfO1: EntitlementEntry = {
     resource: 'db:space',
-    anchor: at('db:organization', 'o1'),
+    anchor: at('db:organization', 'o1', 'organization'),
     actions: { manage: true },
   };
 

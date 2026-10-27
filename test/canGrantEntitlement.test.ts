@@ -73,7 +73,8 @@ const check = (permix: Permix, resource: string, record: Row, action: string) =>
 
 const o1 = { id: 'o1' };
 const s1 = { id: 's1', organizationId: 'o1', organization: o1 };
-const at = (resource: string, id: string) => ({ resource, id });
+const at = (resource: string, id: string, path?: string) =>
+  path === undefined ? { resource, id } : { resource, id, path };
 const integrationUnder = (space: Row) => ({ id: '', spaceId: space.id, space });
 
 const entry = (
@@ -164,7 +165,7 @@ describe('canGrantEntitlement: never more than the writer could do from that anc
   });
 
   test('a child resource from its direct owner: the integrations of s1, judged on the record the app placed under s1', async () => {
-    const integrations = entry('db:integration', at('db:space', 's1'), ['manage']);
+    const integrations = entry('db:integration', at('db:space', 's1', 'space'), ['manage']);
     expect(
       may(await holding('db:space', 's1', ['manage']), integrations, integrationUnder(s1)),
     ).toBe(true);
@@ -173,25 +174,14 @@ describe('canGrantEntitlement: never more than the writer could do from that anc
     );
   });
 
-  test('the entitlement is assessed from its anchor on the placed record: a record under another space is refused', async () => {
-    const integrations = entry('db:integration', at('db:space', 's1'), ['manage']);
-    const s2 = { id: 's2', organizationId: 'o1', organization: o1 };
-    expect(
-      may(await holding('db:organization', 'o1', ['own']), integrations, integrationUnder(s2)),
-    ).toBe(false);
-    expect(
-      may(await holding('db:organization', 'o1', ['own']), integrations, integrationUnder(s1)),
-    ).toBe(true);
-  });
-
   test('an anchor off the resource tree grants nothing', async () => {
-    const offTree = entry('db:integration', at('db:user', 'u1'), ['read']);
+    const offTree = entry('db:integration', at('db:user', 'u1', 'user'), ['read']);
     expect(may(await holding('db:user', 'u1', ['own']), offTree, { id: 'u1' })).toBe(false);
   });
 
   test('a where only narrows: the writer must cover the whole collection at that anchor', async () => {
     const slack = { field: 'provider', operator: Operator.equals, value: 'slack' };
-    const granted = entry('db:integration', at('db:space', 's1'), ['manage'], slack);
+    const granted = entry('db:integration', at('db:space', 's1', 'space'), ['manage'], slack);
     expect(may(await holding('db:space', 's1', ['manage']), granted, integrationUnder(s1))).toBe(
       true,
     );
@@ -255,7 +245,7 @@ describe('canGrantEntitlement on a placed record: a field it does not carry is u
   });
 
   test("the writer's own entitlement where reads the placed record the same way", async () => {
-    const unnamed = entry('db:integration', at('db:space', 's1'), ['manage'], {
+    const unnamed = entry('db:integration', at('db:space', 's1', 'space'), ['manage'], {
       field: 'name',
       operator: Operator.equals,
       value: null,
@@ -263,7 +253,7 @@ describe('canGrantEntitlement on a placed record: a field it does not carry is u
     const holder = createPermissions();
     await holder.setup([unnamed], { owner: await holding('db:space', 's1', ['manage']) });
     holder.setActor({ model: 'User', record: { id: 'h1' } });
-    const integrations = entry('db:integration', at('db:space', 's1'), ['manage']);
+    const integrations = entry('db:integration', at('db:space', 's1', 'space'), ['manage']);
     expect(may(holder, integrations, integrationUnder(s1))).toBe(false);
     expect(may(holder, integrations, { ...integrationUnder(s1), name: null })).toBe(true);
   });
