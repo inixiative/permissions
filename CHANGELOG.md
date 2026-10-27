@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.1 — actionRuleSchema serializes
+
+- **Fix: `actionRuleSchema`'s `rule` branch is a boolean or an object refined by json-rules `validateRule(…, { positive: true })`**, not a `z.custom`, so OpenAPI and JSON Schema generators can describe it. Validation is unchanged.
+
 ## 0.9.0 — anchors at the direct owner, positive rules, unknown on the placed record
 
 - **Breaking: an entitlement acts at its `anchor`: the record itself or the record's direct owner.** `createRebacCheck(resolveRelation, { directOwner })` and `createCanGrantEntitlement(resolveRelation, { directOwner })` take `directOwner(resource, record) => Anchor | null`, the app's tenancy tree. The rules-derived ancestor walk (`parentFields`, `pathTo`) is gone: an anchor two levels up no longer reaches, reach further down comes from the schema walk. Without `directOwner`, only an anchor on the record itself applies.
