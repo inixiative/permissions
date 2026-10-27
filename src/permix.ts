@@ -147,7 +147,7 @@ export const createPermissions = <
     entitlements: (resource, action) =>
       entitlements
         .filter((e) => e.resource === resource && e.actions[action] === true)
-        .map(({ anchor, where, owner }) => ({ anchor, where, owner })),
+        .map(({ anchor, where, actions, owner }) => ({ anchor, where, actions, owner })),
     setSuperadmin: (value) => {
       isSuperadmin = value;
     },

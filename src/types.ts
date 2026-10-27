@@ -67,7 +67,12 @@ export type CheckOptions = {
  * is on the record's hydrated path, `where` holds, and the `owner` (the table of whoever granted
  * it) still allows the action on that record through the normal walk.
  */
-export type Entitlement = { anchor: Anchor; where?: Condition; owner: PermixLike };
+export type Entitlement = {
+  anchor: Anchor;
+  where?: Condition;
+  actions: Record<string, boolean | undefined>;
+  owner: PermixLike;
+};
 
 /** The slice of the permix wrapper the rebac check engine consumes. */
 export type PermixLike = {
