@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { Operator } from '@inixiative/json-rules';
+import { ArrayOperator, Operator } from '@inixiative/json-rules';
 import {
   createCanGrantEntitlement,
   createPermissions,
@@ -51,6 +51,7 @@ const schema: RebacSchema = {
         own: { rel: 'space', action: 'own' },
         manage: { any: ['own', { rel: 'space', action: 'manage' }] },
         read: { any: ['manage', { rel: 'space', action: 'read' }] },
+        release: { all: ['manage', { rel: 'space', action: 'read' }] },
       },
     },
     'db:user': { actions: { own: null } },
@@ -105,8 +106,10 @@ const writer = async (entries: PermissionEntry[], model = 'User') => {
 const holding = (resource: string, id: string, actions: string[]) =>
   writer([{ resource, id, actions: Object.fromEntries(actions.map((a) => [a, true])) }]);
 
-const may = (permix: Permix, granted: EntitlementEntry, anchor: Row) =>
-  canGrantEntitlement(permix, schema, granted, anchor);
+const proof = (permix: Permix, granted: EntitlementEntry, placed: Row) =>
+  canGrantEntitlement(permix, schema, granted, placed);
+const may = (permix: Permix, granted: EntitlementEntry, placed: Row) =>
+  proof(permix, granted, placed) !== null;
 
 describe('canGrantEntitlement: never more than the writer could do from that anchor', () => {
   test('a manager grants manage on the organization, not own', async () => {
@@ -257,5 +260,135 @@ describe('canGrantEntitlement: never more than the writer could do from that anc
     const superadmin = await writer([]);
     superadmin.setSuperadmin(true);
     expect(may(superadmin, entry('db:space', at('db:space', 's1'), ['assign']), s1)).toBe(true);
+  });
+});
+
+describe('canGrantEntitlement carries the filters that made the writer able to grant (Aron, 2026-10-26)', () => {
+  const named = (name: string) => ({ field: 'name', operator: Operator.equals, value: name });
+  const provider = (value: string) => ({ field: 'provider', operator: Operator.equals, value });
+  const s1Named = { ...s1, name: 'X' };
+
+  const entitledWriter = async (entries: EntitlementEntry[]) => {
+    const owner = await holding('db:organization', 'o1', ['own']);
+    const permix = createPermissions();
+    await permix.setup(entries, { owner });
+    permix.setActor({ model: 'User', record: { id: 'w1' } });
+    return permix;
+  };
+
+  const integrations = entry('db:integration', at('db:space', 's1'), ['manage']);
+
+  test('authority from the table: covered outright, nothing to copy', async () => {
+    expect(
+      proof(await holding('db:space', 's1', ['manage']), integrations, integrationUnder(s1Named)),
+    ).toEqual({ manage: true });
+  });
+
+  test("a parent's filter is carried down, read from the child", async () => {
+    const writer = await entitledWriter([
+      entry('db:space', at('db:space', 's1'), ['manage'], named('X')),
+    ]);
+    expect(proof(writer, integrations, integrationUnder(s1Named))).toEqual({
+      manage: { field: 'space.name', operator: Operator.equals, value: 'X' },
+    });
+  });
+
+  test("the writer's own filter on the resource is carried as written", async () => {
+    const writer = await entitledWriter([
+      entry('db:integration', at('db:space', 's1'), ['manage'], provider('slack')),
+    ]);
+    expect(proof(writer, integrations, integrationUnder(s1Named))).toEqual({
+      manage: provider('slack'),
+    });
+  });
+
+  test('two filtered sources: either one is enough', async () => {
+    const writer = await entitledWriter([
+      entry('db:integration', at('db:space', 's1'), ['manage'], provider('slack')),
+      entry('db:integration', at('db:space', 's1'), ['manage'], provider('github')),
+    ]);
+    expect(proof(writer, integrations, integrationUnder(s1Named))).toEqual({
+      manage: { any: [provider('slack'), provider('github')] },
+    });
+  });
+
+  test('one unfiltered source among filtered ones: nothing to copy', async () => {
+    const writer = await entitledWriter([
+      entry('db:integration', at('db:space', 's1'), ['manage'], provider('slack')),
+      entry('db:integration', at('db:space', 's1'), ['manage']),
+    ]);
+    expect(proof(writer, integrations, integrationUnder(s1Named))).toEqual({ manage: true });
+  });
+
+  test('a filter that cannot move to the child refuses the grant', async () => {
+    const writer = await entitledWriter([
+      entry('db:space', at('db:space', 's1'), ['manage'], {
+        field: 'name',
+        operator: Operator.equals,
+        path: '$.name',
+      }),
+    ]);
+    expect(proof(writer, integrations, integrationUnder(s1Named))).toBeNull();
+  });
+
+  test('no authority at all: refused', async () => {
+    expect(
+      proof(await holding('db:space', 's1', ['read']), integrations, integrationUnder(s1Named)),
+    ).toBeNull();
+  });
+
+  test("a writer whose owner is filtered carries the owner's filter too", async () => {
+    const orgOwner = await holding('db:organization', 'o1', ['own']);
+    const member = createPermissions();
+    await member.setup(
+      [entry('db:integration', at('db:space', 's1'), ['manage'], provider('slack'))],
+      {
+        owner: orgOwner,
+      },
+    );
+    const token = createPermissions();
+    await token.setup([entry('db:integration', at('db:space', 's1'), ['manage'])], {
+      owner: member,
+    });
+    token.setActor({ model: 'Token', record: { id: 't1' } });
+    expect(proof(token, integrations, integrationUnder(s1Named))).toEqual({
+      manage: provider('slack'),
+    });
+  });
+
+  test('a filter on a collection is carried as written, not judged on the placed record', async () => {
+    const noArchived = {
+      field: 'tags',
+      arrayOperator: ArrayOperator.none,
+      condition: { field: 'name', operator: Operator.equals, value: 'archived' },
+    };
+    const writer = await entitledWriter([
+      entry('db:integration', at('db:space', 's1'), ['manage'], noArchived as never),
+    ]);
+    expect(proof(writer, integrations, integrationUnder(s1Named))).toEqual({ manage: noArchived });
+  });
+
+  test('two actions are proven separately', async () => {
+    const writer = await entitledWriter([
+      entry('db:integration', at('db:space', 's1'), ['manage'], provider('slack')),
+    ]);
+    const both = entry('db:integration', at('db:space', 's1'), ['manage', 'read']);
+    expect(proof(writer, both, integrationUnder(s1Named))).toEqual({
+      manage: provider('slack'),
+      read: provider('slack'),
+    });
+  });
+
+  test('an action that needs two entitlements together carries both', async () => {
+    const writer = await entitledWriter([
+      entry('db:integration', at('db:space', 's1'), ['manage'], provider('slack')),
+      entry('db:space', at('db:space', 's1'), ['read'], named('X')),
+    ]);
+    const release = entry('db:integration', at('db:space', 's1'), ['release']);
+    expect(proof(writer, release, integrationUnder(s1Named))).toEqual({
+      release: {
+        all: [provider('slack'), { field: 'space.name', operator: Operator.equals, value: 'X' }],
+      },
+    });
   });
 });

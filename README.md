@@ -243,11 +243,14 @@ hydrated record at `anchor`:
 const canGrantEntitlement = createCanGrantEntitlement(resolveRelation, { directOwner });
 
 const placed = await hydrate('Integration', { id: '', spaceId: 's1' }); // the app places it under s1
-canGrantEntitlement(writer, schema, {
+const proof = canGrantEntitlement(writer, schema, {
   resource: 'db:integration',
   anchor: { resource: 'db:space', id: 's1' },
   actions: { manage: true },
-}, placed); // can the writer manage every integration of s1?
+}, placed);
+// null: refused. Otherwise per action: true (the writer's table or schema covers it) or the condition
+// the stored grant must carry — the `where`s of the entitlements the writer needed, AND along a rule,
+// OR across alternatives, a parent's re-rooted onto the child (`space.name = 'X'`).
 ```
 
 Each action the entry grants is checked on `placed`, the pseudo record of `entry.resource` that you
