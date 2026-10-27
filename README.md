@@ -68,7 +68,7 @@ through `record.space.organization`, resolving each hop's model via the injected
 
 Records may also carry a `permissionRules` JSON field (`action → ActionRule`); `check` merges a row
 rule **additively** (OR) with the schema rule, so per-record overrides can widen but never revoke.
-Validate tenant-authored overrides with `actionRuleSchema` before persisting them.
+Validate tenant-authored overrides with `validateActionRule` before persisting them.
 
 ## The check engine
 
@@ -90,7 +90,7 @@ user entry, so acting on your own row is `{ rel: 'user', action }`: the walk rea
 `record.user` and checks `action` there, through the delegation chain and custom user actions alike.
 A full principal holds `own` on itself; a narrowed one (a credential holding only `read` on its
 user) fails a write arm on its own row; a row without its `user` loaded is denied, never guessed
-from the foreign key. `actionRuleSchema` rejects `self`.
+from the foreign key. `validateActionRule` rejects `self`.
 
 The check takes a **subject** — `{ resource, record, data? }` — not a bare record; `data` is the
 supplemental rows that back cross-source bridge hops (below). `createRebacCheck` is generic over the
@@ -208,14 +208,13 @@ await permix.setup(
 ```
 
 Entitlements never enter the table. The engine consults them at a node only after the table and
-the schema rule both miss, with the record in hand, and one applies when all three hold:
+the schema rule both miss, with the record in hand, and one applies when both hold:
 
-- **The entitlement acts at its `anchor`** — the record itself, or the record's direct owner on the
-  app's tenancy tree, read by the `directOwner` you pass to `createRebacCheck(resolveRelation,
-  { directOwner })`. Reach further down comes from the schema walk (an organization's `own` reaches
-  its spaces), never from skipping a level. Without `directOwner`, only an anchor on the record
-  itself applies.
-- **`where` holds** — plain json-rules over the record at that node, `field` and `path` both
+- **`where` holds** — the library does not read `anchor`: the app records where the entitlement
+  sits there and folds it into `where` when it installs the entry (the anchor row itself is
+  `id equals`; a record under it carries the columns that place it there). Reach further down
+  comes from the schema walk (an organization's `own` reaches its spaces), never from the anchor.
+  The `where` is plain json-rules over the record at that node, `field` and `path` both
   starting there and free to climb hydrated parents (`space.organizationId`). Whatever referred to
   the holder (its own id, its user) is written in as a literal when the grant is made. A `where`
   is positive (json-rules `validateRule(where, { positive: true })`): no negation, `isEmpty`,
@@ -242,7 +241,7 @@ check with the same resolver as the rebac check, then ask it with the writer's t
 hydrated record at `anchor`:
 
 ```ts
-const canGrantEntitlement = createCanGrantEntitlement(resolveRelation, { directOwner });
+const canGrantEntitlement = createCanGrantEntitlement(resolveRelation);
 
 const placed = await hydrate('Integration', { id: '', spaceId: 's1', provider: 'slack' });
 canGrantEntitlement(writer, schema, {
@@ -254,14 +253,14 @@ canGrantEntitlement(writer, schema, {
 ```
 
 Each action the entry grants is checked on `placed`, the pseudo record of `entry.resource` that you
-build at the anchor (the anchor row itself, or a record whose direct owner is the anchor, with its
-columns, hydrated) and give it the values the entry's `where` pins exactly (its `equals` leaves;
-`equals null` pins `null`) — the library builds no record of its own. A `placed` record not at
-the anchor grants nothing. The check reads `placed` with json-rules `absent: 'unknown'`: a field
+build at the anchor (the anchor row itself, or a record placed under it, with its columns,
+hydrated) and give it the values the entry's `where` pins exactly (its `equals` leaves; `equals
+null` pins `null`) — the library builds no record of its own, and an anchor the app cannot place
+under is the app's to refuse. The check reads `placed` with json-rules `absent: 'unknown'`: a field
 it does not carry fails every positive leaf, `equals null` included, so a writer whose authority
 reads a field the `where` leaves open is refused, and only a writer unfiltered on it passes. The
 writer's own entitlements and owner chain apply, so a token never grants past its holder, and a
-`{ rule }` sees the writer's actor as `__actor`. Rules are positive (`actionRuleSchema` refuses
+`{ rule }` sees the writer's actor as `__actor`. Rules are positive (`validateActionRule` refuses
 the rest), which is what makes a pass on `placed` hold for every record the `where` admits.
 
 An action's rule is ReBAC (walks to parents) plus ABAC (`{ rule }` conditions on the record,
@@ -334,13 +333,9 @@ resolver or a custom hydration step.
 
 ## Also exported
 
-- `actionRuleSchema` — recursive Zod validator for a serialized `ActionRule` (validate tenant/row
-  overrides). Lives on its own subpath so the core stays zod-free; `zod` is an **optional peer** —
-  install it only if you use this:
-
-  ```ts
-  import { actionRuleSchema } from '@inixiative/permissions/actionRuleSchema';
-  ```
+- `validateActionRule(rule)` — checks a serialized `ActionRule` (tenant/row overrides) the way
+  json-rules `validateRule` checks a condition, and returns the same `{ ok, errors }`: the shape,
+  and every `{ rule }` a positive json-rules condition. No schema library involved.
 
 ## Boundary
 

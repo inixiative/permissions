@@ -14,8 +14,23 @@ import {
 
 // An entitlement: an action, on a model, FROM an anchor on the record's chain, with an optional
 // `where` over the record. The owner (who granted it) is bound once per setup call, from the row.
+// What the app does at install: where an entitlement sits becomes part of its `where`.
+const placement = ({ resource, anchor }: EntitlementEntry): Condition => {
+  if (resource === anchor.resource) return is('id', anchor.id);
+  const field = owners[resource];
+  return field && relations[resource]?.[field] === anchor.resource
+    ? is(`${field}Id`, anchor.id)
+    : false;
+};
 const entitle = (permix: Permix, entries: EntitlementEntry[], owner?: PermixLike) =>
-  permix.setup(entries, { owner });
+  permix.setup(
+    entries.map((entry) => ({
+      ...entry,
+      where:
+        entry.where === undefined ? placement(entry) : { all: [placement(entry), entry.where] },
+    })),
+    { owner },
+  );
 
 const is = (field: string, value: string): Condition => ({
   field,
@@ -73,16 +88,7 @@ const owners: Record<string, string> = {
   'db:integration': 'space',
   'db:contact': 'space',
 };
-const directOwner = (resource: string, record: Row) => {
-  const field = owners[resource];
-  const owner = field ? (record[field] as Row | undefined) : undefined;
-  return field && owner && typeof owner === 'object'
-    ? { resource: relations[resource]?.[field] ?? '', id: String(owner.id) }
-    : null;
-};
-const check = createRebacCheck((resource, segment) => relations[resource]?.[segment] ?? null, {
-  directOwner,
-});
+const check = createRebacCheck((resource, segment) => relations[resource]?.[segment] ?? null);
 
 const o1 = { id: 'o1' };
 const o2 = { id: 'o2' };
@@ -129,6 +135,25 @@ const o1Table = () => table(own('db:organization', 'o1'));
 
 const manage = (permix: Permix, resource: string, record: Row) =>
   check(permix, schema, { resource, record }, 'manage');
+
+describe('the library reads no anchor: the app folds where the entitlement sits into its where', () => {
+  test('an entitlement applies where its where holds, whatever anchor it names', async () => {
+    const holder = createPermissions();
+    await holder.setup(
+      [
+        {
+          resource: 'db:integration',
+          anchor: AT_S1,
+          where: is('spaceId', 's2'),
+          actions: { manage: true },
+        },
+      ],
+      { owner: await o1Table() },
+    );
+    expect(manage(holder, 'db:integration', integration('i2', s2))).toBe(true);
+    expect(manage(holder, 'db:integration', integration('i1', s1))).toBe(false);
+  });
+});
 
 describe('entitlements: an action on a model from an anchor, owner on the row', () => {
   test('1. manage s1: the space, read through it, not own, an integration under it, not s2', async () => {
@@ -752,8 +777,7 @@ describe('the chain: token ← org-user’s entitlement ← organization’s rig
 test('`where: null` is refused at setup', async () => {
   const holder = createPermissions();
   await expect(
-    entitle(
-      holder,
+    holder.setup(
       [
         {
           resource: 'db:space',
@@ -762,7 +786,7 @@ test('`where: null` is refused at setup', async () => {
           where: null as unknown as Condition,
         },
       ],
-      await o1Table(),
+      { owner: await o1Table() },
     ),
   ).rejects.toThrow(/`where: null`/);
   expect(holder.entitlements('db:space', 'manage')).toEqual([]);

@@ -1,15 +1,14 @@
 import { type Absent, type Condition, check as checkRule } from '@inixiative/json-rules';
 import { evaluate, type Walk } from './evaluate';
 import { asOwner, nodeId, permixId } from './identity';
-import { onPath } from './onPath';
 import type { PermixLike, Row } from './types';
 
 const holds = (where: Condition, record: Row, absent: Absent): boolean =>
   checkRule(where, record, { absent }) === true;
 
 // Entitlements are consulted after the table and the schema both miss, at the node the holder's
-// own walk reached, with the record in hand. One applies when its anchor is on the record's
-// path, its `where` holds, and whoever granted it can still do the action on this record: the
+// own walk reached, with the record in hand. One applies when its `where` holds (the app folds
+// where the entitlement sits into it) and whoever granted it can still do the action on this record: the
 // owner's own table, walked from here. A space moved to another org stops reaching its grantor.
 // An owner that is already on this walk for this node and action is a loop built from grant
 // data, not a schema bug: it denies instead of throwing, so it can never hide a sibling.
@@ -23,9 +22,8 @@ export const entitled = <R extends string>(
 ): boolean => {
   const actor = permix.getActor();
   return (permix.entitlements?.(resource, action) ?? []).some(
-    ({ anchor, where, owner }) =>
+    ({ where, owner }) =>
       !visited.has(`${permixId(owner)}:${nodeId(record)}:${resource}:${action}`) &&
-      onPath(walk.directOwner, resource, record, anchor) &&
       (where === undefined || holds(where, record, walk.absent)) &&
       evaluate(walk, asOwner(owner, actor), resource, record, action, new Set(visited)),
   );

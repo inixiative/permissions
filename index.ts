@@ -3,3 +3,4 @@ export * from './src/grant';
 export * from './src/hydrate';
 export * from './src/permix';
 export type * from './src/types';
+export * from './src/validateActionRule';

@@ -58,15 +58,7 @@ export type ResolveRelation<R extends string = string> = (
 /** A node on a record's chain: the anchor an entitlement acts from. */
 export type Anchor = { resource: string; id: string };
 
-/**
- * The record's direct owner on the app's tenancy tree, as an anchor, or null. The app supplies it
- * (only it knows which relation owns a row: a polymorphic discriminator, a named foreign key). An
- * entitlement applies to a record when its anchor is the record itself or this owner.
- */
-export type DirectOwner<R extends string = string> = (resource: R, record: Row) => Anchor | null;
-
-export type CheckOptions<R extends string = string> = {
-  directOwner?: DirectOwner<R>;
+export type CheckOptions = {
   absent?: Absent;
 };
 
