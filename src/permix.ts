@@ -66,7 +66,7 @@ const validate = (entry: PermissionEntry, owner: PermixLike | undefined): void =
   if (entry.where === null)
     throw new Error('`where: null` is not a rule: omit `where` for none, or write the rule');
   if (entry.where !== undefined) {
-    const result = validateRule(entry.where);
+    const result = validateRule(entry.where, { positive: true });
     if (!result.ok) {
       const issues = result.errors.map((issue) => `${issue.path}: ${issue.message}`).join('; ');
       throw new Error(`invalid entitlement \`where\`: ${issues}`);

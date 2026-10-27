@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.9.0 — anchors at the direct owner, positive rules, unknown on the placed record
+
+- **Breaking: an entitlement acts at its `anchor`: the record itself or the record's direct owner.** `createRebacCheck(resolveRelation, { directOwner })` and `createCanGrantEntitlement(resolveRelation, { directOwner })` take `directOwner(resource, record) => Anchor | null`, the app's tenancy tree. The rules-derived ancestor walk (`parentFields`, `pathTo`) is gone: an anchor two levels up no longer reaches, reach further down comes from the schema walk. Without `directOwner`, only an anchor on the record itself applies.
+- **Breaking: `canGrantEntitlement(permix, schema, entry, placed)` takes the pseudo record the app placed at the anchor**, with the values the entry's `where` pins exactly, and refuses one not at the anchor. The library builds no record.
+- **Breaking: the grant check reads `placed` with json-rules `absent: 'unknown'`.** A field the placed record does not carry fails every positive leaf (`equals null` included: `null === null`, `undefined` is not null), so a writer whose authority reads a field the `where` leaves open is refused. Run-time checks are unchanged: a missing path still reads as null. `CheckOptions.absent` sets it for a check you build.
+- **Breaking: rules are positive.** `actionRuleSchema` and an entitlement's `where` at setup refuse the negations, `isEmpty`, `notExists`, `if`/`then`/`else`, array and aggregate rules (json-rules `validateRule(rule, { positive: true })`). "No value" is `equals null`.
+- Requires `@inixiative/json-rules` 3.11.0.
+- Migration: pass `directOwner` to both factories; anchor every entitlement at the record or its direct owner; build `placed` with the `where`'s `equals` values; rewrite negated rules and `where`s positively (`notIn X` → `in` the rest, `isEmpty` → `equals null`).
+
 ## 0.8.0 — an entitlement acts from an anchor
 
 - **Breaking: an entitlement's `from` is `anchor`**, and the `Position` type is `Anchor`: `{ resource, anchor: { resource, id }, where?, actions }`. `canGrantEntitlement(permix, schema, entry, anchor)` takes the hydrated anchor record. Setup's refusals name `anchor`. No behaviour change.

@@ -48,4 +48,16 @@ describe('actionRuleSchema', () => {
     expect(actionRuleSchema.safeParse({ self: 'userId', action: 'operate' }).success).toBe(false);
     expect(actionRuleSchema.safeParse({ self: 'userId' }).success).toBe(false);
   });
+
+  it('takes positive rules only: a rule passes on what the record carries', () => {
+    const leaf = { field: 'role', operator: Operator.equals, value: null };
+    expect(actionRuleSchema.safeParse({ rule: leaf }).success).toBe(true);
+    for (const rule of [
+      { field: 'role', operator: Operator.isEmpty },
+      { field: 'type', operator: Operator.notIn, value: ['a'] },
+      { if: leaf, then: leaf, else: true },
+      { field: 'tags', arrayOperator: 'any', condition: leaf },
+    ])
+      expect(actionRuleSchema.safeParse({ rule }).success).toBe(false);
+  });
 });

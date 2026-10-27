@@ -17,7 +17,10 @@ export const actionRuleSchema: z.ZodType = z.lazy(() =>
     z.object({ rel: z.string(), action: z.string() }).strict(),
     z
       .object({
-        rule: z.custom<Condition>((v) => validateRule(v).ok, 'invalid json-rules condition'),
+        rule: z.custom<Condition>(
+          (v) => validateRule(v, { positive: true }).ok,
+          'invalid or non-positive json-rules condition',
+        ),
       })
       .strict(),
     z.object({ any: z.array(actionRuleSchema) }).strict(),

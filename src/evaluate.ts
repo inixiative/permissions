@@ -1,15 +1,24 @@
-import { type BridgeDictionary, check as checkRule } from '@inixiative/json-rules';
+import { type Absent, type BridgeDictionary, check as checkRule } from '@inixiative/json-rules';
 import { isNil } from 'lodash-es';
 import { bridgeHop, lookupFar } from './bridgeHop';
 import { entitled } from './entitled';
 import { nodeId, permixId } from './identity';
 import { recordId } from './recordId';
-import type { ActionRule, PermixLike, RebacSchema, ResolveRelation, Row } from './types';
+import type {
+  ActionRule,
+  DirectOwner,
+  PermixLike,
+  RebacSchema,
+  ResolveRelation,
+  Row,
+} from './types';
 
 // One check's walk: the app's relation resolver, the schema, and the bridge dictionary built on
 // first use.
 export type Walk<R extends string> = {
   resolveRelation: ResolveRelation<R>;
+  directOwner: DirectOwner<R>;
+  absent: Absent;
   schema: RebacSchema<R>;
   getDict: () => BridgeDictionary | undefined;
 };
@@ -74,7 +83,10 @@ export const evaluate = <R extends string>(
   }
 
   if ('rule' in rule) {
-    return checkRule(rule.rule, { ...record, __actor: permix.getActor() }) === true;
+    return (
+      checkRule(rule.rule, { ...record, __actor: permix.getActor() }, { absent: walk.absent }) ===
+      true
+    );
   }
   // Fork `visited` per branch — parallel paths through any/all aren't cycles.
   if ('any' in rule) {

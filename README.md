@@ -210,14 +210,18 @@ await permix.setup(
 Entitlements never enter the table. The engine consults them at a node only after the table and
 the schema rule both miss, with the record in hand, and one applies when all three hold:
 
-- **`anchor` is on the record's natural tree** — the record itself, or an ancestor reached through
-  the relations that resource's own `rel` arms name. A hydrated sideways foreign key is not a
-  anchor. Off the tree, the entitlement is not acting from where it says.
+- **The entitlement acts at its `anchor`** — the record itself, or the record's direct owner on the
+  app's tenancy tree, read by the `directOwner` you pass to `createRebacCheck(resolveRelation,
+  { directOwner })`. Reach further down comes from the schema walk (an organization's `own` reaches
+  its spaces), never from skipping a level. Without `directOwner`, only an anchor on the record
+  itself applies.
 - **`where` holds** — plain json-rules over the record at that node, `field` and `path` both
   starting there and free to climb hydrated parents (`space.organizationId`). Whatever referred to
-  the holder (its own id, its user) is written in as a literal when the grant is made. An absent
-  path reads as NULL, so write `where` positively. `where: false` is a `where` that fails, not its
-  absence; `where: null` is refused at setup.
+  the holder (its own id, its user) is written in as a literal when the grant is made. A `where`
+  is positive (json-rules `validateRule(where, { positive: true })`): no negation, `isEmpty`,
+  `notExists`, `if`/`then`/`else`, array or aggregate rule, so it never passes on what is not
+  loaded; "no value" is `equals null`. `where: false` is a `where` that fails, not its absence;
+  `where: null` is refused at setup.
 - **The grantor is still in control** — the owner's table, walked from this very record through
   the normal schema, allows the action. That is the only tenancy check and it is live: a space
   moved to another org stops reaching the grantor on the next request, no fetch. The record's
@@ -227,7 +231,7 @@ the schema rule both miss, with the record in hand, and one applies when all thr
 
 `setup` refuses an entitlement without an `owner`, a `where` without a `anchor`, an `id` beside a
 `anchor` (a single row is `where: { field: 'id', … }`), a non-boolean action, `where: null`, or a
-malformed rule, before touching any state. `replace: true` clears entitlements with the table. `getJSON`
+malformed or non-positive rule, before touching any state. `replace: true` clears entitlements with the table. `getJSON`
 carries grants only. Tenancy is as live as the owner's grants are id-keyed: an owner table with a
 resource-wide grant, or the superadmin flag, short-circuits before any walk.
 
@@ -238,19 +242,27 @@ check with the same resolver as the rebac check, then ask it with the writer's t
 hydrated record at `anchor`:
 
 ```ts
-const canGrantEntitlement = createCanGrantEntitlement(resolveRelation);
+const canGrantEntitlement = createCanGrantEntitlement(resolveRelation, { directOwner });
 
+const placed = await hydrate('Integration', { id: '', spaceId: 's1', provider: 'slack' });
 canGrantEntitlement(writer, schema, {
   resource: 'db:integration',
   anchor: { resource: 'db:space', id: 's1' },
+  where: { field: 'provider', operator: 'equals', value: 'slack' },
   actions: { manage: true },
-}, s1); // can the writer manage every integration under s1?
+}, placed); // can the writer manage every Slack integration of s1?
 ```
 
-Each action the entry grants is checked on a pseudo record of `entry.resource` placed under the
-anchor along that resource's own `rel` tree. The writer's own entitlements and owner chain apply,
-so a token never grants past its holder, and a `{ rule }` sees the writer's actor as `__actor`. A `where` only
-narrows, so the writer must cover the whole collection at the anchor.
+Each action the entry grants is checked on `placed`, the pseudo record of `entry.resource` that you
+build at the anchor (the anchor row itself, or a record whose direct owner is the anchor, with its
+columns, hydrated) and give it the values the entry's `where` pins exactly (its `equals` leaves;
+`equals null` pins `null`) — the library builds no record of its own. A `placed` record not at
+the anchor grants nothing. The check reads `placed` with json-rules `absent: 'unknown'`: a field
+it does not carry fails every positive leaf, `equals null` included, so a writer whose authority
+reads a field the `where` leaves open is refused, and only a writer unfiltered on it passes. The
+writer's own entitlements and owner chain apply, so a token never grants past its holder, and a
+`{ rule }` sees the writer's actor as `__actor`. Rules are positive (`actionRuleSchema` refuses
+the rest), which is what makes a pass on `placed` hold for every record the `where` admits.
 
 An action's rule is ReBAC (walks to parents) plus ABAC (`{ rule }` conditions on the record,
 conditions on `__actor`, who acts). Granting checks the ReBAC at the anchor; the ABAC runs at read
@@ -262,7 +274,7 @@ actor. A holder of a granted action reaches exactly as far as its writer would o
 assign: {
   any: [
     { all: [{ rule: { field: 'role', operator: 'in', value: ['owner', 'admin'] } }, 'own'] },
-    { all: [{ rule: { field: 'role', operator: 'notIn', value: ['owner', 'admin'] } }, 'manage'] },
+    { all: [{ rule: { field: 'role', operator: 'in', value: ['member', 'viewer'] } }, 'manage'] },
   ],
 }
 // An admin (manage) grants assign; its holder assigns member-role records, never owners.
