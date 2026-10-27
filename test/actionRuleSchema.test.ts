@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import { Operator } from '@inixiative/json-rules';
+import { z } from 'zod';
 import { actionRuleSchema } from '../src/actionRuleSchema';
 
 describe('actionRuleSchema', () => {
@@ -59,5 +60,10 @@ describe('actionRuleSchema', () => {
       { field: 'tags', arrayOperator: 'any', condition: leaf },
     ])
       expect(actionRuleSchema.safeParse({ rule }).success).toBe(false);
+  });
+
+  it('serializes: a spec generator can describe every branch', () => {
+    expect(() => z.toJSONSchema(actionRuleSchema)).not.toThrow();
+    expect(actionRuleSchema.safeParse({ rule: true }).success).toBe(true);
   });
 });
