@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.3 — an entitlement is assessed from its anchor
+
+- **Breaking: the library checks `anchor` again, with nothing from the app.** An entitlement applies to a record when the normal walk from the record passes for a holder whose only grant is the entitlement's actions on the anchor record, its `where` holds, and its owner allows the action on the record. The schema says how far an action at the anchor reaches; no callback, no ownership convention. The grant check requires the same on `placed`. `Entitlement` carries its `actions`.
+- Migration: stop folding the anchor into `where` (0.9.2); install entries as stored.
+
 ## 0.9.2 — no anchor matching, no Zod
 
 - **Breaking: the library does not read `anchor`.** `directOwner`, `onPath` and the `DirectOwner` type are gone, and so is the grant check's anchor test. An entitlement applies when its `where` holds and its owner still allows the action; the app folds where the entitlement sits into its `where` at install (the anchor row itself: `id equals`; a record under it: the columns that place it there) and refuses an anchor it cannot place under.

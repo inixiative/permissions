@@ -14,23 +14,8 @@ import {
 
 // An entitlement: an action, on a model, FROM an anchor on the record's chain, with an optional
 // `where` over the record. The owner (who granted it) is bound once per setup call, from the row.
-// What the app does at install: where an entitlement sits becomes part of its `where`.
-const placement = ({ resource, anchor }: EntitlementEntry): Condition => {
-  if (resource === anchor.resource) return is('id', anchor.id);
-  const field = owners[resource];
-  return field && relations[resource]?.[field] === anchor.resource
-    ? is(`${field}Id`, anchor.id)
-    : false;
-};
 const entitle = (permix: Permix, entries: EntitlementEntry[], owner?: PermixLike) =>
-  permix.setup(
-    entries.map((entry) => ({
-      ...entry,
-      where:
-        entry.where === undefined ? placement(entry) : { all: [placement(entry), entry.where] },
-    })),
-    { owner },
-  );
+  permix.setup(entries, { owner });
 
 const is = (field: string, value: string): Condition => ({
   field,
@@ -83,11 +68,6 @@ const relations: Record<string, Record<string, string>> = {
   'db:integration': { space: 'db:space', replacedBy: 'db:integration' },
   'db:contact': { space: 'db:space' },
 };
-const owners: Record<string, string> = {
-  'db:space': 'organization',
-  'db:integration': 'space',
-  'db:contact': 'space',
-};
 const check = createRebacCheck((resource, segment) => relations[resource]?.[segment] ?? null);
 
 const o1 = { id: 'o1' };
@@ -136,22 +116,34 @@ const o1Table = () => table(own('db:organization', 'o1'));
 const manage = (permix: Permix, resource: string, record: Row) =>
   check(permix, schema, { resource, record }, 'manage');
 
-describe('the library reads no anchor: the app folds where the entitlement sits into its where', () => {
-  test('an entitlement applies where its where holds, whatever anchor it names', async () => {
+describe('an entitlement is assessed from its anchor: the walk from the record reaches the anchor with the action', () => {
+  const integrationsFrom = (anchor: Anchor, actions: string[]): EntitlementEntry => ({
+    resource: 'db:integration',
+    anchor,
+    actions: Object.fromEntries(actions.map((action) => [action, true])),
+  });
+  const holderOf = async (entry: EntitlementEntry) => {
     const holder = createPermissions();
-    await holder.setup(
-      [
-        {
-          resource: 'db:integration',
-          anchor: AT_S1,
-          where: is('spaceId', 's2'),
-          actions: { manage: true },
-        },
-      ],
-      { owner: await o1Table() },
-    );
-    expect(manage(holder, 'db:integration', integration('i2', s2))).toBe(true);
-    expect(manage(holder, 'db:integration', integration('i1', s1))).toBe(false);
+    await holder.setup([entry], { owner: await o1Table() });
+    return holder;
+  };
+
+  test('from the space: its integrations, not another space’s', async () => {
+    const holder = await holderOf(integrationsFrom(AT_S1, ['manage']));
+    expect(manage(holder, 'db:integration', integration('i1', s1))).toBe(true);
+    expect(manage(holder, 'db:integration', integration('i2', s2))).toBe(false);
+  });
+
+  test('from the organization, the walk climbs: integration → space → organization', async () => {
+    const holder = await holderOf(integrationsFrom(at('db:organization', 'o1'), ['manage']));
+    expect(manage(holder, 'db:integration', integration('i1', s1))).toBe(true);
+    expect(manage(holder, 'db:integration', integration('i3', space('s3', o2)))).toBe(false);
+  });
+
+  test('from the record itself: that record only', async () => {
+    const holder = await holderOf(integrationsFrom(at('db:integration', 'i1'), ['manage']));
+    expect(manage(holder, 'db:integration', integration('i1', s1))).toBe(true);
+    expect(manage(holder, 'db:integration', integration('i2', s1))).toBe(false);
   });
 });
 

@@ -173,6 +173,17 @@ describe('canGrantEntitlement: never more than the writer could do from that anc
     );
   });
 
+  test('the entitlement is assessed from its anchor on the placed record: a record under another space is refused', async () => {
+    const integrations = entry('db:integration', at('db:space', 's1'), ['manage']);
+    const s2 = { id: 's2', organizationId: 'o1', organization: o1 };
+    expect(
+      may(await holding('db:organization', 'o1', ['own']), integrations, integrationUnder(s2)),
+    ).toBe(false);
+    expect(
+      may(await holding('db:organization', 'o1', ['own']), integrations, integrationUnder(s1)),
+    ).toBe(true);
+  });
+
   test('an anchor off the resource tree grants nothing', async () => {
     const offTree = entry('db:integration', at('db:user', 'u1'), ['read']);
     expect(may(await holding('db:user', 'u1', ['own']), offTree, { id: 'u1' })).toBe(false);

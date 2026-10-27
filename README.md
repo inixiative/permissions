@@ -208,13 +208,15 @@ await permix.setup(
 ```
 
 Entitlements never enter the table. The engine consults them at a node only after the table and
-the schema rule both miss, with the record in hand, and one applies when both hold:
+the schema rule both miss, with the record in hand, and one applies when all three hold:
 
-- **`where` holds** — the library does not read `anchor`: the app records where the entitlement
-  sits there and folds it into `where` when it installs the entry (the anchor row itself is
-  `id equals`; a record under it carries the columns that place it there). Reach further down
-  comes from the schema walk (an organization's `own` reaches its spaces), never from the anchor.
-  The `where` is plain json-rules over the record at that node, `field` and `path` both
+- **It is assessed from its `anchor`** — the normal walk from the record, for a holder whose only
+  grant is the entitlement's actions on the anchor record, passes. The walk climbs the record's
+  hydrated relations exactly as any check does, so the schema says how far an action at the
+  anchor reaches: integrations anchored at an organization with `manage` reach that organization's
+  own integrations, and with `own` (which reaches its spaces) the spaces' integrations too. An
+  anchor on the record itself reaches that record. Nothing else defines ownership.
+- **`where` holds** — the `where` is plain json-rules over the record at that node, `field` and `path` both
   starting there and free to climb hydrated parents (`space.organizationId`). Whatever referred to
   the holder (its own id, its user) is written in as a literal when the grant is made. A `where`
   is positive (json-rules `validateRule(where, { positive: true })`): no negation, `isEmpty`,
@@ -255,8 +257,8 @@ canGrantEntitlement(writer, schema, {
 Each action the entry grants is checked on `placed`, the pseudo record of `entry.resource` that you
 build at the anchor (the anchor row itself, or a record placed under it, with its columns,
 hydrated) and give it the values the entry's `where` pins exactly (its `equals` leaves; `equals
-null` pins `null`) — the library builds no record of its own, and an anchor the app cannot place
-under is the app's to refuse. The check reads `placed` with json-rules `absent: 'unknown'`: a field
+null` pins `null`) — the library builds no record of its own. The entitlement must be assessed from
+its anchor on `placed`, and the writer must take each action there. The check reads `placed` with json-rules `absent: 'unknown'`: a field
 it does not carry fails every positive leaf, `equals null` included, so a writer whose authority
 reads a field the `where` leaves open is refused, and only a writer unfiltered on it passes. The
 writer's own entitlements and owner chain apply, so a token never grants past its holder, and a
