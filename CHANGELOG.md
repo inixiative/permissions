@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.11.1 — the walk reads the map
+
+- Internal: a check's walk reads relations from the schema map directly; no derived resolver beside it. No behaviour change.
+
 ## 0.11.0 — the library reads the schema map
 
 - **Breaking: `createRebacCheck(map)` and `createCanGrantEntitlement(map)` take a `SchemaMap`** — `{ resources, fieldMap, polymorphism? }`: which `fieldMap` model each resource is, its relations and foreign keys (a json-rules `FieldMap`, structurally a prisma-map), and the polymorphic models' kinds (a false-polymorphism registry). The `resolveRelation` callback is gone.

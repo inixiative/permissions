@@ -4,14 +4,12 @@ import { bridgeHop, lookupFar } from './bridgeHop';
 import { entitled } from './entitled';
 import { nodeId, permixId } from './identity';
 import { recordId } from './recordId';
-import type { SchemaMap } from './schemaMap';
+import { resolveField, type SchemaMap } from './schemaMap';
 import type { ActionRule, PermixLike, RebacSchema, Row } from './types';
 
-// One check's walk: the app's schema map and its relation resolver, the schema, and the bridge
-// dictionary built on first use.
+// One check's walk: the app's schema map, the schema, and the bridge dictionary built on first use.
 export type Walk<R extends string> = {
   map: SchemaMap<R>;
-  resolveRelation: (resource: R, segment: string) => R | null;
   absent: Absent;
   schema: RebacSchema<R>;
   getDict: () => BridgeDictionary | undefined;
@@ -67,7 +65,7 @@ export const evaluate = <R extends string>(
       } else {
         const related = current[segment] as Row | null | undefined;
         if (!related || Array.isArray(related)) return false;
-        const next = walk.resolveRelation(currentResource, segment);
+        const next = resolveField(walk.map, currentResource, segment);
         if (!next) return false;
         current = related;
         currentResource = next;
