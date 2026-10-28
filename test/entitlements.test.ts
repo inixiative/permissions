@@ -11,6 +11,7 @@ import {
   type RebacSchema,
   type Row,
 } from '../index';
+import { mapOf } from './schemaMaps';
 
 // An entitlement: an action, on a model, FROM an anchor on the record's chain, with an optional
 // `where` over the record. The owner (who granted it) is bound once per setup call, from the row.
@@ -68,7 +69,7 @@ const relations: Record<string, Record<string, string>> = {
   'db:integration': { space: 'db:space', replacedBy: 'db:integration' },
   'db:contact': { space: 'db:space' },
 };
-const check = createRebacCheck((resource, segment) => relations[resource]?.[segment] ?? null);
+const check = createRebacCheck(mapOf(relations));
 
 const o1 = { id: 'o1' };
 const o2 = { id: 'o2' };

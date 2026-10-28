@@ -4,12 +4,14 @@ import { bridgeHop, lookupFar } from './bridgeHop';
 import { entitled } from './entitled';
 import { nodeId, permixId } from './identity';
 import { recordId } from './recordId';
-import type { ActionRule, PermixLike, RebacSchema, ResolveRelation, Row } from './types';
+import type { SchemaMap } from './schemaMap';
+import type { ActionRule, PermixLike, RebacSchema, Row } from './types';
 
-// One check's walk: the app's relation resolver, the schema, and the bridge dictionary built on
-// first use.
+// One check's walk: the app's schema map and its relation resolver, the schema, and the bridge
+// dictionary built on first use.
 export type Walk<R extends string> = {
-  resolveRelation: ResolveRelation<R>;
+  map: SchemaMap<R>;
+  resolveRelation: (resource: R, segment: string) => R | null;
   absent: Absent;
   schema: RebacSchema<R>;
   getDict: () => BridgeDictionary | undefined;

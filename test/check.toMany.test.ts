@@ -1,10 +1,9 @@
 import { describe, expect, test } from 'bun:test';
 import { Operator } from '@inixiative/json-rules';
 import { createPermissions, createRebacCheck, type RebacSchema } from '../index';
+import { mapOf } from './schemaMaps';
 
-const check = createRebacCheck((resource, segment) =>
-  resource === 'document' && segment === 'teams' ? 'team' : null,
-);
+const check = createRebacCheck(mapOf({ document: { teams: 'team' } }));
 
 describe('intra-map relation checks accept single records only', () => {
   const schema: RebacSchema = {

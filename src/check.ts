@@ -1,13 +1,7 @@
 import { type BridgeDictionary, indexBridges } from '@inixiative/json-rules';
 import { evaluate } from './evaluate';
-import type {
-  ActionRule,
-  CheckOptions,
-  PermixLike,
-  RebacSchema,
-  ResolveRelation,
-  Subject,
-} from './types';
+import { indexMap, resolveField, type SchemaMap } from './schemaMap';
+import type { ActionRule, CheckOptions, PermixLike, RebacSchema, Subject } from './types';
 
 export type RebacCheck<R extends string = string> = (
   permix: PermixLike,
@@ -18,19 +12,21 @@ export type RebacCheck<R extends string = string> = (
 ) => boolean;
 
 /**
- * Build the rebac check, bound to an intra-map relation resolver.
+ * Build the rebac check, bound to the app's schema map.
  *
- * `resolveRelation(resource, segment)` maps a hydrated relation field to the resource it points at
- * (the ORM-specific seam the app injects). Cross-source `rel` hops are resolved by the engine from
+ * A `rel` hop reads the relation field from `map` (its `fieldMap` model, the resource it leads to);
+ * a path's polymorphic kinds come from `map.polymorphism`. Cross-source `rel` hops are resolved by the engine from
  * `schema.bridges`: the join-key scalar on the record looks the far row up in a `BridgeDictionary`
  * the engine builds from `subject.data`; a far row absent there denies the walk. `string` delegates
  * (rbac via permix or schema), `{ rule }` is an ABAC predicate over the record and the actor (read
  * by path at `__actor`), `any`/`all` compose. Cycles throw rather than loop.
  */
 export const createRebacCheck = <R extends string = string>(
-  resolveRelation: ResolveRelation<R>,
+  map: SchemaMap<R>,
   { absent = 'null' }: CheckOptions = {},
 ): RebacCheck<R> => {
+  indexMap(map as SchemaMap);
+  const resolveRelation = (resource: R, segment: string) => resolveField(map, resource, segment);
   return (permix, schema, subject, actionOrRule, visited = new Set()) => {
     // Built lazily on the first bridge hop: a check that never crosses a bridge must not pay for —
     // or be crashed by (indexBridges throws on malformed `data`) — a dictionary it never reads.
@@ -46,7 +42,7 @@ export const createRebacCheck = <R extends string = string>(
       return dict;
     };
     return evaluate(
-      { resolveRelation, absent, schema, getDict },
+      { map, resolveRelation, absent, schema, getDict },
       permix,
       subject.resource,
       subject.record,
