@@ -5,6 +5,8 @@
 - **Breaking: `createRebacCheck(map)` and `createCanGrantEntitlement(map)` take a `SchemaMap`** — `{ resources, fieldMap, polymorphism? }`: which `fieldMap` model each resource is, its relations and foreign keys (a json-rules `FieldMap`, structurally a prisma-map), and the polymorphic models' kinds (a false-polymorphism registry). The `resolveRelation` callback is gone.
 - **Each polymorphic step of an anchor's path names one kind.** A relation's foreign key columns pick the kind; the step passes only when the record is that kind. `organization` reaches an organization's own integrations, not its spaces' (which carry `organizationId` too).
 - **`placeEntitlement(map, entry, anchor)`** builds the grant's pseudo record from the hydrated anchor down the path (foreign keys, kinds, the where's exact values; the path wins over a pinned foreign key). The app no longer places.
+- An anchor path follows to-one relations that own their foreign key (`fromFields`); a back-relation no longer reaches an anchor.
+- `createRebacCheck` indexes the map once and refuses two resources on one model.
 - Migration: build a `SchemaMap` from your prisma map and registry; replace app-side placement with `placeEntitlement`.
 
 ## 0.10.0 — the anchor carries its path

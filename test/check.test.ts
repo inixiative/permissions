@@ -148,7 +148,7 @@ describe('rebac check', () => {
     expect(leave(stub({ superadmin: true }), 'someone-else')).toBe(true);
   });
 
-  test('{ rel, action } walks an intra-map relation via resolveRelation', () => {
+  test('{ rel, action } walks an intra-map relation from the schema map', () => {
     expect(
       check(
         stub(),
@@ -170,7 +170,7 @@ describe('rebac check', () => {
     ).toBe(false);
   });
 
-  test('resolveRelation returning null aborts the walk', () => {
+  test('a relation the map does not know aborts the walk', () => {
     const noRels = createRebacCheck(mapOf({}));
     expect(
       noRels(
@@ -402,7 +402,7 @@ describe('bridge — complex traversals (multi-hop, mixed-path, composition)', (
         'crm:Contact': { actions: { own: null } },
       },
     };
-    // The Account.owner segment is NOT a bridge — resolveRelation supplies the far-map hop.
+    // The Account.owner segment is NOT a bridge — the schema map supplies the far-map hop.
     const c = createRebacCheck(mapOf({ 'crm:Account': { owner: 'crm:Contact' } }));
     const granted = grantStub({ 'crm:Contact:own': ['c1'] });
     // The far Account is supplied WITH its nested owner — the walk reads current['owner'].

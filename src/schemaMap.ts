@@ -28,8 +28,26 @@ export type Relation<R extends string = string> = {
   kind: { field: string; value: string } | null;
 };
 
+type MapIndex = { resources: Map<string, string>; relations: Map<string, Relation | null> };
+
+const indexes = new WeakMap<SchemaMap, MapIndex>();
+
+export const indexMap = (map: SchemaMap): MapIndex => {
+  const known = indexes.get(map);
+  if (known) return known;
+  const resources = new Map<string, string>();
+  for (const [resource, model] of Object.entries(map.resources)) {
+    if (resources.has(model))
+      throw new Error(`${model} is the model of two resources: give each resource its own model`);
+    resources.set(model, resource);
+  }
+  const index = { resources, relations: new Map<string, Relation | null>() };
+  indexes.set(map, index);
+  return index;
+};
+
 const resourceOf = <R extends string>(map: SchemaMap<R>, model: string): R | null =>
-  (Object.entries(map.resources) as [R, string][]).find(([, name]) => name === model)?.[0] ?? null;
+  (indexMap(map as SchemaMap).resources.get(model) as R | undefined) ?? null;
 
 const fieldOf = <R extends string>(map: SchemaMap<R>, resource: R, segment: string) => {
   const model = map.resources[resource];
@@ -57,6 +75,17 @@ const kindOf = (axes: readonly PolymorphicAxis[], columns: readonly string[]) =>
 };
 
 export const relationOf = <R extends string>(
+  map: SchemaMap<R>,
+  resource: R,
+  segment: string,
+): Relation<R> | null => {
+  const cache = indexMap(map as SchemaMap).relations;
+  const key = `${resource}\u0000${segment}`;
+  if (!cache.has(key)) cache.set(key, relationFor(map, resource, segment));
+  return (cache.get(key) as Relation<R> | null | undefined) ?? null;
+};
+
+const relationFor = <R extends string>(
   map: SchemaMap<R>,
   resource: R,
   segment: string,

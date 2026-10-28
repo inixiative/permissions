@@ -355,3 +355,11 @@ describe('the grant check on the placed record', () => {
     expect(await may(await table('db:organization', 'o2', ['own']), tokens, o1)).toBe(false);
   });
 });
+
+describe('the map is indexed once', () => {
+  test('two resources on one model are refused when the check is built', () => {
+    expect(() =>
+      createRebacCheck({ ...map, resources: { ...map.resources, 'db:org': 'Organization' } }),
+    ).toThrow(/Organization/);
+  });
+});

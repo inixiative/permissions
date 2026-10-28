@@ -1,6 +1,6 @@
 import { type BridgeDictionary, indexBridges } from '@inixiative/json-rules';
 import { evaluate } from './evaluate';
-import { resolveField, type SchemaMap } from './schemaMap';
+import { indexMap, resolveField, type SchemaMap } from './schemaMap';
 import type { ActionRule, CheckOptions, PermixLike, RebacSchema, Subject } from './types';
 
 export type RebacCheck<R extends string = string> = (
@@ -25,6 +25,7 @@ export const createRebacCheck = <R extends string = string>(
   map: SchemaMap<R>,
   { absent = 'null' }: CheckOptions = {},
 ): RebacCheck<R> => {
+  indexMap(map as SchemaMap);
   const resolveRelation = (resource: R, segment: string) => resolveField(map, resource, segment);
   return (permix, schema, subject, actionOrRule, visited = new Set()) => {
     // Built lazily on the first bridge hop: a check that never crosses a bridge must not pay for —

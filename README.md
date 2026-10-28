@@ -1,10 +1,11 @@
 # @inixiative/permissions
 
 Generic **rebac / abac / rbac** core: a small `permix` wrapper plus a relationship-walking `check`
-engine, on top of [`@inixiative/json-rules`](https://github.com/inixiative/json-rules). The one
-app-specific bit — resolving which model a relation points at — is **injected** (built from
-[`@inixiative/prisma-map`](https://github.com/inixiative/prisma-map) in the inixiative stack), so the
-core stays small and never imports a database layer itself. Record **hydration stays in the app**.
+engine, on top of [`@inixiative/json-rules`](https://github.com/inixiative/json-rules). The app
+passes its **schema map** — which model each resource is, its relations and foreign keys (a
+[`@inixiative/prisma-map`](https://github.com/inixiative/prisma-map) map in the inixiative stack),
+and its polymorphic models' kinds — so the core never imports a database layer itself. Record
+**loading and hydration stay in the app**.
 
 ## Permission algebra (`ActionRule`)
 
@@ -64,7 +65,7 @@ const schema: RebacSchema = {
 ```
 
 `rel` accepts dot-paths for multi-hop walks — `{ rel: 'space.organization', action: 'own' }` chains
-through `record.space.organization`, resolving each hop's model via the injected resolver.
+through `record.space.organization`, resolving each hop's model from the schema map.
 
 Records may also carry a `permissionRules` JSON field (`action → ActionRule`); `check` merges a row
 rule **additively** (OR) with the schema rule, so per-record overrides can widen but never revoke.
@@ -93,13 +94,14 @@ user) fails a write arm on its own row; a row without its `user` loaded is denie
 from the foreign key. `validateActionRule` rejects `self`.
 
 The check takes a **subject** — `{ resource, record, data? }` — not a bare record; `data` is the
-supplemental rows that back cross-source bridge hops (below). `createRebacCheck` is generic over the
+supplemental rows that back cross-source bridge hops (below). `resources` gives each resource its own model (`createRebacCheck` refuses two resources on one
+model). `createRebacCheck` is generic over the
 resource key (default `string`). Pass your resource union and the schema, `subject.resource`, and
 map all enforce it — no casts for your own types:
 
 ```ts
 type Resource = 'organization' | 'membership' | 'document';
-const check = createRebacCheck<Resource>((resource, segment) => relationTargets[resource]?.[segment] ?? null);
+const check = createRebacCheck<Resource>(map); // map: SchemaMap<Resource>
 // now `schema: RebacSchema<Resource>`, `subject.resource: Resource` — a typo is a compile error.
 ```
 
@@ -266,8 +268,9 @@ canGrantEntitlement(writer, schema, entry, placed); // can the writer manage eve
 `placeEntitlement` builds the pseudo record of `entry.resource` from the anchor down the path: at
 each step the foreign keys whose values the parent knows and the kind the relation names, the
 parent attached under the relation, ids below the anchor unknown. The `where`'s exact `equals`
-leaves (`equals null` pins `null`) fill the rest; the path wins over a pinned foreign key, so a
-`where` cannot move the record out from under its anchor. It returns `null` when the anchor row is
+leaves (`equals null` pins `null`) fill the rest; the path wins over a pinned foreign key it
+knows, so a `where` cannot move the record out from under its anchor (a pin on a foreign key the
+path leaves unknown stays, and the rules still walk the placed relation). It returns `null` when the anchor row is
 not the entry's or the path does not end at the anchor's model through to-one relations. A self
 anchor is the anchor row itself. The writer must take each action on `placed`. The check reads `placed` with json-rules `absent: 'unknown'`: a field
 it does not carry fails every positive leaf, `equals null` included, so a writer whose authority
