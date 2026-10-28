@@ -277,3 +277,45 @@ describe('an owner is placed under every record above it, not only its parent', 
     expect(await may(await admin(), members)).toBe(false);
   });
 });
+
+describe('a kind whose owner cannot be placed is still judged', () => {
+  test('its record stays, the owner unknown, so the grant is refused rather than the kind skipped', () => {
+    const orphanMap: SchemaMap = {
+      resources: { 'db:organization': 'Organization', 'db:widget': 'Widget', 'db:thing': 'Thing' },
+      fieldMap: {
+        models: {
+          Organization: { fields: { id: scalar } },
+          Widget: { fields: { id: scalar } },
+          Thing: {
+            fields: {
+              ownerModel: scalar,
+              organizationId: scalar,
+              widgetId: scalar,
+              organization: toOne('Organization', ['organizationId'], ['id']),
+              widget: toOne('Widget', ['organizationId', 'widgetId'], ['organizationId', 'id']),
+            },
+          },
+        },
+      },
+      polymorphism: {
+        Thing: {
+          axes: [
+            {
+              field: 'ownerModel',
+              fkMap: { Organization: ['organizationId'], Widget: ['organizationId', 'widgetId'] },
+            },
+          ],
+        },
+      },
+    };
+    const things: EntitlementEntry = {
+      resource: 'db:thing',
+      anchor: { resource: 'db:organization', id: 'o1', path: 'organization' },
+      actions: { manage: true },
+    };
+    expect(placeEntitlement(orphanMap, things, o1)?.map((record) => record.ownerModel)).toEqual([
+      'Organization',
+      'Widget',
+    ]);
+  });
+});

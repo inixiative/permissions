@@ -233,7 +233,7 @@ export const placeUnder = <R extends string>(
           3,
           new Set(),
         );
-        return owner ? [{ ...row, ...keysFrom(ownerRelation, owner), [ownerName]: owner }] : [];
+        return owner ? [{ ...row, ...keysFrom(ownerRelation, owner), [ownerName]: owner }] : [row];
       });
   };
   const place = (current: R, segments: string[], top: boolean): Row[] => {
