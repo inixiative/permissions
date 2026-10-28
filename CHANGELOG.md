@@ -1,9 +1,10 @@
 # Changelog
 
-## 0.11.2 — placeUnder; a malformed entry is never placed
+## 0.12.0 — a path names its anchor and axis; every kind on it is judged
 
-- **`placeUnder(map, resource, path, anchorResource, anchor)`** places a record of `resource` under a hydrated anchor along a path of to-one relations: each step's known foreign keys (composite ones too) and the kind its relation names. It is what `placeEntitlement` uses, and what an app uses to place a record it is about to create or a collection it is about to act on, sided relations (`targetOrganization`) included.
-- **`placeEntitlement` returns null for a malformed entry**, by the same rules `setup` refuses at install (anchor shape, a path on every anchor but the record itself, boolean actions, a positive `where`), so one check before saving decides both validity and the grant.
+- **Breaking: a polymorphic step admits every kind that carries its keys**, not one: `organization` on an integration reaches the organization's own, a space's, a member's and a space member's integrations. The `where` narrows them (`ownerModel equals Organization`). Sides stay distinct axes (`targetOrganization` vs `sourceOrganization`).
+- **Breaking: `placeEntitlement` returns `Row[] | null`**, one pseudo record per admitted kind, each with its owner placed under the anchor along every relation that leads there; the writer must pass on every one. Null for a malformed entry (the rules `setup` refuses at install), a foreign anchor, or a path that reaches nothing.
+- **`placeUnder(map, resource, path, anchorResource, anchor, pins?)`** returns the records of `resource` under a hydrated anchor along a path (known foreign keys, composite ones too, the admitted kinds narrowed by `pins`); what an app uses to place a record it is about to create.
 
 ## 0.11.1 — the walk reads the map
 

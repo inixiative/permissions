@@ -15,7 +15,8 @@ const reaches = <R extends string>(walk: Walk<R>, resource: R, record: Row, anch
     const relation = relationOf(walk.map, currentResource, segment);
     const related = current[segment] as Row | null | undefined;
     if (!relation || !related || Array.isArray(related)) return false;
-    if (relation.kind && current[relation.kind.field] !== relation.kind.value) return false;
+    if (relation.kinds && !relation.kinds.values.includes(current[relation.kinds.field] as string))
+      return false;
     currentResource = relation.resource;
     current = related;
   }
@@ -24,7 +25,7 @@ const reaches = <R extends string>(walk: Walk<R>, resource: R, record: Row, anch
 
 // Entitlements are consulted after the table and the schema both miss, at the node the holder's
 // own walk reached, with the record in hand. One applies when the record's path reaches its anchor (each
-// polymorphic step of the kind its relation names), its
+// polymorphic step one of the kinds its relation admits), its
 // `where` holds, and whoever granted it can still do the action on this record: the
 // owner's own table, walked from here. A space moved to another org stops reaching its grantor.
 // An owner that is already on this walk for this node and action is a loop built from grant

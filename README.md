@@ -219,13 +219,13 @@ the schema rule both miss, with the record in hand, and one applies when all thr
   two parents of one model (`targetOrganization`, not `sourceOrganization`), so a relation the path
   does not name never counts, and a path through a list relation reaches nothing. A record anchored
   at itself has no path. The action is checked on the record, never asked of the anchor.
-  **Each polymorphic step names one kind.** A polymorphic record carries the ids of everything
-  above it (a space's integration carries `organizationId` too), so carrying an id is not
-  ownership. A relation's foreign key columns pick one kind from `map.polymorphism` (the entry
-  with the fewest columns that holds them all), and the step only passes when the record is that
-  kind: `organization` reaches the organization's own integrations, `space.organization` its
-  spaces', `targetOrganization` the inquiries an organization received. Everything under an
-  anchor is one entry per branch.
+  **A polymorphic step admits every kind that carries its keys.** A polymorphic record carries the
+  ids of everything above it, so `organization` on an integration admits each kind whose registry
+  columns (`map.polymorphism`) hold `organizationId`: the organization's own, a space's, a
+  member's, a space member's. The step passes when the record is one of those kinds; the `where`
+  narrows them (`ownerModel equals Organization` is the organization's own). A side is a
+  different axis, so `targetOrganization` reaches what an organization received and never what it
+  sent.
 - **`where` holds** — the `where` is plain json-rules over the record at that node, `field` and `path` both
   starting there and free to climb hydrated parents (`space.organizationId`). Whatever referred to
   the holder (its own id, its user) is written in as a literal when the grant is made. A `where`
@@ -262,12 +262,14 @@ const entry = {
   actions: { manage: true },
 };
 const placed = placeEntitlement(map, entry, await hydrate('Space', space)); // null: malformed
-canGrantEntitlement(writer, schema, entry, placed); // can the writer manage every Slack integration of s1?
+placed?.every((record) => canGrantEntitlement(writer, schema, entry, record)); // every Slack integration of s1?
 ```
 
-`placeEntitlement` first refuses a malformed entry (null), by the rules `setup` applies at install, so validity and the grant are one check before saving. It then builds the pseudo record of `entry.resource` from the anchor down the path (`placeUnder`, also exported for placing a record you are about to create): at
-each step the foreign keys whose values the parent knows and the kind the relation names, the
-parent attached under the relation, ids below the anchor unknown. The `where`'s exact `equals`
+`placeEntitlement` first refuses a malformed entry (null), by the rules `setup` applies at install, so validity and the grant are one check before saving. It then builds the pseudo records of `entry.resource` from the anchor down the path (`placeUnder`, also exported for placing a record you are about to create): at
+each step the foreign keys whose values the parent knows, the parent attached under the
+relation, ids below the anchor unknown; on a polymorphic step one record per kind it admits (the
+kinds the `where` pins narrow them), each with its owner placed under the anchor along every
+relation that leads there. The writer must pass on every one. The `where`'s exact `equals`
 leaves (`equals null` pins `null`) fill the rest; the path wins over a pinned foreign key it
 knows, so a `where` cannot move the record out from under its anchor (a pin on a foreign key the
 path leaves unknown stays, and the rules still walk the placed relation). It returns `null` when the anchor row is

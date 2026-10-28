@@ -21,12 +21,15 @@ export type SchemaMap<R extends string = string> = {
   polymorphism?: Polymorphism;
 };
 
-/** A to-one relation that owns its foreign key: where it leads, its columns, and the kind it implies. */
+/**
+ * A to-one relation that owns its foreign key: where it leads, its columns, and on a polymorphic
+ * record the kinds it admits (every kind whose registry columns hold the relation's columns).
+ */
 export type Relation<R extends string = string> = {
   resource: R;
   from: readonly string[];
   to: readonly string[];
-  kind: { field: string; value: string } | null;
+  kinds: { field: string; values: string[] } | null;
 };
 
 type MapIndex = { resources: Map<string, string>; relations: Map<string, Relation | null> };
@@ -64,13 +67,12 @@ export const resolveField = <R extends string>(
   return field?.kind === 'object' ? resourceOf(map, field.type) : null;
 };
 
-const kindOf = (axes: readonly PolymorphicAxis[], columns: readonly string[]) => {
+const kindsOf = (axes: readonly PolymorphicAxis[], columns: readonly string[]) => {
   for (const axis of axes) {
-    const [value] = Object.entries(axis.fkMap)
+    const values = Object.entries(axis.fkMap)
       .filter(([, fks]) => fks?.length && columns.every((column) => fks.includes(column)))
-      .sort(([, a], [, b]) => (a?.length ?? 0) - (b?.length ?? 0))
-      .map(([candidate]) => candidate);
-    if (value) return { field: axis.field, value };
+      .map(([value]) => value);
+    if (values.length) return { field: axis.field, values };
   }
   return null;
 };
@@ -100,7 +102,7 @@ const relationFor = <R extends string>(
     resource: target,
     from: field.fromFields,
     to: field.toFields ?? [],
-    kind: kindOf(axes, field.fromFields),
+    kinds: kindsOf(axes, field.fromFields),
   };
 };
 
@@ -120,12 +122,71 @@ const pinned = (where: Condition | undefined): Row => {
   return exact ? { [leaf.field as string]: leaf.value } : {};
 };
 
+const keysFrom = (relation: Relation, parent: Row): Row =>
+  Object.fromEntries(
+    relation.from.flatMap((column, index) => {
+      const value = parent[relation.to[index] as string];
+      return value == null || value === '' ? [] : [[column, value]];
+    }),
+  );
+
+const relationNames = <R extends string>(map: SchemaMap<R>, resource: R): string[] =>
+  Object.keys(map.fieldMap.models[map.resources[resource]]?.fields ?? {});
+
+const ownerRelationOf = <R extends string>(
+  map: SchemaMap<R>,
+  resource: R,
+  field: string,
+  value: string,
+): string | undefined => {
+  const axis = map.polymorphism?.[map.resources[resource]]?.axes.find((a) => a.field === field);
+  const columns = [...(axis?.fkMap[value] ?? [])].sort().join(',');
+  return relationNames(map, resource).find(
+    (name) => [...(relationOf(map, resource, name)?.from ?? [])].sort().join(',') === columns,
+  );
+};
+
+const placeTowards = <R extends string>(
+  map: SchemaMap<R>,
+  resource: R,
+  targetResource: R,
+  target: Row,
+  depth: number,
+  seen: ReadonlySet<R>,
+): Row | null => {
+  const row: Row = {};
+  let reached = false;
+  for (const name of relationNames(map, resource)) {
+    const relation = relationOf(map, resource, name);
+    if (!relation) continue;
+    const parent =
+      relation.resource === targetResource
+        ? target
+        : depth > 1 && !seen.has(relation.resource)
+          ? placeTowards(
+              map,
+              relation.resource,
+              targetResource,
+              target,
+              depth - 1,
+              new Set([...seen, resource]),
+            )
+          : null;
+    if (!parent) continue;
+    Object.assign(row, keysFrom(relation, parent), { [name]: parent });
+    reached = true;
+  }
+  return reached ? row : null;
+};
+
 /**
- * A record of `resource` placed under the hydrated `anchor` (a record of `anchorResource`) along `path` (dotted to-one relation
- * names that own their foreign keys): at each step the foreign keys whose values the parent knows,
- * composite ones included, and the kind the relation names, the parent attached under the
- * relation. Ids below the anchor stay unknown. Null when the path does not lead to the anchor's
- * resource.
+ * The records of `resource` that sit under the hydrated `anchor` (a record of `anchorResource`)
+ * along `path` (dotted to-one relation names that own their foreign keys): at each step the foreign
+ * keys whose values the parent knows, composite ones included, and the parent attached under the
+ * relation. On a polymorphic step there is one record per kind the relation admits, each with its
+ * owner placed under the anchor along every relation that leads there; `pins` (exact values, as a
+ * `where` pins them) narrow the kinds. Ids below the anchor stay unknown. Empty when the path does
+ * not lead to the anchor's resource.
  */
 export const placeUnder = <R extends string>(
   map: SchemaMap<R>,
@@ -133,48 +194,71 @@ export const placeUnder = <R extends string>(
   path: string,
   anchorResource: R,
   anchor: Row,
-): Row | null => {
-  const place = (current: R, segments: string[]): Row | null => {
-    const [segment, ...rest] = segments;
-    if (segment === undefined)
-      return anchorResource === undefined || current === anchorResource ? anchor : null;
-    const relation = relationOf(map, current, segment);
-    if (!relation) return null;
-    const parent = place(relation.resource, rest);
-    if (!parent) return null;
-    const keys = Object.fromEntries(
-      relation.from.flatMap((column, index) => {
-        const value = parent[relation.to[index] as string];
-        return value == null || value === '' ? [] : [[column, value]];
-      }),
-    );
-    const kind = relation.kind ? { [relation.kind.field]: relation.kind.value } : {};
-    return { ...keys, ...kind, [segment]: parent };
+  pins: Row = {},
+): Row[] => {
+  const step = (
+    current: R,
+    segment: string,
+    relation: Relation<R>,
+    parent: Row,
+    top: boolean,
+  ): Row[] => {
+    const base: Row = { ...keysFrom(relation, parent), [segment]: parent };
+    if (!relation.kinds) return [base];
+    const { field, values } = relation.kinds;
+    const pinnedKind = top ? pins[field] : undefined;
+    return values
+      .filter((value) => pinnedKind === undefined || value === pinnedKind)
+      .flatMap((value) => {
+        const row: Row = { ...base, [field]: value };
+        const ownerName = ownerRelationOf(map, current, field, value);
+        if (!ownerName || ownerName === segment) return [row];
+        const ownerRelation = relationOf(map, current, ownerName) as Relation<R>;
+        const owner = placeTowards(
+          map,
+          ownerRelation.resource,
+          relation.resource,
+          parent,
+          3,
+          new Set(),
+        );
+        return owner ? [{ ...row, ...keysFrom(ownerRelation, owner), [ownerName]: owner }] : [];
+      });
   };
-  return place(resource, path.split('.'));
+  const place = (current: R, segments: string[], top: boolean): Row[] => {
+    const [segment, ...rest] = segments;
+    if (segment === undefined) return current === anchorResource ? [anchor] : [];
+    const relation = relationOf(map, current, segment);
+    if (!relation) return [];
+    return place(relation.resource, rest, false).flatMap((parent) =>
+      step(current, segment, relation, parent, top),
+    );
+  };
+  return place(resource, path.split('.'), true);
 };
 
 /**
- * The pseudo record a grant is checked on, built from the hydrated `anchor` down the entry's path:
- * at each step the foreign keys whose values the parent knows and the kind the relation implies,
- * with the parent attached under the relation. Ids below the anchor stay unknown. The `where`'s
- * exact `equals` values fill the rest; the path wins over a pinned foreign key. Null when the
- * entry is malformed (the rules `setup` applies), the anchor is not the entry's, or the path does not
- * end at its model through to-one relations.
+ * The pseudo records a grant is checked on: `placeUnder` from the hydrated `anchor` along the entry's
+ * path, narrowed by the kinds its `where` pins, each given the `where`'s exact `equals` values (the
+ * path wins over a pinned foreign key). A self anchor is the anchor row itself. Null when the entry
+ * is malformed (the rules `setup` applies), the anchor is not the entry's, or the path reaches
+ * nothing; the writer must pass on every record.
  */
 export const placeEntitlement = <R extends string>(
   map: SchemaMap<R>,
   entry: EntitlementEntry,
   anchor: Row,
-): Row | null => {
+): Row[] | null => {
   if (entitlementProblem(entry) !== null || recordId(anchor) !== entry.anchor.id) return null;
-  if (entry.anchor.path === undefined) return anchor;
+  if (entry.anchor.path === undefined) return [anchor];
+  const pins = pinned(entry.where);
   const placed = placeUnder(
     map,
     entry.resource as R,
     entry.anchor.path,
     entry.anchor.resource as R,
     anchor,
-  );
-  return placed && { ...pinned(entry.where), ...placed };
+    pins,
+  ).map((record) => ({ ...pins, ...record }));
+  return placed.length ? placed : null;
 };

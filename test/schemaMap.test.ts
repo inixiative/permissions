@@ -197,18 +197,18 @@ const may = async (
   anchor: Row,
 ) => {
   const placed = placeEntitlement(map, entry, anchor);
-  return placed !== null && canGrant(writer, schema, entry, placed);
+  return placed !== null && placed.every((record) => canGrant(writer, schema, entry, record));
 };
 
 describe('the path names a kind at each polymorphic step: read time', () => {
-  test("via organization: the organization's own integrations, not a space's", async () => {
+  test('via organization: every kind that carries the organization (R81)', async () => {
     const holder = await holderOf(
       entitlement('db:integration', at('db:organization', 'o1', 'organization'), 'manage'),
     );
     const manages = (record: Row) =>
       check(holder, schema, { resource: 'db:integration', record }, 'manage');
     expect(manages(orgIntegration('i1', o1))).toBe(true);
-    expect(manages(spaceIntegration('i2', s1))).toBe(false);
+    expect(manages(spaceIntegration('i2', s1))).toBe(true);
   });
 
   test("via space.organization: the spaces' integrations, not the organization's own", async () => {
@@ -245,14 +245,22 @@ describe('the path names a kind at each polymorphic step: read time', () => {
 });
 
 describe('placeEntitlement: the pseudo record, built from the anchor along the path', () => {
-  test('one step: the foreign key and the kind', () => {
+  test('one step: the foreign key, one record per kind it admits, each owner under the anchor', () => {
     expect(
       placeEntitlement(
         map,
         entitlement('db:integration', at('db:organization', 'o1', 'organization'), 'manage'),
         o1,
       ),
-    ).toEqual({ ownerModel: 'Organization', organizationId: 'o1', organization: o1 });
+    ).toEqual([
+      { ownerModel: 'Organization', organizationId: 'o1', organization: o1 },
+      {
+        ownerModel: 'Space',
+        organizationId: 'o1',
+        organization: o1,
+        space: { organizationId: 'o1', organization: o1 },
+      },
+    ]);
   });
 
   test('two steps: a pseudo space under the anchor, its id unknown', () => {
@@ -262,11 +270,13 @@ describe('placeEntitlement: the pseudo record, built from the anchor along the p
         entitlement('db:integration', at('db:organization', 'o1', 'space.organization'), 'manage'),
         o1,
       ),
-    ).toEqual({
-      ownerModel: 'Space',
-      organizationId: 'o1',
-      space: { organizationId: 'o1', organization: o1 },
-    });
+    ).toEqual([
+      {
+        ownerModel: 'Space',
+        organizationId: 'o1',
+        space: { organizationId: 'o1', organization: o1 },
+      },
+    ]);
   });
 
   test('the where pins exact values; the path wins over a pinned foreign key', () => {
@@ -276,21 +286,19 @@ describe('placeEntitlement: the pseudo record, built from the anchor along the p
         all: [
           { field: 'provider', operator: 'equals', value: 'slack' },
           { field: 'organizationId', operator: 'equals', value: 'o2' },
+          { field: 'ownerModel', operator: 'equals', value: 'Organization' },
         ],
       },
     } as EntitlementEntry;
-    expect(placeEntitlement(map, entry, o1)).toEqual({
-      provider: 'slack',
-      ownerModel: 'Organization',
-      organizationId: 'o1',
-      organization: o1,
-    });
+    expect(placeEntitlement(map, entry, o1)).toEqual([
+      { provider: 'slack', ownerModel: 'Organization', organizationId: 'o1', organization: o1 },
+    ]);
   });
 
   test('a self anchor is the anchor itself', () => {
-    expect(placeEntitlement(map, entitlement('db:space', at('db:space', 's1'), 'read'), s1)).toBe(
-      s1,
-    );
+    expect(
+      placeEntitlement(map, entitlement('db:space', at('db:space', 's1'), 'read'), s1),
+    ).toEqual([s1]);
   });
 
   test('a path that does not end at the anchor model is null', () => {
@@ -312,12 +320,21 @@ describe('placeEntitlement: the pseudo record, built from the anchor along the p
 });
 
 describe('the grant check on the placed record', () => {
-  test('a manager of o1 grants its own integrations, not the spaces’', async () => {
+  test('a manager of o1 grants its own integrations (narrowed), not every kind under it', async () => {
     const manager = await table('db:organization', 'o1', ['manage']);
+    const integrations = entitlement(
+      'db:integration',
+      at('db:organization', 'o1', 'organization'),
+      'manage',
+    );
+    expect(await may(manager, integrations, o1)).toBe(false);
     expect(
       await may(
         manager,
-        entitlement('db:integration', at('db:organization', 'o1', 'organization'), 'manage'),
+        {
+          ...integrations,
+          where: { field: 'ownerModel', operator: 'equals', value: 'Organization' },
+        } as EntitlementEntry,
         o1,
       ),
     ).toBe(true);
@@ -348,10 +365,15 @@ describe('the grant check on the placed record', () => {
       at('db:organization', 'o1', 'integration.organization'),
       'delete',
     );
-    expect(placeEntitlement(map, tokens, o1)).toEqual({
-      ownerModel: 'Integration',
-      integration: { ownerModel: 'Organization', organizationId: 'o1', organization: o1 },
-    });
+    expect(placeEntitlement(map, tokens, o1)?.map((token) => token.integration)).toEqual([
+      { ownerModel: 'Organization', organizationId: 'o1', organization: o1 },
+      {
+        ownerModel: 'Space',
+        organizationId: 'o1',
+        organization: o1,
+        space: { organizationId: 'o1', organization: o1 },
+      },
+    ]);
     expect(await may(owner, tokens, o1)).toBe(true);
     expect(await may(await table('db:organization', 'o2', ['own']), tokens, o1)).toBe(false);
   });
@@ -367,24 +389,19 @@ describe('the map is indexed once', () => {
 
 describe('placeUnder: a record of a resource under an anchor, along a path', () => {
   test('the path decides the relation: its foreign keys, composite ones too, and its kind', () => {
-    expect(placeUnder(map, 'db:integration', 'space', 'db:space', s1)).toEqual({
-      ownerModel: 'Space',
-      organizationId: 'o1',
-      spaceId: 's1',
-      space: s1,
-    });
+    expect(placeUnder(map, 'db:integration', 'space', 'db:space', s1)).toEqual([
+      { ownerModel: 'Space', organizationId: 'o1', spaceId: 's1', space: s1 },
+    ]);
   });
 
   test('a side: the inquiry an organization receives', () => {
-    expect(placeUnder(map, 'db:inquiry', 'targetOrganization', 'db:organization', o1)).toEqual({
-      targetModel: 'Organization',
-      targetOrganizationId: 'o1',
-      targetOrganization: o1,
-    });
+    expect(placeUnder(map, 'db:inquiry', 'targetOrganization', 'db:organization', o1)).toEqual([
+      { targetModel: 'Organization', targetOrganizationId: 'o1', targetOrganization: o1 },
+    ]);
   });
 
-  test('a path that does not lead to the anchor is null', () => {
-    expect(placeUnder(map, 'db:integration', 'organization', 'db:space', s1)).toBeNull();
+  test('a path that does not lead to the anchor places nothing', () => {
+    expect(placeUnder(map, 'db:integration', 'organization', 'db:space', s1)).toEqual([]);
   });
 });
 
