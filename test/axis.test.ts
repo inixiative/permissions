@@ -41,6 +41,11 @@ const fieldMap: FieldMap = {
         spaceId: scalar,
         userId: scalar,
         space: toOne('Space', ['organizationId', 'spaceId'], ['organizationId', 'id']),
+        organizationUser: toOne(
+          'OrganizationUser',
+          ['organizationId', 'userId'],
+          ['organizationId', 'userId'],
+        ),
       },
     },
     Integration: {
@@ -254,5 +259,21 @@ describe('the grant is judged on one pseudo record per kind the entry admits (R8
       'Space',
       'SpaceUser',
     ]);
+  });
+});
+
+describe('an owner is placed under every record above it, not only its parent', () => {
+  test("via organizationUser.organization: a space member's integration sits under its member and its space", async () => {
+    const members: EntitlementEntry = {
+      resource: 'db:integration',
+      anchor: { resource: 'db:organization', id: 'o1', path: 'organizationUser.organization' },
+      actions: { manage: true },
+    };
+    const placed = placeEntitlement(map, members, o1);
+    expect(placed?.map((record) => record.ownerModel)).toEqual(['OrganizationUser', 'SpaceUser']);
+    const spaceMember = placed?.[1]?.spaceUser as Row;
+    expect(spaceMember.space).toEqual({ organizationId: 'o1', organization: o1 });
+    expect(await may(await owner(), members)).toBe(true);
+    expect(await may(await admin(), members)).toBe(false);
   });
 });

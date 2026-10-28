@@ -146,11 +146,30 @@ const ownerRelationOf = <R extends string>(
   );
 };
 
+const chainOf = <R extends string>(
+  map: SchemaMap<R>,
+  resource: R,
+  row: Row,
+  segments: string[],
+): Map<R, Row> => {
+  const chain = new Map<R, Row>([[resource, row]]);
+  let current = resource;
+  let at = row;
+  for (const segment of segments) {
+    const relation = relationOf(map, current, segment);
+    const next = at[segment] as Row | undefined;
+    if (!relation || !next) break;
+    current = relation.resource;
+    at = next;
+    chain.set(current, at);
+  }
+  return chain;
+};
+
 const placeTowards = <R extends string>(
   map: SchemaMap<R>,
   resource: R,
-  targetResource: R,
-  target: Row,
+  chain: ReadonlyMap<R, Row>,
   depth: number,
   seen: ReadonlySet<R>,
 ): Row | null => {
@@ -160,18 +179,10 @@ const placeTowards = <R extends string>(
     const relation = relationOf(map, resource, name);
     if (!relation) continue;
     const parent =
-      relation.resource === targetResource
-        ? target
-        : depth > 1 && !seen.has(relation.resource)
-          ? placeTowards(
-              map,
-              relation.resource,
-              targetResource,
-              target,
-              depth - 1,
-              new Set([...seen, resource]),
-            )
-          : null;
+      chain.get(relation.resource) ??
+      (depth > 1 && !seen.has(relation.resource)
+        ? placeTowards(map, relation.resource, chain, depth - 1, new Set([...seen, resource]))
+        : null);
     if (!parent) continue;
     Object.assign(row, keysFrom(relation, parent), { [name]: parent });
     reached = true;
@@ -199,6 +210,7 @@ export const placeUnder = <R extends string>(
   const step = (
     current: R,
     segment: string,
+    rest: string[],
     relation: Relation<R>,
     parent: Row,
     top: boolean,
@@ -217,8 +229,7 @@ export const placeUnder = <R extends string>(
         const owner = placeTowards(
           map,
           ownerRelation.resource,
-          relation.resource,
-          parent,
+          chainOf(map, relation.resource, parent, rest),
           3,
           new Set(),
         );
@@ -231,7 +242,7 @@ export const placeUnder = <R extends string>(
     const relation = relationOf(map, current, segment);
     if (!relation) return [];
     return place(relation.resource, rest, false).flatMap((parent) =>
-      step(current, segment, relation, parent, top),
+      step(current, segment, rest, relation, parent, top),
     );
   };
   return place(resource, path.split('.'), true);
