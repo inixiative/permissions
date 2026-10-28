@@ -9,6 +9,7 @@ import {
   type RebacSchema,
   type Row,
 } from '../index';
+import { mapOf } from './schemaMaps';
 
 const schema: RebacSchema = {
   permissions: {
@@ -50,7 +51,7 @@ const relations: Record<string, Record<string, string>> = {
   },
   'db:inquiry': { sourceOrganization: 'db:organization', targetOrganization: 'db:organization' },
 };
-const check = createRebacCheck((resource, segment) => relations[resource]?.[segment] ?? null);
+const check = createRebacCheck(mapOf(relations));
 
 const o1 = { id: 'o1' };
 const o2 = { id: 'o2' };

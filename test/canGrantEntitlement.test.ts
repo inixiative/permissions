@@ -10,6 +10,7 @@ import {
   type RebacSchema,
   type Row,
 } from '../index';
+import { mapOf } from './schemaMaps';
 
 // A grant is an action: the writer could take every action the holder would hold, from where it
 // would act. Grant time mirrors read time through the same check (Aron, 2026-10-22 and 2026-10-25).
@@ -64,10 +65,8 @@ const relations: Record<string, Record<string, string>> = {
   'db:space': { organization: 'db:organization' },
   'db:integration': { space: 'db:space' },
 };
-const resolveRelation = (resource: string, segment: string) =>
-  relations[resource]?.[segment] ?? null;
-const canGrantEntitlement = createCanGrantEntitlement(resolveRelation);
-const rebac = createRebacCheck(resolveRelation);
+const canGrantEntitlement = createCanGrantEntitlement(mapOf(relations));
+const rebac = createRebacCheck(mapOf(relations));
 const check = (permix: Permix, resource: string, record: Row, action: string) =>
   rebac(permix, schema, { resource, record }, action);
 

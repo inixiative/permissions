@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import { type Bridge, Operator } from '@inixiative/json-rules';
-import type { ActionRule, Actor, PermixLike, RebacSchema, ResolveRelation } from '../index';
+import type { ActionRule, Actor, PermixLike, RebacSchema } from '../index';
 import { createRebacCheck } from '../index';
+import { mapOf } from './schemaMaps';
 
 // stub permix: no direct grants (forces schema evaluation); optional superadmin + actor id.
 const stub = (
@@ -51,8 +52,7 @@ const schema: RebacSchema = {
 const relations: Record<string, Record<string, string>> = {
   membership: { organization: 'organization', user: 'user' },
 };
-const resolveRelation: ResolveRelation = (resource, seg) => relations[resource]?.[seg] ?? null;
-const check = createRebacCheck(resolveRelation);
+const check = createRebacCheck(mapOf(relations));
 
 describe('rebac check', () => {
   test('ABAC { rule } leaf', () => {
@@ -171,7 +171,7 @@ describe('rebac check', () => {
   });
 
   test('resolveRelation returning null aborts the walk', () => {
-    const noRels = createRebacCheck(() => null);
+    const noRels = createRebacCheck(mapOf({}));
     expect(
       noRels(
         stub(),
@@ -222,7 +222,7 @@ describe('rebac check — bridge (cross-map) rel walks', () => {
         'crm:Account': { actions: { own: null } }, // granted only via permix
       },
     };
-    const c = createRebacCheck(() => null);
+    const c = createRebacCheck(mapOf({}));
     const granted = grantStub({ 'crm:Account:own': ['acc1'] });
     const data = { 'crm:Account': [{ id: 'acc1' }, { id: 'other' }] };
     expect(
@@ -251,7 +251,7 @@ describe('rebac check — bridge (cross-map) rel walks', () => {
         },
       },
     };
-    const c = createRebacCheck(() => null);
+    const c = createRebacCheck(mapOf({}));
     const subject = {
       resource: 'db:User',
       record: { id: 'u1', accountId: 'acc1' },
@@ -287,7 +287,7 @@ describe('to-one constraint on bridge walks (adversarial: must not walk onto the
         },
       },
     };
-    const c = createRebacCheck(() => null);
+    const c = createRebacCheck(mapOf({}));
     // Data ordered so a found[0] collapse would WRONGLY allow (first row is active). The hop onto the
     // many side must be refused regardless of row order — a single-record check can't span a list.
     const subject = {
@@ -313,7 +313,7 @@ describe('to-one constraint on bridge walks (adversarial: must not walk onto the
         },
       },
     };
-    const c = createRebacCheck(() => null);
+    const c = createRebacCheck(mapOf({}));
     const subject = {
       resource: 'db:User',
       record: { id: 'u1', accountId: 'acc1' },
@@ -354,7 +354,7 @@ describe('bridge — complex traversals (multi-hop, mixed-path, composition)', (
         'billing:Subscription': { actions: { own: null } },
       },
     };
-    const c = createRebacCheck(() => null);
+    const c = createRebacCheck(mapOf({}));
     const granted = grantStub({ 'billing:Subscription:own': ['sub1'] });
     const subject = {
       resource: 'db:User',
@@ -377,7 +377,7 @@ describe('bridge — complex traversals (multi-hop, mixed-path, composition)', (
         'billing:Subscription': { actions: { own: null } },
       },
     };
-    const c = createRebacCheck(() => null);
+    const c = createRebacCheck(mapOf({}));
     const granted = grantStub({ 'billing:Subscription:own': ['sub1'] });
     // No Account in data → the first hop finds no far row → denied.
     const subject = { resource: 'db:User', record: { id: 'u1', accountId: 'acc1' } };
@@ -403,9 +403,7 @@ describe('bridge — complex traversals (multi-hop, mixed-path, composition)', (
       },
     };
     // The Account.owner segment is NOT a bridge — resolveRelation supplies the far-map hop.
-    const resolve: ResolveRelation = (resource, seg) =>
-      resource === 'crm:Account' && seg === 'owner' ? 'crm:Contact' : null;
-    const c = createRebacCheck(resolve);
+    const c = createRebacCheck(mapOf({ 'crm:Account': { owner: 'crm:Contact' } }));
     const granted = grantStub({ 'crm:Contact:own': ['c1'] });
     // The far Account is supplied WITH its nested owner — the walk reads current['owner'].
     const subject = {
@@ -424,9 +422,7 @@ describe('bridge — complex traversals (multi-hop, mixed-path, composition)', (
         'crm:Contact': { actions: { own: null } },
       },
     };
-    const resolve: ResolveRelation = (resource, seg) =>
-      resource === 'crm:Account' && seg === 'owner' ? 'crm:Contact' : null;
-    const c = createRebacCheck(resolve);
+    const c = createRebacCheck(mapOf({ 'crm:Account': { owner: 'crm:Contact' } }));
     const granted = grantStub({ 'crm:Contact:own': ['c1'] });
     // No data → no far Account → walk aborts.
     const subject = { resource: 'db:User', record: { id: 'u1', accountId: 'acc1' } };
@@ -441,7 +437,7 @@ describe('bridge — complex traversals (multi-hop, mixed-path, composition)', (
         'crm:Account': { actions: { own: null, manage: 'own', read: 'manage' } },
       },
     };
-    const c = createRebacCheck(() => null);
+    const c = createRebacCheck(mapOf({}));
     // The grant is only on `own`; reaching it requires read → manage → own on the far resource.
     const granted = grantStub({ 'crm:Account:own': ['acc1'] });
     const data = { 'crm:Account': [{ id: 'acc1' }, { id: 'other' }] };
@@ -475,7 +471,7 @@ describe('bridge — complex traversals (multi-hop, mixed-path, composition)', (
         'crm:Account': { actions: { own: null } },
       },
     };
-    const c = createRebacCheck(() => null);
+    const c = createRebacCheck(mapOf({}));
     const granted = grantStub({ 'crm:Account:own': ['acc1'] });
     const data = { 'crm:Account': [{ id: 'acc1' }, { id: 'other' }] };
     // Local rule fails (isAdmin false) but the bridge branch grants.
@@ -519,7 +515,7 @@ describe('oneToOne bridge is walkable from both endpoints (symmetric)', () => {
         'crm:Profile': { actions: { own: null } },
       },
     };
-    const c = createRebacCheck(() => null);
+    const c = createRebacCheck(mapOf({}));
     const granted = grantStub({ 'crm:Profile:own': ['p1'] });
     const subject = {
       resource: 'db:User',
@@ -537,7 +533,7 @@ describe('oneToOne bridge is walkable from both endpoints (symmetric)', () => {
         'db:User': { actions: { own: null } },
       },
     };
-    const c = createRebacCheck(() => null);
+    const c = createRebacCheck(mapOf({}));
     const granted = grantStub({ 'db:User:own': ['u1'] });
     // Profile.id (record.id) joins User.profileId; the User row is supplied for the reverse index.
     const subject = {
@@ -570,7 +566,7 @@ describe('a bridge on a non-id far key never matches an id-keyed grant by the jo
       'crm:Team': { actions: { own: null } }, // granted only via permix (id-keyed grants)
     },
   };
-  const c = createRebacCheck(() => null);
+  const c = createRebacCheck(mapOf({}));
   // An actor holds an id-keyed grant on the Team whose *id* happens to equal the join value.
   const granted = grantStub({ 'crm:Team:own': ['collidingValue'] });
 
@@ -607,7 +603,7 @@ describe('an absent far row denies the bridge walk', () => {
       cardinality: 'oneToMany',
     },
   ];
-  const c = createRebacCheck(() => null);
+  const c = createRebacCheck(mapOf({}));
   const record = { id: 'u1', accountId: 'acc1' };
 
   test('a negative rule on the far row denies without the row, and judges the row when supplied', () => {
@@ -650,13 +646,13 @@ describe('an absent far row denies the bridge walk', () => {
 describe('empty combinators follow boolean identity (all([]) = true, any([]) = false)', () => {
   test('an empty `all` is vacuously true (allow) — `true`/allow is a valid permission value', () => {
     const s: RebacSchema = { permissions: { m: { actions: { read: { all: [] } } } } };
-    const c = createRebacCheck(() => null);
+    const c = createRebacCheck(mapOf({}));
     expect(c(stub(), s, { resource: 'm', record: { id: '1' } }, 'read')).toBe(true);
   });
 
   test('an empty `any` is false (deny)', () => {
     const s: RebacSchema = { permissions: { m: { actions: { read: { any: [] } } } } };
-    const c = createRebacCheck(() => null);
+    const c = createRebacCheck(mapOf({}));
     expect(c(stub(), s, { resource: 'm', record: { id: '1' } }, 'read')).toBe(false);
   });
 
@@ -675,7 +671,7 @@ describe('empty combinators follow boolean identity (all([]) = true, any([]) = f
         },
       },
     };
-    const c = createRebacCheck(() => null);
+    const c = createRebacCheck(mapOf({}));
     expect(c(stub(), s, { resource: 'm', record: { a: 1, b: 2 } }, 'read')).toBe(true);
     expect(c(stub(), s, { resource: 'm', record: { a: 1, b: 9 } }, 'read')).toBe(false);
   });
@@ -699,7 +695,7 @@ describe('dictionary is built lazily (adversarial: malformed data must not crash
         },
       },
     };
-    const c = createRebacCheck<string>(() => null);
+    const c = createRebacCheck<string>(mapOf({}));
     // Duplicate "one"-side (Account.id) rows would make indexBridges throw — but this check
     // resolves on the record and never hops, so the dictionary must never be built.
     const subject = {
@@ -712,7 +708,7 @@ describe('dictionary is built lazily (adversarial: malformed data must not crash
 });
 
 describe('raw boolean ActionRule (true = allow, false = deny; null stays a deny)', () => {
-  const c = createRebacCheck(() => null);
+  const c = createRebacCheck(mapOf({}));
   const schemaFor = (rule: ActionRule): RebacSchema => ({
     permissions: { m: { actions: { read: rule } } },
   });
@@ -737,7 +733,7 @@ describe('raw boolean ActionRule (true = allow, false = deny; null stays a deny)
 describe('cycle detection (regressions for the adversarial findings)', () => {
   test('#2 self-delegation throws instead of looping forever', () => {
     const s: RebacSchema = { permissions: { m: { actions: { read: 'read' } } } };
-    const c = createRebacCheck(() => null);
+    const c = createRebacCheck(mapOf({}));
     expect(() => c(stub(), s, { resource: 'm', record: { id: '1' } }, 'read')).toThrow(
       /Cycle detected/,
     );
@@ -745,7 +741,7 @@ describe('cycle detection (regressions for the adversarial findings)', () => {
 
   test('#2 mutual delegation throws', () => {
     const s: RebacSchema = { permissions: { m: { actions: { read: 'manage', manage: 'read' } } } };
-    const c = createRebacCheck(() => null);
+    const c = createRebacCheck(mapOf({}));
     expect(() => c(stub(), s, { resource: 'm', record: { id: '1' } }, 'read')).toThrow(
       /Cycle detected/,
     );
@@ -766,7 +762,7 @@ describe('cycle detection (regressions for the adversarial findings)', () => {
         },
       },
     };
-    const c = createRebacCheck(() => 'node'); // parent → node
+    const c = createRebacCheck(mapOf({ node: { parent: 'node' } })); // parent → node
     const top = { isOwner: true };
     const mid = { isOwner: false, parent: top };
     const leaf = { isOwner: false, parent: mid };
@@ -777,7 +773,7 @@ describe('cycle detection (regressions for the adversarial findings)', () => {
     const s: RebacSchema = {
       permissions: { node: { actions: { read: { rel: 'parent', action: 'read' } } } },
     };
-    const c = createRebacCheck(() => 'node');
+    const c = createRebacCheck(mapOf({ node: { parent: 'node' } }));
     const a: Record<string, unknown> = { id: 'a' };
     const b: Record<string, unknown> = { id: 'b', parent: a };
     a.parent = b;
@@ -786,7 +782,7 @@ describe('cycle detection (regressions for the adversarial findings)', () => {
 });
 
 describe('the actor is data: a { rule } reads it as __actor', () => {
-  const check = createRebacCheck<string>(() => null);
+  const check = createRebacCheck<string>(mapOf({}));
   const as = (actor: Actor | null): PermixLike => ({
     check: () => false,
     isSuperadmin: () => false,

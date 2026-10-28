@@ -73,12 +73,12 @@ Validate tenant-authored overrides with `validateActionRule` before persisting t
 ## The check engine
 
 ```ts
-import { createRebacCheck } from '@inixiative/permissions';
+import { createRebacCheck, type SchemaMap } from '@inixiative/permissions';
 
-// inject the ORM-specific INTRA-map relation resolver (e.g. derived from a Prisma model map)
-const check = createRebacCheck(
-  (resource, segment) => relationTargets[resource]?.[segment] ?? null,
-);
+// the schema the walk reads: which fieldMap model each resource is, its relations and foreign keys
+// (a json-rules FieldMap, structurally a prisma-map), and the polymorphic models' kinds
+const map: SchemaMap = { resources, fieldMap: prismaMap, polymorphism };
+const check = createRebacCheck(map);
 
 check(permix, schema, { resource: 'membership', record }, 'manage');
 // string → permix grant or schema delegation; { rel } walks `record.organization` (or a bridge —
@@ -95,7 +95,7 @@ from the foreign key. `validateActionRule` rejects `self`.
 The check takes a **subject** — `{ resource, record, data? }` — not a bare record; `data` is the
 supplemental rows that back cross-source bridge hops (below). `createRebacCheck` is generic over the
 resource key (default `string`). Pass your resource union and the schema, `subject.resource`, and
-resolver all enforce it — no casts for your own types:
+map all enforce it — no casts for your own types:
 
 ```ts
 type Resource = 'organization' | 'membership' | 'document';
@@ -217,6 +217,13 @@ the schema rule both miss, with the record in hand, and one applies when all thr
   two parents of one model (`targetOrganization`, not `sourceOrganization`), so a relation the path
   does not name never counts, and a path through a list relation reaches nothing. A record anchored
   at itself has no path. The action is checked on the record, never asked of the anchor.
+  **Each polymorphic step names one kind.** A polymorphic record carries the ids of everything
+  above it (a space's integration carries `organizationId` too), so carrying an id is not
+  ownership. A relation's foreign key columns pick one kind from `map.polymorphism` (the entry
+  with the fewest columns that holds them all), and the step only passes when the record is that
+  kind: `organization` reaches the organization's own integrations, `space.organization` its
+  spaces', `targetOrganization` the inquiries an organization received. Everything under an
+  anchor is one entry per branch.
 - **`where` holds** — the `where` is plain json-rules over the record at that node, `field` and `path` both
   starting there and free to climb hydrated parents (`space.organizationId`). Whatever referred to
   the holder (its own id, its user) is written in as a literal when the grant is made. A `where`
@@ -241,25 +248,28 @@ resource-wide grant, or the superadmin flag, short-circuits before any walk.
 #### Granting one
 
 A grant is an action, and grant time mirrors read time through the same check. Build the grant
-check with the same resolver as the rebac check, then ask it with the writer's table and the
-hydrated record at `anchor`:
+check with the same map as the rebac check, place the entry on the hydrated anchor, and ask:
 
 ```ts
-const canGrantEntitlement = createCanGrantEntitlement(resolveRelation);
+const canGrantEntitlement = createCanGrantEntitlement(map);
 
-const placed = await hydrate('Integration', { id: '', spaceId: 's1', provider: 'slack' });
-canGrantEntitlement(writer, schema, {
+const entry = {
   resource: 'db:integration',
   anchor: { resource: 'db:space', id: 's1', path: 'space' },
   where: { field: 'provider', operator: 'equals', value: 'slack' },
   actions: { manage: true },
-}, placed); // can the writer manage every Slack integration of s1?
+};
+const placed = placeEntitlement(map, entry, await hydrate('Space', space)); // null: malformed
+canGrantEntitlement(writer, schema, entry, placed); // can the writer manage every Slack integration of s1?
 ```
 
-Each action the entry grants is checked on `placed`, the pseudo record of `entry.resource` that you
-build at the anchor (the anchor row itself, or a record placed under it, with its columns,
-hydrated) and give it the values the entry's `where` pins exactly (its `equals` leaves; `equals
-null` pins `null`) — the library builds no record of its own. The writer must take each action there. The check reads `placed` with json-rules `absent: 'unknown'`: a field
+`placeEntitlement` builds the pseudo record of `entry.resource` from the anchor down the path: at
+each step the foreign keys whose values the parent knows and the kind the relation names, the
+parent attached under the relation, ids below the anchor unknown. The `where`'s exact `equals`
+leaves (`equals null` pins `null`) fill the rest; the path wins over a pinned foreign key, so a
+`where` cannot move the record out from under its anchor. It returns `null` when the anchor row is
+not the entry's or the path does not end at the anchor's model through to-one relations. A self
+anchor is the anchor row itself. The writer must take each action on `placed`. The check reads `placed` with json-rules `absent: 'unknown'`: a field
 it does not carry fails every positive leaf, `equals null` included, so a writer whose authority
 reads a field the `where` leaves open is refused, and only a writer unfiltered on it passes. The
 writer's own entitlements and owner chain apply, so a token never grants past its holder, and a
@@ -296,7 +306,7 @@ to-one, FK-owning relations for a model) and `load` (a single read — also wher
 
 Don't hand-maintain the relation map — extract it from the generated Prisma client with
 [`@inixiative/prisma-map`](https://github.com/inixiative/prisma-map), and feed the **same map** to
-both the resolver and the hydrator's `parents` so they can't drift:
+both the schema map and the hydrator's `parents` so they can't drift:
 
 ```ts
 import { buildPrismaMapV7, type RelationField } from '@inixiative/prisma-map';
@@ -304,10 +314,10 @@ import { createHydrator, createRebacCheck, type ParentRelation } from '@inixiati
 
 const map = buildPrismaMapV7();
 
-// the resolver is a one-line lookup in the map
-const check = createRebacCheck((resource, segment) => {
-  const field = map[resource]?.fields[segment];
-  return field?.kind === 'object' ? field.type : null;
+const check = createRebacCheck({
+  resources: { Document: 'Document', Team: 'Team' },
+  fieldMap: { models: map },
+  polymorphism, // your false-polymorphism registry, if you have one
 });
 
 // to-one parents: relation fields whose FK lives on this model (fromFields is empty on back-relations)
@@ -331,8 +341,7 @@ if your schema and delegates use accessor casing, `lowerFirst`/`upperFirst` at t
 
 This guarantees the vast majority of the path automatically; records are plain data, so nothing
 stops you from attaching extra relations or predicate fields by hand before checking, or
-special-casing relations that don't traverse cleanly (self-references, polymorphic joins) in the
-resolver or a custom hydration step.
+special-casing relations that don't traverse cleanly (self-references) in a custom hydration step.
 
 ## Also exported
 
@@ -342,10 +351,10 @@ resolver or a custom hydration step.
 
 ## Boundary
 
-This package owns the **wrapping and checking**. It does **not** own hydration — loading records,
-deriving the relation map, mapping roles → grants, building an entitlement's owner table, or
-populating permix from a user graph all stay in the consuming app (e.g. [`@template/permissions`](https://github.com/inixiative/template) injects
-its Prisma-derived `resolveRelation`, app `rebacSchema`, and role mappings — including app-specific
+This package owns the **wrapping, checking and grant placement**. It does **not** own loading —
+fetching records, hydrating them, mapping roles → grants, building an entitlement's owner table, or
+populating permix from a user graph all stay in the consuming app (e.g. [`@template/permissions`](https://github.com/inixiative/template) passes
+its generated prisma map and polymorphism registry, app `rebacSchema`, and role mappings — including app-specific
 action sets like `ownerActions`). Action and role **naming conventions** also stay in the app —
 this core makes no assumptions about what actions or roles are called.
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.11.0 — the library reads the schema map
+
+- **Breaking: `createRebacCheck(map)` and `createCanGrantEntitlement(map)` take a `SchemaMap`** — `{ resources, fieldMap, polymorphism? }`: which `fieldMap` model each resource is, its relations and foreign keys (a json-rules `FieldMap`, structurally a prisma-map), and the polymorphic models' kinds (a false-polymorphism registry). The `resolveRelation` callback is gone.
+- **Each polymorphic step of an anchor's path names one kind.** A relation's foreign key columns pick the kind; the step passes only when the record is that kind. `organization` reaches an organization's own integrations, not its spaces' (which carry `organizationId` too).
+- **`placeEntitlement(map, entry, anchor)`** builds the grant's pseudo record from the hydrated anchor down the path (foreign keys, kinds, the where's exact values; the path wins over a pinned foreign key). The app no longer places.
+- Migration: build a `SchemaMap` from your prisma map and registry; replace app-side placement with `placeEntitlement`.
+
 ## 0.10.0 — the anchor carries its path
 
 - **Breaking: an anchor on another resource needs `path`**, the relations from the record up to the anchor (`'space.organization'`); a record anchored at itself has none. `setup` refuses either mismatch. An entitlement applies when the hydrated record at the end of the path is the anchor, its `where` holds, and its owner allows the action on the record. Only the anchor's id is fixed, so a record that moves inside the anchor stays reached; the path picks the side of a two-parent record; a list relation reaches nothing.

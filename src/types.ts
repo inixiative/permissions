@@ -46,16 +46,6 @@ export type Subject<R extends string = string> = {
 };
 
 /**
- * Resolve an INTRA-map relation field to the resource it points at — the ORM-specific seam the app
- * injects (e.g. from a Prisma model map). Cross-source bridges are resolved by the engine from the
- * schema's `bridges`, not here. Returns `null` to abort the walk when the relation is unknown.
- */
-export type ResolveRelation<R extends string = string> = (
-  resource: R,
-  relationSegment: string,
-) => R | null;
-
-/**
  * The record an entitlement acts from, and the relation path that reaches it from the entitled
  * record (`'space.organization'`). A record anchored at itself has no path.
  */
