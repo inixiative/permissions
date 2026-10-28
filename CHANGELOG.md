@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.12.0 — a path names its anchor and axis; every kind on it is judged
+## 0.12.1 — a path names its anchor and axis; every kind on it is judged
 
 - **Breaking: a polymorphic step admits every kind that carries its keys**, not one: `organization` on an integration reaches the organization's own, a space's, a member's and a space member's integrations. The `where` narrows them (`ownerModel equals Organization`). Sides stay distinct axes (`targetOrganization` vs `sourceOrganization`).
 - **Breaking: `placeEntitlement` returns `Row[] | null`**, one pseudo record per admitted kind, each with its owner placed under the anchor along every relation that leads there (a kind whose owner can't be placed keeps its record, owner unknown, so it is refused rather than skipped); the writer must pass on every one. Null for a malformed entry (the rules `setup` refuses at install), a foreign anchor, or a path that reaches nothing.

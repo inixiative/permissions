@@ -1,6 +1,6 @@
 {
   "name": "@inixiative/permissions",
-  "version": "0.12.0",
+  "version": "0.12.1",
   "description": "Generic rebac/abac/rbac core — a permix wrapper + relationship-walking check engine; the app passes its schema map (a prisma-map map and its polymorphism registry)",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
