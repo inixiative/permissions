@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.11.2 — placeUnder; a malformed entry is never placed
+
+- **`placeUnder(map, resource, path, anchorResource, anchor)`** places a record of `resource` under a hydrated anchor along a path of to-one relations: each step's known foreign keys (composite ones too) and the kind its relation names. It is what `placeEntitlement` uses, and what an app uses to place a record it is about to create or a collection it is about to act on, sided relations (`targetOrganization`) included.
+- **`placeEntitlement` returns null for a malformed entry**, by the same rules `setup` refuses at install (anchor shape, a path on every anchor but the record itself, boolean actions, a positive `where`), so one check before saving decides both validity and the grant.
+
 ## 0.11.1 — the walk reads the map
 
 - Internal: a check's walk reads relations from the schema map directly; no derived resolver beside it. No behaviour change.

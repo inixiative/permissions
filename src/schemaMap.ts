@@ -1,4 +1,5 @@
 import type { Condition, FieldMap } from '@inixiative/json-rules';
+import { entitlementProblem } from './entitlementProblem';
 import type { EntitlementEntry } from './permix';
 import { recordId } from './recordId';
 import type { Row } from './types';
@@ -120,23 +121,24 @@ const pinned = (where: Condition | undefined): Row => {
 };
 
 /**
- * The pseudo record a grant is checked on, built from the hydrated `anchor` down the entry's path:
- * at each step the foreign keys whose values the parent knows and the kind the relation implies,
- * with the parent attached under the relation. Ids below the anchor stay unknown. The `where`'s
- * exact `equals` values fill the rest; the path wins over a pinned foreign key. Null when the
- * anchor is not the entry's, or the path does not end at its model through to-one relations.
+ * A record of `resource` placed under the hydrated `anchor` (a record of `anchorResource`) along `path` (dotted to-one relation
+ * names that own their foreign keys): at each step the foreign keys whose values the parent knows,
+ * composite ones included, and the kind the relation names, the parent attached under the
+ * relation. Ids below the anchor stay unknown. Null when the path does not lead to the anchor's
+ * resource.
  */
-export const placeEntitlement = <R extends string>(
+export const placeUnder = <R extends string>(
   map: SchemaMap<R>,
-  entry: EntitlementEntry,
+  resource: R,
+  path: string,
+  anchorResource: R,
   anchor: Row,
 ): Row | null => {
-  if (recordId(anchor) !== entry.anchor.id) return null;
-  const anchorResource = entry.anchor.resource as R;
-  const place = (resource: R, segments: string[]): Row | null => {
+  const place = (current: R, segments: string[]): Row | null => {
     const [segment, ...rest] = segments;
-    if (segment === undefined) return resource === anchorResource ? anchor : null;
-    const relation = relationOf(map, resource, segment);
+    if (segment === undefined)
+      return anchorResource === undefined || current === anchorResource ? anchor : null;
+    const relation = relationOf(map, current, segment);
     if (!relation) return null;
     const parent = place(relation.resource, rest);
     if (!parent) return null;
@@ -149,8 +151,30 @@ export const placeEntitlement = <R extends string>(
     const kind = relation.kind ? { [relation.kind.field]: relation.kind.value } : {};
     return { ...keys, ...kind, [segment]: parent };
   };
-  if (entry.anchor.path === undefined)
-    return entry.resource === entry.anchor.resource ? anchor : null;
-  const placed = place(entry.resource as R, entry.anchor.path.split('.'));
+  return place(resource, path.split('.'));
+};
+
+/**
+ * The pseudo record a grant is checked on, built from the hydrated `anchor` down the entry's path:
+ * at each step the foreign keys whose values the parent knows and the kind the relation implies,
+ * with the parent attached under the relation. Ids below the anchor stay unknown. The `where`'s
+ * exact `equals` values fill the rest; the path wins over a pinned foreign key. Null when the
+ * entry is malformed (the rules `setup` applies), the anchor is not the entry's, or the path does not
+ * end at its model through to-one relations.
+ */
+export const placeEntitlement = <R extends string>(
+  map: SchemaMap<R>,
+  entry: EntitlementEntry,
+  anchor: Row,
+): Row | null => {
+  if (entitlementProblem(entry) !== null || recordId(anchor) !== entry.anchor.id) return null;
+  if (entry.anchor.path === undefined) return anchor;
+  const placed = placeUnder(
+    map,
+    entry.resource as R,
+    entry.anchor.path,
+    entry.anchor.resource as R,
+    anchor,
+  );
   return placed && { ...pinned(entry.where), ...placed };
 };

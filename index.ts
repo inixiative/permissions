@@ -6,6 +6,7 @@ export {
   type PolymorphicAxis,
   type Polymorphism,
   placeEntitlement,
+  placeUnder,
   type SchemaMap,
 } from './src/schemaMap';
 export type * from './src/types';

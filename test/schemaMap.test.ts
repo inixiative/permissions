@@ -8,6 +8,7 @@ import {
   type EntitlementEntry,
   type PermissionEntry,
   placeEntitlement,
+  placeUnder,
   type RebacSchema,
   type Row,
   type SchemaMap,
@@ -361,5 +362,59 @@ describe('the map is indexed once', () => {
     expect(() =>
       createRebacCheck({ ...map, resources: { ...map.resources, 'db:org': 'Organization' } }),
     ).toThrow(/Organization/);
+  });
+});
+
+describe('placeUnder: a record of a resource under an anchor, along a path', () => {
+  test('the path decides the relation: its foreign keys, composite ones too, and its kind', () => {
+    expect(placeUnder(map, 'db:integration', 'space', 'db:space', s1)).toEqual({
+      ownerModel: 'Space',
+      organizationId: 'o1',
+      spaceId: 's1',
+      space: s1,
+    });
+  });
+
+  test('a side: the inquiry an organization receives', () => {
+    expect(placeUnder(map, 'db:inquiry', 'targetOrganization', 'db:organization', o1)).toEqual({
+      targetModel: 'Organization',
+      targetOrganizationId: 'o1',
+      targetOrganization: o1,
+    });
+  });
+
+  test('a path that does not lead to the anchor is null', () => {
+    expect(placeUnder(map, 'db:integration', 'organization', 'db:space', s1)).toBeNull();
+  });
+});
+
+describe('placeEntitlement refuses a malformed entry: the same rules setup applies', () => {
+  const integrations = entitlement(
+    'db:integration',
+    at('db:organization', 'o1', 'organization'),
+    'manage',
+  );
+
+  test('an anchor on another resource without a path', () => {
+    expect(
+      placeEntitlement(
+        map,
+        entitlement('db:integration', at('db:organization', 'o1'), 'manage'),
+        o1,
+      ),
+    ).toBeNull();
+  });
+
+  test('a where that can hold on a missing value', () => {
+    const negated = {
+      ...integrations,
+      where: { field: 'provider', operator: 'notEquals', value: 'slack' },
+    } as EntitlementEntry;
+    expect(placeEntitlement(map, negated, o1)).toBeNull();
+  });
+
+  test('an action that is not a boolean', () => {
+    const odd = { ...integrations, actions: { manage: 'yes' } } as unknown as EntitlementEntry;
+    expect(placeEntitlement(map, odd, o1)).toBeNull();
   });
 });

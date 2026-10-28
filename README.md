@@ -265,7 +265,7 @@ const placed = placeEntitlement(map, entry, await hydrate('Space', space)); // n
 canGrantEntitlement(writer, schema, entry, placed); // can the writer manage every Slack integration of s1?
 ```
 
-`placeEntitlement` builds the pseudo record of `entry.resource` from the anchor down the path: at
+`placeEntitlement` first refuses a malformed entry (null), by the rules `setup` applies at install, so validity and the grant are one check before saving. It then builds the pseudo record of `entry.resource` from the anchor down the path (`placeUnder`, also exported for placing a record you are about to create): at
 each step the foreign keys whose values the parent knows and the kind the relation names, the
 parent attached under the relation, ids below the anchor unknown. The `where`'s exact `equals`
 leaves (`equals null` pins `null`) fill the rest; the path wins over a pinned foreign key it

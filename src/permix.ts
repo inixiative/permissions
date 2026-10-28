@@ -1,6 +1,7 @@
-import { type Condition, validateRule } from '@inixiative/json-rules';
+import type { Condition } from '@inixiative/json-rules';
 import { castArray } from 'lodash-es';
 import { createPermix } from 'permix';
+import { entitlementProblem } from './entitlementProblem';
 import type { Actor, Anchor, Entitlement, PermixLike } from './types';
 
 export type ActionState<Action extends string = string> = Partial<
@@ -39,43 +40,16 @@ type PermissionState = Record<string, ActionState>;
 const isEntitlement = (entry: PermissionEntry): entry is EntitlementEntry =>
   (entry as EntitlementEntry).anchor !== undefined;
 
-const isAnchor = (value: unknown): value is Anchor =>
-  typeof value === 'object' &&
-  value !== null &&
-  typeof (value as Anchor).resource === 'string' &&
-  (value as Anchor).resource.length > 0 &&
-  typeof (value as Anchor).id === 'string' &&
-  (value as Anchor).id.length > 0 &&
-  ((value as Anchor).path === undefined ||
-    (typeof (value as Anchor).path === 'string' && (value as Anchor).path !== ''));
-
 const validate = (entry: PermissionEntry, owner: PermixLike | undefined): void => {
   if (!isEntitlement(entry)) {
     if ((entry as EntitlementEntry).where !== undefined)
       throw new Error('`where` needs `anchor`: an entitlement acts from an anchor');
     return;
   }
-  if (!isAnchor(entry.anchor))
-    throw new Error('`anchor` is { resource, id, path? }, non-empty strings');
-  if ((entry.anchor.path === undefined) !== (entry.anchor.resource === entry.resource))
-    throw new Error('`anchor.path` reaches the anchor from the record: none at the record itself');
+  const problem = entitlementProblem(entry);
+  if (problem) throw new Error(problem);
   if (!owner)
     throw new Error('an entry with `anchor` needs setup(entries, { owner }): whoever granted it');
-  if ((entry as GrantEntry).id !== undefined)
-    throw new Error('`anchor` with `id`: a single row is `where: { field: "id", … }`');
-  if (
-    Object.values(entry.actions).some((value) => value !== undefined && typeof value !== 'boolean')
-  )
-    throw new Error('entitlement actions are booleans');
-  if (entry.where === null)
-    throw new Error('`where: null` is not a rule: omit `where` for none, or write the rule');
-  if (entry.where !== undefined) {
-    const result = validateRule(entry.where, { positive: true });
-    if (!result.ok) {
-      const issues = result.errors.map((issue) => `${issue.path}: ${issue.message}`).join('; ');
-      throw new Error(`invalid entitlement \`where\`: ${issues}`);
-    }
-  }
 };
 
 /**
