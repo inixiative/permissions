@@ -243,7 +243,8 @@ the schema rule both miss, with the record in hand, and one applies when all thr
 `setup` refuses an entitlement without an `owner`, a `where` without a `anchor`, an `anchor` on
 another resource without a `path` or on its own resource with one, an `id` beside a
 `anchor` (a single row is `where: { field: 'id', … }`), a non-boolean action, `where: null`, or a
-malformed or non-positive rule, before touching any state. `replace: true` clears entitlements with the table. `getJSON`
+malformed or non-positive rule, before touching any state; `entitlementProblem(entry)` names the
+problem (or returns `null`), so stored entries can be filtered before they are installed. `replace: true` clears entitlements with the table. `getJSON`
 carries grants only. Tenancy is as live as the owner's grants are id-keyed: an owner table with a
 resource-wide grant, or the superadmin flag, short-circuits before any walk.
 

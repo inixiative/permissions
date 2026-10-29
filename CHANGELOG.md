@@ -1,3 +1,7 @@
+## 0.13.1 — `entitlementProblem` is exported
+
+- `entitlementProblem(entry)`: what is wrong with an entitlement entry, or `null` — the rules `setup` and `placeEntitlement` already apply, for an app that filters stored entries before installing them.
+
 ## 0.13.0 — the root of the where narrows the kinds
 
 - **A grant's kinds are narrowed by the `where`'s root leaves on the kind field, each checked with json-rules** on each kind the path's first step admits: the `where` itself, or each leaf of its top `all`, with a literal `value`. `ownerModel in [Organization, Space]` now keeps those two kinds (before, only `equals` narrowed). Leaves on other fields (dotted ones included), leaves reading a path, and nested rules narrow nothing.
