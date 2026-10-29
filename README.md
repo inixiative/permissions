@@ -270,10 +270,12 @@ each step the foreign keys whose values the parent knows, the parent attached un
 relation, ids below the anchor unknown; on a polymorphic step one record per kind it admits, each
 with its owner placed under the anchor along every relation that leads there. The `where`'s root
 leaves (the `where` itself, or each leaf of its top `all`; nothing nested) with a literal `value`
-are checked on each record whose fields they read: a record a leaf fails is dropped
-(`ownerModel in [Organization, Space]` keeps those two kinds; `organizationId equals o2` under o1
-keeps none). A leaf on a field the record does not know, a leaf reading its value from a path, and
-anything nested narrow nothing. The writer must pass on every record left. The root's exact
+are checked on what the path fixes for each record (its first step's foreign keys and kind): a
+record a leaf fails is dropped (`ownerModel in [Organization, Space]` keeps those two kinds;
+`organizationId equals o2` under o1 keeps none). A leaf on anything else (the placed owner, a
+dotted field, a column the path leaves open), a leaf reading its value from a path, and anything
+nested narrow nothing: dropping a record loosens the grant, so only a value every real record of
+that kind shares may drop it. The writer must pass on every record left. The root's exact
 `equals` leaves (`equals null` pins `null`) fill the rest (a pin on a foreign key the path leaves
 unknown stays, and the rules still walk the placed relation). It returns `null` when no record is
 left, the anchor row is not the entry's, or the path does not end at the anchor's model through

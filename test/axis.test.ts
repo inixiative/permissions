@@ -396,3 +396,79 @@ describe('the root of the where narrows the kinds: each leaf checked on each pse
     expect(await may(await owner(), withSpaces)).toBe(true);
   });
 });
+
+describe('a root leaf is judged only on what the path fixes: the step keys and the kind (R88 adversarial)', () => {
+  const kindsK = { field: 'ownerModel', operator: 'in', value: ['Organization', 'Space'] };
+  const withK = (leaf: Row) => underO1({ all: [kindsK, leaf] } as never);
+
+  test('a leaf on the placed owner object narrows nothing', async () => {
+    const leaf = {
+      field: 'space',
+      operator: 'equals',
+      value: { id: 's1', organizationId: 'o1', organization: { id: 'o1' } },
+    };
+    expect(await may(await admin(), withK(leaf))).toBe(false);
+  });
+
+  test("a leaf on a copy of the anchor's columns inside the owner narrows nothing", async () => {
+    const leaf = { field: 'space.organization.name', operator: 'equals', value: 'Later' };
+    const placed = placeEntitlement(map, withK(leaf), { ...o1, name: 'Now' });
+    expect(placed?.map((record) => record.ownerModel)).toEqual(['Organization', 'Space']);
+  });
+
+  const billing: SchemaMap = {
+    ...map,
+    fieldMap: {
+      models: {
+        ...fieldMap.models,
+        Space: {
+          fields: {
+            ...fieldMap.models.Space?.fields,
+            billingOrganizationId: scalar,
+            billingOrganization: toOne('Organization', ['billingOrganizationId'], ['id']),
+          },
+        },
+        Integration: {
+          fields: {
+            ...fieldMap.models.Integration?.fields,
+            billingOrganizationId: scalar,
+            space: toOne(
+              'Space',
+              ['organizationId', 'spaceId', 'billingOrganizationId'],
+              ['organizationId', 'id', 'billingOrganizationId'],
+            ),
+          },
+        },
+      },
+    },
+    polymorphism: {
+      Integration: {
+        axes: [
+          {
+            field: 'ownerModel',
+            fkMap: {
+              Organization: ['organizationId'],
+              Space: ['organizationId', 'spaceId', 'billingOrganizationId'],
+            },
+          },
+        ],
+      },
+    },
+  };
+  const kindsUnder = (where: Row) =>
+    placeEntitlement(billing, underO1({ all: [kindsK, where] } as never), o1)?.map(
+      (record) => record.ownerModel,
+    );
+
+  test('a leaf on a relation of the owner the path does not fix narrows nothing', () => {
+    expect(
+      kindsUnder({ field: 'space.billingOrganizationId', operator: 'equals', value: 'o9' }),
+    ).toEqual(['Organization', 'Space']);
+  });
+
+  test('a leaf on a top-level key copied from the placed owner narrows nothing', () => {
+    expect(kindsUnder({ field: 'billingOrganizationId', operator: 'equals', value: 'o9' })).toEqual(
+      ['Organization', 'Space'],
+    );
+  });
+});

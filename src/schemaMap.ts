@@ -133,8 +133,8 @@ const pinned = (leaves: Leaf[]): Row =>
       .map((leaf) => [leaf.field, leaf.value]),
   );
 
-const admits = (leaves: Leaf[], record: Row) =>
-  leaves.every((leaf) => !has(record, leaf.field) || checkRule(leaf as Condition, record) === true);
+const admits = (leaves: Leaf[], fixed: Row) =>
+  leaves.every((leaf) => !has(fixed, leaf.field) || checkRule(leaf as Condition, fixed) === true);
 
 const keysFrom = (relation: Relation, parent: Row): Row =>
   Object.fromEntries(
@@ -204,22 +204,13 @@ const placeTowards = <R extends string>(
   return reached ? row : null;
 };
 
-/**
- * The records of `resource` that sit under the hydrated `anchor` (a record of `anchorResource`)
- * along `path` (dotted to-one relation names that own their foreign keys): at each step the foreign
- * keys whose values the parent knows, composite ones included, and the parent attached under the
- * relation. On a polymorphic step there is one record per kind the relation admits, each with its
- * owner placed under the anchor along every relation that leads there; `pins` (exact values, as a
- * `where` pins them) narrow the kinds. Ids below the anchor stay unknown. Empty when the path does
- * not lead to the anchor's resource.
- */
-export const placeUnder = <R extends string>(
+const placeAdmitted = <R extends string>(
   map: SchemaMap<R>,
   resource: R,
   path: string,
   anchorResource: R,
   anchor: Row,
-  pins: Row = {},
+  admit: (fixed: Row) => boolean,
 ): Row[] => {
   const step = (
     current: R,
@@ -229,12 +220,12 @@ export const placeUnder = <R extends string>(
     parent: Row,
     top: boolean,
   ): Row[] => {
-    const base: Row = { ...keysFrom(relation, parent), [segment]: parent };
-    if (!relation.kinds) return [base];
+    const keys = keysFrom(relation, parent);
+    const base: Row = { ...keys, [segment]: parent };
+    if (!relation.kinds) return !top || admit(keys) ? [base] : [];
     const { field, values } = relation.kinds;
-    const pinnedKind = top ? pins[field] : undefined;
     return values
-      .filter((value) => pinnedKind === undefined || value === pinnedKind)
+      .filter((value) => !top || admit({ ...keys, [field]: value }))
       .flatMap((value) => {
         const row: Row = { ...base, [field]: value };
         const ownerName = ownerRelationOf(map, current, field, value);
@@ -263,10 +254,31 @@ export const placeUnder = <R extends string>(
 };
 
 /**
+ * The records of `resource` that sit under the hydrated `anchor` (a record of `anchorResource`)
+ * along `path` (dotted to-one relation names that own their foreign keys): at each step the foreign
+ * keys whose values the parent knows, composite ones included, and the parent attached under the
+ * relation. On a polymorphic step there is one record per kind the relation admits, each with its
+ * owner placed under the anchor along every relation that leads there; `pins` (exact values, as a
+ * `where` pins them) drop the records whose first step fixes a different value. Ids below the
+ * anchor stay unknown. Empty when the path does not lead to the anchor's resource.
+ */
+export const placeUnder = <R extends string>(
+  map: SchemaMap<R>,
+  resource: R,
+  path: string,
+  anchorResource: R,
+  anchor: Row,
+  pins: Row = {},
+): Row[] =>
+  placeAdmitted(map, resource, path, anchorResource, anchor, (fixed) =>
+    Object.entries(pins).every(([field, value]) => !(field in fixed) || fixed[field] === value),
+  );
+
+/**
  * The pseudo records a grant is checked on: `placeUnder` from the hydrated `anchor` along the entry's
  * path, less the records a root leaf of the `where` (the `where` itself, or a leaf of its top `all`)
- * fails on a field the record knows, each given the root's exact `equals` values (the
- * path wins over a pinned foreign key). A self anchor is the anchor row itself. Null when the entry
+ * fails on what the path fixes (the first step's foreign keys and kind; never the placed owner or a
+ * dotted field), each given the root's exact `equals` values. A self anchor is the anchor row itself. Null when the entry
  * is malformed (the rules `setup` applies), the anchor is not the entry's, or the path reaches
  * nothing; the writer must pass on every record.
  */
@@ -279,14 +291,13 @@ export const placeEntitlement = <R extends string>(
   if (entry.anchor.path === undefined) return [anchor];
   const leaves = rootLeaves(entry.where);
   const pins = pinned(leaves);
-  const placed = placeUnder(
+  const placed = placeAdmitted(
     map,
     entry.resource as R,
     entry.anchor.path,
     entry.anchor.resource as R,
     anchor,
-  )
-    .filter((record) => admits(leaves, record))
-    .map((record) => ({ ...pins, ...record }));
+    (fixed) => admits(leaves, fixed),
+  ).map((record) => ({ ...pins, ...record }));
   return placed.length ? placed : null;
 };
