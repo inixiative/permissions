@@ -223,6 +223,26 @@ describe('an anchor path names the anchor and the axis; every kind on it is reac
   });
 });
 
+describe('a holder grants what it holds onward, and no more', () => {
+  const holdingAdmin = async (held: EntitlementEntry) => {
+    const writer = await admin();
+    await writer.setup([held], { owner: await owner() });
+    return writer;
+  };
+
+  test('an admin holding every kind under o1 grants every kind under o1', async () => {
+    expect(await may(await admin(), underO1())).toBe(false);
+    expect(await may(await holdingAdmin(underO1()), underO1())).toBe(true);
+  });
+
+  test("an admin holding the organization's own does not grant every kind", async () => {
+    const writer = await holdingAdmin(theOrganizations());
+    expect(await may(writer, theOrganizations())).toBe(true);
+    expect(placeEntitlement(map, underO1(), o1)).toHaveLength(4);
+    expect(await may(writer, underO1())).toBe(false);
+  });
+});
+
 describe('the grant is judged on one pseudo record per kind the entry admits (R81)', () => {
   test('unfiltered: four pseudo records, each owner placed under the anchor', () => {
     const placed = placeEntitlement(map, underO1(), o1);
