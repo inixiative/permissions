@@ -279,12 +279,13 @@ describe('placeEntitlement: the pseudo record, built from the anchor along the p
     ]);
   });
 
-  test('the where pins exact values', () => {
+  test('the where pins exact values; the path wins over a pinned foreign key', () => {
     const entry = {
       ...entitlement('db:integration', at('db:organization', 'o1', 'organization'), 'manage'),
       where: {
         all: [
           { field: 'provider', operator: 'equals', value: 'slack' },
+          { field: 'organizationId', operator: 'equals', value: 'o2' },
           { field: 'ownerModel', operator: 'equals', value: 'Organization' },
         ],
       },

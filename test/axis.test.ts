@@ -377,8 +377,22 @@ describe('the root of the where narrows the kinds: each leaf checked on each pse
     ).toEqual(['Organization', 'Space', 'OrganizationUser', 'SpaceUser']);
   });
 
-  test('a leaf on a key the path fixes judges it: another organization leaves no kind, so no grant', () => {
-    expect(kinds({ field: 'organizationId', operator: 'equals', value: 'o2' } as never)).toBeNull();
+  test('a leaf on a key the path fixes narrows nothing: the path gives that key', () => {
+    expect(kinds({ field: 'organizationId', operator: 'equals', value: 'o2' } as never)).toEqual([
+      'Organization',
+      'Space',
+      'OrganizationUser',
+      'SpaceUser',
+    ]);
+  });
+
+  test('a dotted leaf under the kind field narrows nothing', () => {
+    expect(kinds({ field: 'ownerModel.length', operator: 'equals', value: 5 } as never)).toEqual([
+      'Organization',
+      'Space',
+      'OrganizationUser',
+      'SpaceUser',
+    ]);
   });
 
   test('an admin grants the kinds an `in` keeps when it holds each; not one more', async () => {
@@ -398,7 +412,7 @@ describe('the root of the where narrows the kinds: each leaf checked on each pse
   });
 });
 
-describe('a root leaf is judged only on what the path fixes: the step keys and the kind (R88 adversarial)', () => {
+describe('a root leaf is judged only on the kind (R88 adversarial, R90)', () => {
   const kindsK = { field: 'ownerModel', operator: 'in', value: ['Organization', 'Space'] };
   const withK = (leaf: Row) => underO1({ all: [kindsK, leaf] } as never);
 

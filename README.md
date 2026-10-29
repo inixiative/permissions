@@ -269,18 +269,16 @@ placed?.every((record) => canGrantEntitlement(writer, schema, entry, record)); /
 each step the foreign keys whose values the parent knows, the parent attached under the
 relation, ids below the anchor unknown; on a polymorphic step one record per kind it admits, each
 with its owner placed under the anchor along every relation that leads there. The `where`'s root
-leaves (the `where` itself, or each leaf of its top `all`; nothing nested) with a literal `value`
-are checked on what the path fixes for each record (its first step's kind, and its foreign keys
-when the path is one hop): a
-record a leaf fails is dropped (`ownerModel in [Organization, Space]` keeps those two kinds;
-`organizationId equals o2` under o1 keeps none). A leaf on anything else (the placed owner, a
-dotted field, a column the path leaves open), a leaf reading its value from a path, and anything
-nested narrow nothing: dropping a record loosens the grant, so only a value every real record of
-that kind shares may drop it. The writer must pass on every record left. The root's exact
-`equals` leaves (`equals null` pins `null`) fill the rest (a pin on a foreign key the path leaves
-unknown stays, and the rules still walk the placed relation). It returns `null` when no record is
-left, the anchor row is not the entry's, or the path does not end at the anchor's model through
-to-one relations. A self
+leaves (the `where` itself, or each leaf of its top `all`; nothing nested) on the first step's kind
+field with a literal `value` are checked on each record's kind: a kind a leaf fails is dropped
+(`ownerModel in [Organization, Space]` keeps those two). Any other leaf, a leaf reading its value
+from a path, and anything nested narrow nothing: dropping a record loosens the grant, so only the
+kind, which every real record of that kind shares, may drop it. The writer must pass on every
+record left. The root's exact `equals` leaves (`equals null` pins `null`) fill the rest; the path
+wins over a pinned foreign key it knows, so a `where` cannot move the record out from under its
+anchor (a pin on a foreign key the path leaves unknown stays, and the rules still walk the placed
+relation). It returns `null` when no kind is left, the anchor row is not the entry's, or the path
+does not end at the anchor's model through to-one relations. A self
 anchor is the anchor row itself. The writer must take each action on `placed`. The check reads `placed` with json-rules `absent: 'unknown'`: a field
 it does not carry fails every positive leaf, `equals null` included, so a writer whose authority
 reads a field the `where` leaves open is refused, and only a writer unfiltered on it passes. The

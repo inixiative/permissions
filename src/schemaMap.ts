@@ -1,5 +1,4 @@
 import { type Condition, check as checkRule, type FieldMap } from '@inixiative/json-rules';
-import { has } from 'lodash-es';
 import { entitlementProblem } from './entitlementProblem';
 import type { EntitlementEntry } from './permix';
 import { recordId } from './recordId';
@@ -133,8 +132,10 @@ const pinned = (leaves: Leaf[]): Row =>
       .map((leaf) => [leaf.field, leaf.value]),
   );
 
-const admits = (leaves: Leaf[], fixed: Row) =>
-  leaves.every((leaf) => !has(fixed, leaf.field) || checkRule(leaf as Condition, fixed) === true);
+const admits = (leaves: Leaf[], field: string, value: string) =>
+  leaves.every(
+    (leaf) => leaf.field !== field || checkRule(leaf as Condition, { [field]: value }) === true,
+  );
 
 const keysFrom = (relation: Relation, parent: Row): Row =>
   Object.fromEntries(
@@ -210,7 +211,7 @@ const placeAdmitted = <R extends string>(
   path: string,
   anchorResource: R,
   anchor: Row,
-  admit: (fixed: Row) => boolean,
+  admit: (field: string, value: string) => boolean,
 ): Row[] => {
   const step = (
     current: R,
@@ -220,13 +221,11 @@ const placeAdmitted = <R extends string>(
     parent: Row,
     top: boolean,
   ): Row[] => {
-    const keys = keysFrom(relation, parent);
-    const fixed = rest.length ? {} : keys;
-    const base: Row = { ...keys, [segment]: parent };
-    if (!relation.kinds) return !top || admit(fixed) ? [base] : [];
+    const base: Row = { ...keysFrom(relation, parent), [segment]: parent };
+    if (!relation.kinds) return [base];
     const { field, values } = relation.kinds;
     return values
-      .filter((value) => !top || admit({ ...fixed, [field]: value }))
+      .filter((value) => !top || admit(field, value))
       .flatMap((value) => {
         const row: Row = { ...base, [field]: value };
         const ownerName = ownerRelationOf(map, current, field, value);
@@ -260,7 +259,7 @@ const placeAdmitted = <R extends string>(
  * keys whose values the parent knows, composite ones included, and the parent attached under the
  * relation. On a polymorphic step there is one record per kind the relation admits, each with its
  * owner placed under the anchor along every relation that leads there; `pins` (exact values, as a
- * `where` pins them) drop the records whose first step fixes a different value. Ids below the
+ * `where` pins them) narrow the first step's kinds. Ids below the
  * anchor stay unknown. Empty when the path does not lead to the anchor's resource.
  */
 export const placeUnder = <R extends string>(
@@ -271,17 +270,20 @@ export const placeUnder = <R extends string>(
   anchor: Row,
   pins: Row = {},
 ): Row[] =>
-  placeAdmitted(map, resource, path, anchorResource, anchor, (fixed) =>
-    Object.entries(pins).every(
-      ([field, value]) => value === undefined || !(field in fixed) || fixed[field] === value,
-    ),
+  placeAdmitted(
+    map,
+    resource,
+    path,
+    anchorResource,
+    anchor,
+    (field, value) => pins[field] === undefined || pins[field] === value,
   );
 
 /**
  * The pseudo records a grant is checked on: `placeUnder` from the hydrated `anchor` along the entry's
- * path, less the records a root leaf of the `where` (the `where` itself, or a leaf of its top `all`)
- * fails on what the path fixes (the first step's kind, and its foreign keys when its parent is the
- * anchor; never the placed owner or a dotted field), each given the root's exact `equals` values. A self anchor is the anchor row itself. Null when the entry
+ * path, less the kinds of its first step a root leaf of the `where` (the `where` itself, or a leaf
+ * of its top `all`) on the kind field fails, each given the root's exact `equals` values (the path
+ * wins over a pinned foreign key). A self anchor is the anchor row itself. Null when the entry
  * is malformed (the rules `setup` applies), the anchor is not the entry's, or the path reaches
  * nothing; the writer must pass on every record.
  */
@@ -300,7 +302,7 @@ export const placeEntitlement = <R extends string>(
     entry.anchor.path,
     entry.anchor.resource as R,
     anchor,
-    (fixed) => admits(leaves, fixed),
+    (field, value) => admits(leaves, field, value),
   ).map((record) => ({ ...pins, ...record }));
   return placed.length ? placed : null;
 };
