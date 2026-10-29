@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.13.0 — the root of the where narrows the kinds
+
+- **A grant's kinds are narrowed by the `where`'s root leaves, each checked with json-rules** on each pseudo record: the `where` itself, or each leaf of its top `all`, with a literal `value`, judged only on a record that knows its field. `ownerModel in [Organization, Space]` now keeps those two kinds (before, only `equals` narrowed). Nested rules, leaves on fields the record does not know, and leaves reading a path narrow nothing.
+- **Breaking: a root leaf that fails on a key the path fixes refuses the grant** (`organizationId equals o2` anchored at o1 returns `null`; before, the path won and the pin was dropped).
+- `placeUnder`'s `pins` keep their meaning (exact kind); `placeEntitlement` no longer passes them.
+
 ## 0.12.1 — a path names its anchor and axis; every kind on it is judged
 
 - **Breaking: a polymorphic step admits every kind that carries its keys**, not one: `organization` on an integration reaches the organization's own, a space's, a member's and a space member's integrations. The `where` narrows them (`ownerModel equals Organization`). Sides stay distinct axes (`targetOrganization` vs `sourceOrganization`).

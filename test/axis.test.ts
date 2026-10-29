@@ -319,3 +319,80 @@ describe('a kind whose owner cannot be placed is still judged', () => {
     ]);
   });
 });
+
+describe('the root of the where narrows the kinds: each leaf checked on each pseudo record (R88)', () => {
+  const kinds = (where: EntitlementEntry['where']) =>
+    placeEntitlement(map, underO1(where), o1)?.map((record) => record.ownerModel) ?? null;
+
+  test('`in` keeps the kinds it names', () => {
+    expect(
+      kinds({ field: 'ownerModel', operator: 'in', value: ['Organization', 'Space'] } as never),
+    ).toEqual(['Organization', 'Space']);
+  });
+
+  test('every leaf of a root `all` narrows', () => {
+    expect(
+      kinds({
+        all: [
+          { field: 'ownerModel', operator: 'in', value: ['Organization', 'Space'] },
+          { field: 'ownerModel', operator: 'in', value: ['Space', 'SpaceUser'] },
+        ],
+      } as never),
+    ).toEqual(['Space']);
+  });
+
+  test('a leaf on a field the pseudo record does not know narrows nothing', () => {
+    expect(kinds({ field: 'provider', operator: 'equals', value: 'slack' } as never)).toEqual([
+      'Organization',
+      'Space',
+      'OrganizationUser',
+      'SpaceUser',
+    ]);
+  });
+
+  test('a leaf whose value is read from a path narrows nothing', () => {
+    expect(
+      kinds({
+        field: 'ownerModel',
+        operator: 'equals',
+        path: '__actor.record.ownerModel',
+      } as never),
+    ).toEqual(['Organization', 'Space', 'OrganizationUser', 'SpaceUser']);
+  });
+
+  test('a nested rule narrows nothing', () => {
+    expect(
+      kinds({
+        any: [
+          { field: 'ownerModel', operator: 'equals', value: 'Organization' },
+          { field: 'ownerModel', operator: 'equals', value: 'Space' },
+        ],
+      } as never),
+    ).toEqual(['Organization', 'Space', 'OrganizationUser', 'SpaceUser']);
+    expect(
+      kinds({
+        all: [{ all: [{ field: 'ownerModel', operator: 'equals', value: 'Organization' }] }],
+      } as never),
+    ).toEqual(['Organization', 'Space', 'OrganizationUser', 'SpaceUser']);
+  });
+
+  test('a leaf on a key the path fixes judges it: another organization leaves no kind, so no grant', () => {
+    expect(kinds({ field: 'organizationId', operator: 'equals', value: 'o2' } as never)).toBeNull();
+  });
+
+  test('an admin grants the kinds an `in` keeps when it holds each; not one more', async () => {
+    const organizationsOnly = underO1({
+      field: 'ownerModel',
+      operator: 'in',
+      value: ['Organization'],
+    } as never);
+    const withSpaces = underO1({
+      field: 'ownerModel',
+      operator: 'in',
+      value: ['Organization', 'Space'],
+    } as never);
+    expect(await may(await admin(), organizationsOnly)).toBe(true);
+    expect(await may(await admin(), withSpaces)).toBe(false);
+    expect(await may(await owner(), withSpaces)).toBe(true);
+  });
+});

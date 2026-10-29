@@ -1,4 +1,5 @@
-import type { Condition, FieldMap } from '@inixiative/json-rules';
+import { type Condition, check as checkRule, type FieldMap } from '@inixiative/json-rules';
+import { has } from 'lodash-es';
 import { entitlementProblem } from './entitlementProblem';
 import type { EntitlementEntry } from './permix';
 import { recordId } from './recordId';
@@ -108,19 +109,32 @@ const relationFor = <R extends string>(
 
 const exactKeys = new Set(['field', 'operator', 'value']);
 
-const pinned = (where: Condition | undefined): Row => {
-  if (!where || typeof where !== 'object') return {};
+type Leaf = { field: string; operator: string; value: unknown };
+
+const isLiteralLeaf = (rule: unknown): rule is Leaf =>
+  typeof rule === 'object' &&
+  rule !== null &&
+  typeof (rule as Leaf).field === 'string' &&
+  typeof (rule as Leaf).operator === 'string' &&
+  'value' in rule &&
+  Object.keys(rule).every((key) => exactKeys.has(key));
+
+const rootLeaves = (where: Condition | undefined): Leaf[] => {
+  if (!where || typeof where !== 'object') return [];
   if ('all' in where && Array.isArray(where.all) && Object.keys(where).length === 1)
-    return Object.assign({}, ...where.all.map(pinned));
-  const leaf = where as Record<string, unknown>;
-  const exact =
-    leaf.operator === 'equals' &&
-    typeof leaf.field === 'string' &&
-    !leaf.field.includes('.') &&
-    'value' in leaf &&
-    Object.keys(leaf).every((key) => exactKeys.has(key));
-  return exact ? { [leaf.field as string]: leaf.value } : {};
+    return (where.all as unknown[]).filter(isLiteralLeaf);
+  return isLiteralLeaf(where) ? [where] : [];
 };
+
+const pinned = (leaves: Leaf[]): Row =>
+  Object.fromEntries(
+    leaves
+      .filter((leaf) => leaf.operator === 'equals' && !leaf.field.includes('.'))
+      .map((leaf) => [leaf.field, leaf.value]),
+  );
+
+const admits = (leaves: Leaf[], record: Row) =>
+  leaves.every((leaf) => !has(record, leaf.field) || checkRule(leaf as Condition, record) === true);
 
 const keysFrom = (relation: Relation, parent: Row): Row =>
   Object.fromEntries(
@@ -250,7 +264,8 @@ export const placeUnder = <R extends string>(
 
 /**
  * The pseudo records a grant is checked on: `placeUnder` from the hydrated `anchor` along the entry's
- * path, narrowed by the kinds its `where` pins, each given the `where`'s exact `equals` values (the
+ * path, less the records a root leaf of the `where` (the `where` itself, or a leaf of its top `all`)
+ * fails on a field the record knows, each given the root's exact `equals` values (the
  * path wins over a pinned foreign key). A self anchor is the anchor row itself. Null when the entry
  * is malformed (the rules `setup` applies), the anchor is not the entry's, or the path reaches
  * nothing; the writer must pass on every record.
@@ -262,14 +277,16 @@ export const placeEntitlement = <R extends string>(
 ): Row[] | null => {
   if (entitlementProblem(entry) !== null || recordId(anchor) !== entry.anchor.id) return null;
   if (entry.anchor.path === undefined) return [anchor];
-  const pins = pinned(entry.where);
+  const leaves = rootLeaves(entry.where);
+  const pins = pinned(leaves);
   const placed = placeUnder(
     map,
     entry.resource as R,
     entry.anchor.path,
     entry.anchor.resource as R,
     anchor,
-    pins,
-  ).map((record) => ({ ...pins, ...record }));
+  )
+    .filter((record) => admits(leaves, record))
+    .map((record) => ({ ...pins, ...record }));
   return placed.length ? placed : null;
 };
