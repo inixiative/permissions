@@ -7,6 +7,7 @@ import {
   type EntitlementEntry,
   type PermissionEntry,
   placeEntitlement,
+  placeUnder,
   type RebacSchema,
   type Row,
   type SchemaMap,
@@ -317,5 +318,257 @@ describe('a kind whose owner cannot be placed is still judged', () => {
       'Organization',
       'Widget',
     ]);
+  });
+});
+
+describe('the root of the where narrows the kinds: each leaf checked on each pseudo record (R88)', () => {
+  const kinds = (where: EntitlementEntry['where']) =>
+    placeEntitlement(map, underO1(where), o1)?.map((record) => record.ownerModel) ?? null;
+
+  test('`in` keeps the kinds it names', () => {
+    expect(
+      kinds({ field: 'ownerModel', operator: 'in', value: ['Organization', 'Space'] } as never),
+    ).toEqual(['Organization', 'Space']);
+  });
+
+  test('every leaf of a root `all` narrows', () => {
+    expect(
+      kinds({
+        all: [
+          { field: 'ownerModel', operator: 'in', value: ['Organization', 'Space'] },
+          { field: 'ownerModel', operator: 'in', value: ['Space', 'SpaceUser'] },
+        ],
+      } as never),
+    ).toEqual(['Space']);
+  });
+
+  test('a leaf on a field the pseudo record does not know narrows nothing', () => {
+    expect(kinds({ field: 'provider', operator: 'equals', value: 'slack' } as never)).toEqual([
+      'Organization',
+      'Space',
+      'OrganizationUser',
+      'SpaceUser',
+    ]);
+  });
+
+  test('a leaf whose value is read from a path narrows nothing', () => {
+    expect(
+      kinds({
+        field: 'ownerModel',
+        operator: 'equals',
+        path: '__actor.record.ownerModel',
+      } as never),
+    ).toEqual(['Organization', 'Space', 'OrganizationUser', 'SpaceUser']);
+  });
+
+  test('a nested rule narrows nothing', () => {
+    expect(
+      kinds({
+        any: [
+          { field: 'ownerModel', operator: 'equals', value: 'Organization' },
+          { field: 'ownerModel', operator: 'equals', value: 'Space' },
+        ],
+      } as never),
+    ).toEqual(['Organization', 'Space', 'OrganizationUser', 'SpaceUser']);
+    expect(
+      kinds({
+        all: [{ all: [{ field: 'ownerModel', operator: 'equals', value: 'Organization' }] }],
+      } as never),
+    ).toEqual(['Organization', 'Space', 'OrganizationUser', 'SpaceUser']);
+  });
+
+  test('a leaf on a key the path fixes narrows nothing: the path gives that key', () => {
+    expect(kinds({ field: 'organizationId', operator: 'equals', value: 'o2' } as never)).toEqual([
+      'Organization',
+      'Space',
+      'OrganizationUser',
+      'SpaceUser',
+    ]);
+  });
+
+  test('a dotted leaf under the kind field narrows nothing', () => {
+    expect(kinds({ field: 'ownerModel.length', operator: 'equals', value: 5 } as never)).toEqual([
+      'Organization',
+      'Space',
+      'OrganizationUser',
+      'SpaceUser',
+    ]);
+  });
+
+  test('an admin grants the kinds an `in` keeps when it holds each; not one more', async () => {
+    const organizationsOnly = underO1({
+      field: 'ownerModel',
+      operator: 'in',
+      value: ['Organization'],
+    } as never);
+    const withSpaces = underO1({
+      field: 'ownerModel',
+      operator: 'in',
+      value: ['Organization', 'Space'],
+    } as never);
+    expect(await may(await admin(), organizationsOnly)).toBe(true);
+    expect(await may(await admin(), withSpaces)).toBe(false);
+    expect(await may(await owner(), withSpaces)).toBe(true);
+  });
+});
+
+describe('a root leaf is judged only on the kind (R88 adversarial, R90)', () => {
+  const kindsK = { field: 'ownerModel', operator: 'in', value: ['Organization', 'Space'] };
+  const withK = (leaf: Row) => underO1({ all: [kindsK, leaf] } as never);
+
+  test('a leaf on the placed owner object narrows nothing', async () => {
+    const leaf = {
+      field: 'space',
+      operator: 'equals',
+      value: { id: 's1', organizationId: 'o1', organization: { id: 'o1' } },
+    };
+    expect(await may(await admin(), withK(leaf))).toBe(false);
+  });
+
+  test("a leaf on a copy of the anchor's columns inside the owner narrows nothing", async () => {
+    const leaf = { field: 'space.organization.name', operator: 'equals', value: 'Later' };
+    const placed = placeEntitlement(map, withK(leaf), { ...o1, name: 'Now' });
+    expect(placed?.map((record) => record.ownerModel)).toEqual(['Organization', 'Space']);
+  });
+
+  const billing: SchemaMap = {
+    ...map,
+    fieldMap: {
+      models: {
+        ...fieldMap.models,
+        Space: {
+          fields: {
+            ...fieldMap.models.Space?.fields,
+            billingOrganizationId: scalar,
+            billingOrganization: toOne('Organization', ['billingOrganizationId'], ['id']),
+          },
+        },
+        Integration: {
+          fields: {
+            ...fieldMap.models.Integration?.fields,
+            billingOrganizationId: scalar,
+            space: toOne(
+              'Space',
+              ['organizationId', 'spaceId', 'billingOrganizationId'],
+              ['organizationId', 'id', 'billingOrganizationId'],
+            ),
+          },
+        },
+      },
+    },
+    polymorphism: {
+      Integration: {
+        axes: [
+          {
+            field: 'ownerModel',
+            fkMap: {
+              Organization: ['organizationId'],
+              Space: ['organizationId', 'spaceId', 'billingOrganizationId'],
+            },
+          },
+        ],
+      },
+    },
+  };
+  const kindsUnder = (where: Row) =>
+    placeEntitlement(billing, underO1({ all: [kindsK, where] } as never), o1)?.map(
+      (record) => record.ownerModel,
+    );
+
+  test('a leaf on a relation of the owner the path does not fix narrows nothing', () => {
+    expect(
+      kindsUnder({ field: 'space.billingOrganizationId', operator: 'equals', value: 'o9' }),
+    ).toEqual(['Organization', 'Space']);
+  });
+
+  test('a leaf on a top-level key copied from the placed owner narrows nothing', () => {
+    expect(kindsUnder({ field: 'billingOrganizationId', operator: 'equals', value: 'o9' })).toEqual(
+      ['Organization', 'Space'],
+    );
+  });
+});
+
+describe("on a multi-hop path only the kind narrows: the first step's parent is placed, not fixed (R88 adversarial)", () => {
+  const things: SchemaMap = {
+    resources: {
+      'db:organization': 'Organization',
+      'db:widget': 'Widget',
+      'db:thing': 'Thing',
+      'db:item': 'Item',
+    },
+    fieldMap: {
+      models: {
+        Organization: { fields: { id: scalar } },
+        Widget: {
+          fields: {
+            id: scalar,
+            organizationId: scalar,
+            billingOrganizationId: scalar,
+            organization: toOne('Organization', ['organizationId'], ['id']),
+            billingOrganization: toOne('Organization', ['billingOrganizationId'], ['id']),
+          },
+        },
+        Thing: {
+          fields: {
+            id: scalar,
+            ownerModel: scalar,
+            organizationId: scalar,
+            widgetId: scalar,
+            billingOrganizationId: scalar,
+            organization: toOne('Organization', ['organizationId'], ['id']),
+            widget: toOne(
+              'Widget',
+              ['organizationId', 'widgetId', 'billingOrganizationId'],
+              ['organizationId', 'id', 'billingOrganizationId'],
+            ),
+          },
+        },
+        Item: {
+          fields: {
+            id: scalar,
+            thingId: scalar,
+            thingBillingOrganizationId: scalar,
+            thing: toOne(
+              'Thing',
+              ['thingId', 'thingBillingOrganizationId'],
+              ['id', 'billingOrganizationId'],
+            ),
+          },
+        },
+      },
+    },
+    polymorphism: {
+      Thing: {
+        axes: [
+          {
+            field: 'ownerModel',
+            fkMap: {
+              Organization: ['organizationId'],
+              Widget: ['organizationId', 'widgetId', 'billingOrganizationId'],
+            },
+          },
+        ],
+      },
+    },
+  };
+
+  test("a leaf on a key the placed parent's owner guessed narrows nothing", () => {
+    const items: EntitlementEntry = {
+      resource: 'db:item',
+      anchor: { resource: 'db:organization', id: 'o1', path: 'thing.organization' },
+      actions: { manage: true },
+      where: { field: 'thingBillingOrganizationId', operator: 'equals', value: 'o9' } as never,
+    };
+    expect(placeEntitlement(things, items, o1)?.length).toBe(2);
+  });
+});
+
+describe('placeUnder: an undefined pin is no pin', () => {
+  test('every kind stays', () => {
+    expect(
+      placeUnder(map, 'db:integration', 'organization', 'db:organization', o1, {
+        ownerModel: undefined,
+      }).length,
+    ).toBe(4);
   });
 });

@@ -1,4 +1,6 @@
-# Changelog
+## 0.13.0 — the root of the where narrows the kinds
+
+- **A grant's kinds are narrowed by the `where`'s root leaves on the kind field, each checked with json-rules** on each kind the path's first step admits: the `where` itself, or each leaf of its top `all`, with a literal `value`. `ownerModel in [Organization, Space]` now keeps those two kinds (before, only `equals` narrowed). Leaves on other fields (dotted ones included), leaves reading a path, and nested rules narrow nothing.
 
 ## 0.12.1 — a path names its anchor and axis; every kind on it is judged
 
