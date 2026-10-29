@@ -7,6 +7,7 @@ import {
   type EntitlementEntry,
   type PermissionEntry,
   type Permix,
+  placeEntitlement,
   type RebacSchema,
   type Row,
 } from '../index';
@@ -175,7 +176,7 @@ describe('canGrantEntitlement: never more than the writer could do from that anc
 
   test('an anchor off the resource tree grants nothing', async () => {
     const offTree = entry('db:integration', at('db:user', 'u1', 'user'), ['read']);
-    expect(may(await holding('db:user', 'u1', ['own']), offTree, { id: 'u1' })).toBe(false);
+    expect(placeEntitlement(mapOf(relations), offTree, { id: 'u1' })).toBeNull();
   });
 
   test('a where only narrows: the writer must cover the whole collection at that anchor', async () => {

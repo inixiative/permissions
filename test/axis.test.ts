@@ -300,7 +300,7 @@ describe('an owner is placed under every record above it, not only its parent', 
 });
 
 describe('a kind whose owner cannot be placed is still judged', () => {
-  test('its record stays, the owner unknown, so the grant is refused rather than the kind skipped', () => {
+  test('its record stays, the owner unknown, rather than the kind skipped', () => {
     const orphanMap: SchemaMap = {
       resources: { 'db:organization': 'Organization', 'db:widget': 'Widget', 'db:thing': 'Thing' },
       fieldMap: {

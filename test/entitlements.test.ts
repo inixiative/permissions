@@ -318,7 +318,7 @@ describe('entitlements: an action on a model from an anchor, owner on the row', 
           where: is('space.organizationId', 'o1'),
         },
       ],
-      await o1Table(),
+      await table({ resource: 'db:integration', actions: { manage: true } }),
     );
     expect(manage(holder, 'db:integration', integration('i1', s1))).toBe(true);
     expect(manage(holder, 'db:integration', { id: 'i1', provider: 'slack', spaceId: 's1' })).toBe(

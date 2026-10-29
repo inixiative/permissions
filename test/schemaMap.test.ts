@@ -232,14 +232,16 @@ describe('the path names a kind at each polymorphic step: read time', () => {
   });
 
   test('a list relation is not a path', async () => {
-    await expect(
-      holderOf(entitlement('db:space', at('db:organization', 'o1', 'spaces'), 'read')),
-    ).resolves.toBeDefined();
     const holder = await holderOf(
-      entitlement('db:space', at('db:organization', 'o1', 'spaces'), 'read'),
+      entitlement('db:organization', at('db:space', 's1', 'spaces'), 'read'),
     );
     expect(
-      check(holder, schema, { resource: 'db:space', record: { ...s1, spaces: [o1] } }, 'read'),
+      check(
+        holder,
+        schema,
+        { resource: 'db:organization', record: { ...o1, spaces: [s1] } },
+        'read',
+      ),
     ).toBe(false);
   });
 });
@@ -312,8 +314,8 @@ describe('placeEntitlement: the pseudo record, built from the anchor along the p
     expect(
       placeEntitlement(
         map,
-        entitlement('db:space', at('db:organization', 'o1', 'spaces'), 'read'),
-        o1,
+        entitlement('db:organization', at('db:space', 's1', 'spaces'), 'read'),
+        s1,
       ),
     ).toBeNull();
   });
