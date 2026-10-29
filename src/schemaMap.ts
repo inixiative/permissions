@@ -221,11 +221,12 @@ const placeAdmitted = <R extends string>(
     top: boolean,
   ): Row[] => {
     const keys = keysFrom(relation, parent);
+    const fixed = rest.length ? {} : keys;
     const base: Row = { ...keys, [segment]: parent };
-    if (!relation.kinds) return !top || admit(keys) ? [base] : [];
+    if (!relation.kinds) return !top || admit(fixed) ? [base] : [];
     const { field, values } = relation.kinds;
     return values
-      .filter((value) => !top || admit({ ...keys, [field]: value }))
+      .filter((value) => !top || admit({ ...fixed, [field]: value }))
       .flatMap((value) => {
         const row: Row = { ...base, [field]: value };
         const ownerName = ownerRelationOf(map, current, field, value);
@@ -271,14 +272,16 @@ export const placeUnder = <R extends string>(
   pins: Row = {},
 ): Row[] =>
   placeAdmitted(map, resource, path, anchorResource, anchor, (fixed) =>
-    Object.entries(pins).every(([field, value]) => !(field in fixed) || fixed[field] === value),
+    Object.entries(pins).every(
+      ([field, value]) => value === undefined || !(field in fixed) || fixed[field] === value,
+    ),
   );
 
 /**
  * The pseudo records a grant is checked on: `placeUnder` from the hydrated `anchor` along the entry's
  * path, less the records a root leaf of the `where` (the `where` itself, or a leaf of its top `all`)
- * fails on what the path fixes (the first step's foreign keys and kind; never the placed owner or a
- * dotted field), each given the root's exact `equals` values. A self anchor is the anchor row itself. Null when the entry
+ * fails on what the path fixes (the first step's kind, and its foreign keys when its parent is the
+ * anchor; never the placed owner or a dotted field), each given the root's exact `equals` values. A self anchor is the anchor row itself. Null when the entry
  * is malformed (the rules `setup` applies), the anchor is not the entry's, or the path reaches
  * nothing; the writer must pass on every record.
  */

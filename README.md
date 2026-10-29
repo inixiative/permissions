@@ -270,7 +270,8 @@ each step the foreign keys whose values the parent knows, the parent attached un
 relation, ids below the anchor unknown; on a polymorphic step one record per kind it admits, each
 with its owner placed under the anchor along every relation that leads there. The `where`'s root
 leaves (the `where` itself, or each leaf of its top `all`; nothing nested) with a literal `value`
-are checked on what the path fixes for each record (its first step's foreign keys and kind): a
+are checked on what the path fixes for each record (its first step's kind, and its foreign keys
+when the path is one hop): a
 record a leaf fails is dropped (`ownerModel in [Organization, Space]` keeps those two kinds;
 `organizationId equals o2` under o1 keeps none). A leaf on anything else (the placed owner, a
 dotted field, a column the path leaves open), a leaf reading its value from a path, and anything

@@ -7,6 +7,7 @@ import {
   type EntitlementEntry,
   type PermissionEntry,
   placeEntitlement,
+  placeUnder,
   type RebacSchema,
   type Row,
   type SchemaMap,
@@ -470,5 +471,90 @@ describe('a root leaf is judged only on what the path fixes: the step keys and t
     expect(kindsUnder({ field: 'billingOrganizationId', operator: 'equals', value: 'o9' })).toEqual(
       ['Organization', 'Space'],
     );
+  });
+});
+
+describe("on a multi-hop path only the kind narrows: the first step's parent is placed, not fixed (R88 adversarial)", () => {
+  const things: SchemaMap = {
+    resources: {
+      'db:organization': 'Organization',
+      'db:widget': 'Widget',
+      'db:thing': 'Thing',
+      'db:item': 'Item',
+    },
+    fieldMap: {
+      models: {
+        Organization: { fields: { id: scalar } },
+        Widget: {
+          fields: {
+            id: scalar,
+            organizationId: scalar,
+            billingOrganizationId: scalar,
+            organization: toOne('Organization', ['organizationId'], ['id']),
+            billingOrganization: toOne('Organization', ['billingOrganizationId'], ['id']),
+          },
+        },
+        Thing: {
+          fields: {
+            id: scalar,
+            ownerModel: scalar,
+            organizationId: scalar,
+            widgetId: scalar,
+            billingOrganizationId: scalar,
+            organization: toOne('Organization', ['organizationId'], ['id']),
+            widget: toOne(
+              'Widget',
+              ['organizationId', 'widgetId', 'billingOrganizationId'],
+              ['organizationId', 'id', 'billingOrganizationId'],
+            ),
+          },
+        },
+        Item: {
+          fields: {
+            id: scalar,
+            thingId: scalar,
+            thingBillingOrganizationId: scalar,
+            thing: toOne(
+              'Thing',
+              ['thingId', 'thingBillingOrganizationId'],
+              ['id', 'billingOrganizationId'],
+            ),
+          },
+        },
+      },
+    },
+    polymorphism: {
+      Thing: {
+        axes: [
+          {
+            field: 'ownerModel',
+            fkMap: {
+              Organization: ['organizationId'],
+              Widget: ['organizationId', 'widgetId', 'billingOrganizationId'],
+            },
+          },
+        ],
+      },
+    },
+  };
+
+  test("a leaf on a key the placed parent's owner guessed narrows nothing", () => {
+    const items: EntitlementEntry = {
+      resource: 'db:item',
+      anchor: { resource: 'db:organization', id: 'o1', path: 'thing.organization' },
+      actions: { manage: true },
+      where: { field: 'thingBillingOrganizationId', operator: 'equals', value: 'o9' } as never,
+    };
+    expect(placeEntitlement(things, items, o1)?.length).toBe(2);
+  });
+});
+
+describe('placeUnder: an undefined pin is no pin', () => {
+  test('every kind stays', () => {
+    expect(
+      placeUnder(map, 'db:integration', 'organization', 'db:organization', o1, {
+        ownerModel: undefined,
+      }).length,
+    ).toBe(4);
   });
 });
