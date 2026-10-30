@@ -1,6 +1,6 @@
-## 0.14.0 — a grant is the writer's own check without an actor, or one held entitlement passed on whole
+## 0.14.0 — a grant is the writer's table without an actor, or one held entitlement passed on whole
 
-- **Breaking: `canGrantEntitlement` runs in two passes.** First the writer's own check, with no actor: a rule on `__actor` never grants, so person-only actions are not grantable. Failing it, the entry may be one entitlement the writer holds, passed on whole: same resource and anchor, each action held or reached by pure delegation (holding `manage` grants `read`), the held `where` copied or narrowed, and its granter still backing the held action on the placed record.
+- **Breaking: `canGrantEntitlement` runs in two passes.** First the writer's table, with no entitlements and no actor: a rule on `__actor` never grants, so person-only actions are not grantable. Failing it, the entry may be one entitlement the writer holds, passed on whole (held entitlements never combine): same resource and anchor, each action held or reached by pure delegation (holding `manage` grants `read`), the held `where` copied or narrowed, and its granter still backing the held action on the placed record.
 - **Breaking: an entitlement must grant at least one action;** `setup` and `placeEntitlement` refuse one that grants none.
 - **Breaking: `placeUnder(map, resource, path, anchorResource, anchor, where?)`** takes a `where` instead of `pins`, and narrows the first step's kinds by it the same way a grant does.
 - Rules evaluate with exact strings whatever the app's json-rules globals say, so grant time and read time agree.
