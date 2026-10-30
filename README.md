@@ -305,9 +305,10 @@ Permissions evaluates every rule with exact strings (json-rules `string.caseInse
 leaf that wants case-insensitivity says so itself, and such a leaf never narrows.
 
 An action's rule is ReBAC (walks to parents) plus ABAC (`{ rule }` conditions on the record,
-conditions on `__actor`, who acts). Granting checks the ReBAC at the anchor; the ABAC runs at read
-time, because the holder's check walks the writer's table on the real record with the request's
-actor. A holder of a granted action reaches exactly as far as its writer would on that record.
+conditions on `__actor`, who acts). Granting checks both on the placed record, with no actor, so a
+rule on `__actor` never grants; at read time the holder's check walks the writer's table on the real
+record with the request's actor. A holder of a granted action reaches no further than its writer
+would on that record.
 
 ```ts
 // assign: high roles need own, others need manage
@@ -320,7 +321,7 @@ assign: {
 // An admin (manage) grants assign; its holder assigns member-role records, never owners.
 
 // token.create: { all: [{ rule: { field: '__actor.model', operator: 'equals', value: 'User' } }, 'operate'] }
-// A member grants token.create; a token holding it mints nothing, because the actor is a token.
+// No one grants token.create: the grant check has no actor, so the person-only rule never passes.
 ```
 
 ## Hydration (Prisma example)

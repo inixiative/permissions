@@ -1,4 +1,4 @@
-## 0.14.0 — a grant passes on the writer's role, or one held entitlement whole
+## 0.14.0 — a grant is the writer's own check without an actor, or one held entitlement passed on whole
 
 - **Breaking: `canGrantEntitlement` runs in two passes.** First the writer's own check, with no actor: a rule on `__actor` never grants, so person-only actions are not grantable. Failing it, the entry may be one entitlement the writer holds, passed on whole: same resource and anchor, each action held or reached by pure delegation (holding `manage` grants `read`), the held `where` copied or narrowed, and its granter still backing the held action on the placed record.
 - **Breaking: an entitlement must grant at least one action;** `setup` and `placeEntitlement` refuse one that grants none.
