@@ -119,12 +119,19 @@ const isLiteralLeaf = (rule: unknown): rule is Leaf =>
   'value' in rule &&
   Object.keys(rule).every((key) => exactKeys.has(key));
 
-const rootLeaves = (where: Condition | undefined): Leaf[] => {
-  if (!where || typeof where !== 'object') return [];
-  if ('all' in where && Array.isArray(where.all) && Object.keys(where).length === 1)
-    return (where.all as unknown[]).filter(isLiteralLeaf);
-  return isLiteralLeaf(where) ? [where] : [];
+export const conjuncts = (where: Condition | undefined): unknown[] => {
+  if (where === undefined) return [];
+  if (
+    typeof where === 'object' &&
+    'all' in where &&
+    Array.isArray(where.all) &&
+    Object.keys(where).length === 1
+  )
+    return where.all;
+  return [where];
 };
+
+const rootLeaves = (where: Condition | undefined): Leaf[] => conjuncts(where).filter(isLiteralLeaf);
 
 const pinned = (leaves: Leaf[]): Row =>
   Object.fromEntries(

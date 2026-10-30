@@ -1,9 +1,8 @@
-import type { Condition } from '@inixiative/json-rules';
 import { isEqual } from 'lodash-es';
 import { createRebacCheck } from './check';
 import { asOwner } from './identity';
 import type { EntitlementEntry } from './permix';
-import type { SchemaMap } from './schemaMap';
+import { conjuncts, type SchemaMap } from './schemaMap';
 import type {
   ActionRule,
   Anchor,
@@ -20,18 +19,6 @@ export type CanGrantEntitlement<R extends string = string> = (
   entry: EntitlementEntry,
   placed: Row,
 ) => boolean;
-
-const conjuncts = (where: Condition | undefined): unknown[] => {
-  if (where === undefined) return [];
-  if (
-    typeof where === 'object' &&
-    'all' in where &&
-    Array.isArray(where.all) &&
-    Object.keys(where).length === 1
-  )
-    return where.all;
-  return [where];
-};
 
 const sameAnchor = (a: Anchor, b: Anchor) =>
   a.resource === b.resource && a.id === b.id && a.path === b.path;
