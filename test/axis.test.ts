@@ -223,6 +223,19 @@ describe('an anchor path names the anchor and the axis; every kind on it is reac
   });
 });
 
+describe('held entitlements on different kinds never combine (R95)', () => {
+  test("holding the organization's own and the members' does not grant both in one entry", async () => {
+    const kindsIn = (...values: string[]) =>
+      underO1({ field: 'ownerModel', operator: 'in', value: values } as never);
+    const writer = createPermissions();
+    await writer.setup([kindsIn('Organization'), kindsIn('OrganizationUser')], {
+      owner: await owner(),
+    });
+    expect(await may(writer, kindsIn('Organization'))).toBe(true);
+    expect(await may(writer, kindsIn('Organization', 'OrganizationUser'))).toBe(false);
+  });
+});
+
 describe('a holder grants what it holds onward, and no more', () => {
   const holdingAdmin = async (held: EntitlementEntry) => {
     const writer = await admin();
