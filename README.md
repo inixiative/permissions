@@ -210,7 +210,9 @@ await permix.setup(
 ```
 
 Entitlements never enter the table. The engine consults them at a node only after the table and
-the schema rule both miss, with the record in hand, and one applies when all three hold:
+the schema rule both miss, with the record in hand. An entitlement answers an action when it holds
+that action or one that implies it by pure delegation (`reachableFrom`): `manage` answers `read`
+where `read` delegates up to `manage`. One applies when all three hold:
 
 - **Its `anchor` is reached along its `path`** — `anchor.path` names the relations from the
   record up to the anchor (`'space.organization'`); the hydrated record at the end of the path is
@@ -234,7 +236,9 @@ the schema rule both miss, with the record in hand, and one applies when all thr
   loaded; "no value" is `equals null`. `where: false` is a `where` that fails, not its absence;
   `where: null` is refused at setup.
 - **The grantor is still in control** — the owner's table, walked from this very record through
-  the normal schema, allows the action. That is the only tenancy check and it is live: a space
+  the normal schema, allows the action being asked, not the one held: a `manage` entitlement
+  whose grantor is down to `read` still answers `read`, and every owner up a chain is asked the
+  same action. That is the only tenancy check and it is live: a space
   moved to another org stops reaching the grantor on the next request, no fetch. The record's
   schema guards run inside that walk, and a `{ rule }` met there still sees the
   request's actor as `__actor`. A holder can never exceed its owner on the same record and action; owners nest
