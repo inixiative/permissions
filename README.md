@@ -1,11 +1,14 @@
 # @inixiative/permissions
 
-Generic **rebac / abac / rbac** core: a small `permix` wrapper plus a relationship-walking `check`
-engine, on top of [`@inixiative/json-rules`](https://github.com/inixiative/json-rules). The app
-passes its **schema map** — which model each resource is, its relations and foreign keys (a
-[`@inixiative/prisma-map`](https://github.com/inixiative/prisma-map) map in the inixiative stack),
-and its polymorphic models' kinds — so the core never imports a database layer itself. Record
-**loading and hydration stay in the app**.
+One check, over your own data, that covers:
+
+- **RBAC** — roles as table grants, and role chains: a delegate's role narrows the role above it, down to one tenant role.
+- **ReBAC** — relationship walks (`{ rel, action }`) over your schema's relations, polymorphic owners included.
+- **ABAC** — conditions on the record and on the acting principal (`{ rule }`, `__actor`).
+- **RuBAC** — rules as data: every condition is a serializable, positive [`@inixiative/json-rules`](https://github.com/inixiative/json-rules) rule, the same AST everywhere it appears.
+- **Delegation (entitlements)** — attenuated grants a holder passes on (copied, narrowed, lowered, never widened), each re-checked live at every link of its chain and at every tenant boundary it crosses.
+
+It runs on your actual database: the checks walk your own records through the schema map you pass (which model each resource is, its relations and foreign keys — a [`@inixiative/prisma-map`](https://github.com/inixiative/prisma-map) map in the inixiative stack — and its polymorphic models' kinds). There is no separate authorization store and no relationship tuples to sync. The core never imports a database layer; **loading and hydration stay in the app**. About a thousand lines of TypeScript.
 
 ## Permission algebra (`ActionRule`)
 
