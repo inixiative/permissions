@@ -1,7 +1,7 @@
 {
   "name": "@inixiative/permissions",
   "version": "0.14.0",
-  "description": "Generic rebac/abac/rbac core — a permix wrapper + relationship-walking check engine; the app passes its schema map (a prisma-map map and its polymorphism registry)",
+  "description": "Generic rebac/abac/rbac core \u2014 a permix wrapper + relationship-walking check engine; the app passes its schema map (a prisma-map map and its polymorphism registry)",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -18,6 +18,7 @@
     "lint": "biome check .",
     "format": "biome format --write .",
     "check": "bun run typecheck && bun run lint && bun run test",
+    "bench": "bun bench/check.bench.ts",
     "prepare": "if git rev-parse --git-dir >/dev/null 2>&1; then lefthook install; fi",
     "prepublishOnly": "bun run check && bun run build"
   },
