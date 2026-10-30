@@ -1,4 +1,4 @@
-## Unreleased
+## 0.15.0 — entitlements indexed, duplicates collide at setup, a performance bench
 
 - **Entitlements are indexed by resource and action at `setup`.** A check no longer scans every held entitlement: holding 10,000 on other resources costs the same as holding none (2.7 ms → 21 µs per refused check at 3 hops), and on the same resource it is about twice as fast. Same results, same order.
 - **A duplicate entitlement is a no-op at `setup`:** one the holder already holds from the same owner, identical or with fewer actions, is skipped. `coversEntitlement(held, entry)` and `withoutRedundantEntitlements(entries)` apply the rule to a list before it is stored.
