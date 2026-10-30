@@ -596,12 +596,15 @@ describe("on a multi-hop path only the kind narrows: the first step's parent is 
   });
 });
 
-describe('placeUnder: an undefined pin is no pin', () => {
-  test('every kind stays', () => {
+describe('placeUnder narrows by its where the way a grant does', () => {
+  test('no where: every kind; a root kind leaf: the kinds it admits', () => {
+    const under = (where?: EntitlementEntry['where']) =>
+      placeUnder(map, 'db:integration', 'organization', 'db:organization', o1, where).map(
+        (record) => record.ownerModel,
+      );
+    expect(under()).toHaveLength(4);
     expect(
-      placeUnder(map, 'db:integration', 'organization', 'db:organization', o1, {
-        ownerModel: undefined,
-      }).length,
-    ).toBe(4);
+      under({ field: 'ownerModel', operator: 'equals', value: 'Organization' } as never),
+    ).toEqual(['Organization']);
   });
 });

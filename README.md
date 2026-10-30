@@ -266,7 +266,8 @@ const placed = placeEntitlement(map, entry, await hydrate('Space', space)); // n
 placed?.every((record) => canGrantEntitlement(writer, schema, entry, record)); // every Slack integration of s1?
 ```
 
-`placeEntitlement` first refuses a malformed entry (null), by the rules `setup` applies at install, so validity and the grant are one check before saving. It then builds the pseudo records of `entry.resource` from the anchor down the path (`placeUnder`, also exported for placing a record you are about to create): at
+`placeEntitlement` first refuses a malformed entry (null), by the rules `setup` applies at install, so validity and the grant are one check before saving. It then builds the pseudo records of `entry.resource` from the anchor down the path (`placeUnder(map, resource, path, anchorResource, anchor, where?)`, also exported for placing a
+record you are about to create, narrowed by its `where` the same way): at
 each step the foreign keys whose values the parent knows, the parent attached under the
 relation, ids below the anchor unknown; on a polymorphic step one record per kind it admits, each
 with its owner placed under the anchor along every relation that leads there. The `where`'s root
@@ -280,12 +281,28 @@ wins over a pinned foreign key it knows, so a `where` cannot move the record out
 anchor (a pin on a foreign key the path leaves unknown stays, and the rules still walk the placed
 relation). It returns `null` when no kind is left, the anchor row is not the entry's, or the path
 does not end at the anchor's model through to-one relations. A self
-anchor is the anchor row itself. The writer must take each action on `placed`. The check reads `placed` with json-rules `absent: 'unknown'`: a field
-it does not carry fails every positive leaf, `equals null` included, so a writer whose authority
-reads a field the `where` leaves open is refused, and only a writer unfiltered on it passes. The
-writer's own entitlements and owner chain apply, so a token never grants past its holder, and a
-`{ rule }` sees the writer's actor as `__actor`. Rules are positive (`validateActionRule` refuses
-the rest), which is what makes a pass on `placed` hold for every record the `where` admits.
+anchor is the anchor row itself.
+
+`canGrantEntitlement` judges each placed record in two passes:
+
+1. **Role.** The writer's table alone, with no entitlements and no actor, takes each action on
+   `placed`. It reads `placed` with json-rules `absent: 'unknown'`: a field it does not carry fails
+   every positive leaf, `equals null` included, so a writer whose authority reads a field the
+   `where` leaves open is refused. A rule on `__actor` never passes: who the writer is is not
+   authority that can be handed on. Rules are positive (`validateActionRule` refuses the rest),
+   which is what makes a pass on `placed` hold for every record the `where` admits.
+2. **One held entitlement.** Failing that, the entry is one entitlement the writer holds, passed on
+   whole: the same `resource` and anchor (resource, id, path); each granted action one it holds or
+   reaches by pure delegation (a bare action name, alone or an arm of a top-level `any`: holding
+   `manage` grants `read` when `read` is `{ any: ['manage', …] }`); its `where` copied or narrowed
+   (every condition of the held `where` — itself, or each child of its top `all` — among the
+   entry's); and whoever granted the held one still takes each granted action on `placed`, so
+   copying never revives an entitlement its granter no longer backs. Held entitlements never
+   combine: to pass on two, grant two.
+
+Permissions evaluates every rule with exact strings (json-rules `string.caseInsensitive` and
+`string.fuzzy` off), whatever the app sets globally, so grant time and read time always agree; a
+leaf that wants case-insensitivity says so itself, and such a leaf never narrows.
 
 An action's rule is ReBAC (walks to parents) plus ABAC (`{ rule }` conditions on the record,
 conditions on `__actor`, who acts). Granting checks the ReBAC at the anchor; the ABAC runs at read

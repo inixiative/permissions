@@ -1,5 +1,6 @@
 import { type BridgeDictionary, indexBridges } from '@inixiative/json-rules';
 import { evaluate } from './evaluate';
+import { withExactStrings } from './exactStrings';
 import { indexMap, type SchemaMap } from './schemaMap';
 import type { ActionRule, CheckOptions, PermixLike, RebacSchema, Subject } from './types';
 
@@ -40,13 +41,15 @@ export const createRebacCheck = <R extends string = string>(
       }
       return dict;
     };
-    return evaluate(
-      { map, absent, schema, getDict },
-      permix,
-      subject.resource,
-      subject.record,
-      actionOrRule,
-      visited,
+    return withExactStrings(() =>
+      evaluate(
+        { map, absent, schema, getDict },
+        permix,
+        subject.resource,
+        subject.record,
+        actionOrRule,
+        visited,
+      ),
     );
   };
 };

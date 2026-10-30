@@ -1,5 +1,6 @@
 import { type Condition, check as checkRule, type FieldMap } from '@inixiative/json-rules';
 import { entitlementProblem } from './entitlementProblem';
+import { withExactStrings } from './exactStrings';
 import type { EntitlementEntry } from './permix';
 import { recordId } from './recordId';
 import type { Row } from './types';
@@ -205,14 +206,25 @@ const placeTowards = <R extends string>(
   return reached ? row : null;
 };
 
-const placeAdmitted = <R extends string>(
+/**
+ * The records of `resource` that sit under the hydrated `anchor` (a record of `anchorResource`)
+ * along `path` (dotted to-one relation names that own their foreign keys): at each step the foreign
+ * keys whose values the parent knows, composite ones included, and the parent attached under the
+ * relation. On a polymorphic step there is one record per kind the relation admits, each with its
+ * owner placed under the anchor along every relation that leads there; a root leaf of `where` on
+ * the first step's kind field (the `where` itself, or a leaf of its top `all`) drops the kinds it
+ * fails. Ids below the anchor stay unknown. Empty when the path does not lead to the anchor's
+ * resource.
+ */
+export const placeUnder = <R extends string>(
   map: SchemaMap<R>,
   resource: R,
   path: string,
   anchorResource: R,
   anchor: Row,
-  admit: (field: string, value: string) => boolean,
+  where?: Condition,
 ): Row[] => {
+  const leaves = rootLeaves(where);
   const step = (
     current: R,
     segment: string,
@@ -225,7 +237,7 @@ const placeAdmitted = <R extends string>(
     if (!relation.kinds) return [base];
     const { field, values } = relation.kinds;
     return values
-      .filter((value) => !top || admit(field, value))
+      .filter((value) => !top || admits(leaves, field, value))
       .flatMap((value) => {
         const row: Row = { ...base, [field]: value };
         const ownerName = ownerRelationOf(map, current, field, value);
@@ -250,34 +262,8 @@ const placeAdmitted = <R extends string>(
       step(current, segment, rest, relation, parent, top),
     );
   };
-  return place(resource, path.split('.'), true);
+  return withExactStrings(() => place(resource, path.split('.'), true));
 };
-
-/**
- * The records of `resource` that sit under the hydrated `anchor` (a record of `anchorResource`)
- * along `path` (dotted to-one relation names that own their foreign keys): at each step the foreign
- * keys whose values the parent knows, composite ones included, and the parent attached under the
- * relation. On a polymorphic step there is one record per kind the relation admits, each with its
- * owner placed under the anchor along every relation that leads there; `pins` (exact values, as a
- * `where` pins them) narrow the first step's kinds. Ids below the
- * anchor stay unknown. Empty when the path does not lead to the anchor's resource.
- */
-export const placeUnder = <R extends string>(
-  map: SchemaMap<R>,
-  resource: R,
-  path: string,
-  anchorResource: R,
-  anchor: Row,
-  pins: Row = {},
-): Row[] =>
-  placeAdmitted(
-    map,
-    resource,
-    path,
-    anchorResource,
-    anchor,
-    (field, value) => pins[field] === undefined || pins[field] === value,
-  );
 
 /**
  * The pseudo records a grant is checked on: `placeUnder` from the hydrated `anchor` along the entry's
@@ -294,15 +280,14 @@ export const placeEntitlement = <R extends string>(
 ): Row[] | null => {
   if (entitlementProblem(entry) !== null || recordId(anchor) !== entry.anchor.id) return null;
   if (entry.anchor.path === undefined) return [anchor];
-  const leaves = rootLeaves(entry.where);
-  const pins = pinned(leaves);
-  const placed = placeAdmitted(
+  const pins = pinned(rootLeaves(entry.where));
+  const placed = placeUnder(
     map,
     entry.resource as R,
     entry.anchor.path,
     entry.anchor.resource as R,
     anchor,
-    (field, value) => admits(leaves, field, value),
+    entry.where,
   ).map((record) => ({ ...pins, ...record }));
   return placed.length ? placed : null;
 };

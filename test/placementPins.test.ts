@@ -108,3 +108,45 @@ describe('what a grant pins onto its pseudo records', () => {
     expect(placeEntitlement(flat, e, s1)!.every((r) => !('space.name' in r))).toBe(true);
   });
 });
+
+describe("the app's json-rules string settings never reach permissions (R99)", () => {
+  test('with case-insensitive strings on globally, a where and a kind leaf still match exactly', async () => {
+    const { engineGlobals } = await import('@inixiative/json-rules');
+    engineGlobals.set('string.caseInsensitive', true);
+    try {
+      const reader = createPermissions();
+      await reader.setup({
+        resource: 'db:space',
+        id: 's1',
+        actions: { read: true },
+      } as PermissionEntry);
+      const ops = {
+        resource: 'db:integration',
+        anchor: { resource: 'db:space', id: 's1', path: 'space' },
+        where: { field: 'label', operator: 'equals', value: 'Ops' },
+        actions: { label: true },
+      } as EntitlementEntry;
+      const placed = placeEntitlement(flat, ops, s1) ?? [];
+      expect(placed.map((record) => record.label)).toEqual(['Ops']);
+      const check = createRebacCheck(flat);
+      expect(
+        check(
+          reader,
+          schema,
+          { resource: 'db:integration', record: { label: 'ops', spaceId: 's1', space: s1 } },
+          'label',
+        ),
+      ).toBe(false);
+      expect(
+        check(
+          reader,
+          schema,
+          { resource: 'db:integration', record: { label: 'Ops', spaceId: 's1', space: s1 } },
+          'label',
+        ),
+      ).toBe(true);
+    } finally {
+      engineGlobals.reset();
+    }
+  });
+});
