@@ -285,20 +285,20 @@ anchor is the anchor row itself.
 
 `canGrantEntitlement` judges each placed record in two passes:
 
-1. **Role.** The writer's table alone, with no entitlements and no actor, takes each action on
-   `placed`. It reads `placed` with json-rules `absent: 'unknown'`: a field it does not carry fails
+1. **The writer's own check.** Its table, its role and its entitlements, through the normal walk
+   and with no actor, take each action on `placed`. It reads `placed` with json-rules `absent: 'unknown'`: a field it does not carry fails
    every positive leaf, `equals null` included, so a writer whose authority reads a field the
    `where` leaves open is refused. A rule on `__actor` never passes: who the writer is is not
    authority that can be handed on. Rules are positive (`validateActionRule` refuses the rest),
    which is what makes a pass on `placed` hold for every record the `where` admits.
-2. **One held entitlement.** Failing that, the entry is one entitlement the writer holds, passed on
-   whole: the same `resource` and anchor (resource, id, path); each granted action one it holds or
+2. **One held entitlement.** Failing that (a held `where` the placed record cannot decide), the
+   entry is one entitlement the writer holds, passed on whole: the same `resource` and anchor (resource, id, path); each granted action one it holds or
    reaches by pure delegation (a bare action name, alone or an arm of a top-level `any`: holding
    `manage` grants `read` when `read` is `{ any: ['manage', …] }`); its `where` copied or narrowed
    (every condition of the held `where` — itself, or each child of its top `all` — among the
    entry's); and whoever granted the held one still takes each granted action on `placed`, so
-   copying never revives an entitlement its granter no longer backs. Held entitlements never
-   combine: to pass on two, grant two.
+   copying never revives an entitlement its granter no longer backs (for a lowered action, the
+   granter must still back the held action it lowers from).
 
 Permissions evaluates every rule with exact strings (json-rules `string.caseInsensitive` and
 `string.fuzzy` off), whatever the app sets globally, so grant time and read time always agree; a

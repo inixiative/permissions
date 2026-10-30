@@ -403,17 +403,18 @@ describe('entitlements: an action on a model from an anchor, owner on the row', 
     ).rejects.toThrow();
   });
 
-  test('15. `from` needs an owner; a false action grants nothing', async () => {
+  test('15. `from` needs an owner; an entitlement with no true action is refused', async () => {
     const holder = createPermissions();
     await expect(
       entitle(holder, [{ resource: 'db:space', anchor: AT_S1, actions: { manage: true } }]),
     ).rejects.toThrow();
-    await entitle(
-      holder,
-      [{ resource: 'db:space', anchor: AT_S1, actions: { manage: false } }],
-      await o1Table(),
-    );
-    expect(manage(holder, 'db:space', s1)).toBe(false);
+    await expect(
+      entitle(
+        holder,
+        [{ resource: 'db:space', anchor: AT_S1, actions: { manage: false } }],
+        await o1Table(),
+      ),
+    ).rejects.toThrow();
   });
 
   test('16. the actor is always the request’s actor, inside the owner’s walk too', async () => {

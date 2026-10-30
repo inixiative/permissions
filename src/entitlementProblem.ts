@@ -25,6 +25,8 @@ export const entitlementProblem = (entry: EntitlementEntry): string | null => {
     Object.values(entry.actions).some((value) => value !== undefined && typeof value !== 'boolean')
   )
     return 'entitlement actions are booleans';
+  if (!Object.values(entry.actions).some((value) => value === true))
+    return 'an entitlement grants at least one action';
   if (entry.where === null)
     return '`where: null` is not a rule: omit `where` for none, or write the rule';
   if (entry.where !== undefined) {
