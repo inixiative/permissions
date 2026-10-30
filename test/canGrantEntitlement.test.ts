@@ -317,11 +317,11 @@ describe('a held entitlement is passed on only as a copy or a narrowing of itsel
     expect(may(holder, both, placed())).toBe(false);
   });
 
-  test("a grant under a space inside the held anchor passes the writer's own check", async () => {
+  test('another anchor is not a copy of what is held: narrow with the where instead', async () => {
     const holder = await holderOf(
       entry('db:integration', at('db:organization', 'o1', 'space.organization'), ['read'], slack),
     );
-    expect(may(holder, underS1(['read'], slack), placed({ provider: 'slack' }))).toBe(true);
+    expect(may(holder, underS1(['read'], slack), placed({ provider: 'slack' }))).toBe(false);
   });
 });
 
@@ -370,27 +370,23 @@ test('an entitlement that grants no action is malformed: refused at setup and at
   ).rejects.toThrow();
 });
 
-describe("a delegate's role is its owner's narrowed entitlements: step one is its own check (R100)", () => {
+describe('step one is the table: a stored entitlement is passed on only as itself (R103)', () => {
   const manageS1 = entry('db:space', at('db:space', 's1'), ['manage']);
   const slackUnderS1 = entry('db:integration', at('db:space', 's1', 'space'), ['manage'], {
     field: 'provider',
     operator: Operator.equals,
     value: 'slack',
   });
-  const delegateOf = async (owner: Permix) => {
-    const delegate = createPermissions();
-    await delegate.setup([manageS1], { owner });
-    delegate.setActor({ model: 'Token', record: { id: 't1' } });
-    return delegate;
-  };
 
-  test('the delegate grants what its role covers, not only copies of it', async () => {
-    const delegate = await delegateOf(await holding('db:space', 's1', ['own']));
-    expect(may(delegate, slackUnderS1, { ...integrationUnder(s1), provider: 'slack' })).toBe(true);
+  test('holding manage on s1 as an entitlement grants a copy of it, not manage on its integrations', async () => {
+    const holder = createPermissions();
+    await holder.setup([manageS1], { owner: await holding('db:space', 's1', ['own']) });
+    expect(may(holder, manageS1, s1)).toBe(true);
+    expect(may(holder, slackUnderS1, { ...integrationUnder(s1), provider: 'slack' })).toBe(false);
   });
 
-  test('a role its owner no longer backs grants nothing', async () => {
-    const delegate = await delegateOf(await holding('db:space', 's1', ['read']));
-    expect(may(delegate, slackUnderS1, { ...integrationUnder(s1), provider: 'slack' })).toBe(false);
+  test('the same manage on s1 in the table grants manage on its integrations', async () => {
+    const writer = await holding('db:space', 's1', ['manage']);
+    expect(may(writer, slackUnderS1, { ...integrationUnder(s1), provider: 'slack' })).toBe(true);
   });
 });
