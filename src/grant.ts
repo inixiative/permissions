@@ -1,5 +1,6 @@
 import { isEqual } from 'lodash-es';
 import { createRebacCheck } from './check';
+import { entitlementProblem } from './entitlementProblem';
 import { asOwner } from './identity';
 import type { EntitlementEntry } from './permix';
 import { conjuncts, type SchemaMap } from './schemaMap';
@@ -74,6 +75,7 @@ export const createCanGrantEntitlement = <R extends string = string>(
   const check = createRebacCheck(map, { ...options, absent: 'unknown' });
 
   return (permix, schema, entry, placed) => {
+    if (entitlementProblem(entry) !== null) return false;
     const resource = entry.resource as R;
     const actions = Object.entries(entry.actions)
       .filter(([, held]) => held === true)

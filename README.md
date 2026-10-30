@@ -289,7 +289,7 @@ anchor is the anchor row itself.
    each action on `placed`. (An app that gives a delegate its owner's table capped at the delegate's
    role makes that role table entries too.) It reads `placed` with json-rules `absent: 'unknown'`: a field it does not carry fails
    every positive leaf, `equals null` included, so a writer whose authority reads a field the
-   `where` leaves open is refused. A rule on `__actor` never passes: who the writer is is not
+   `where` leaves open is refused. A rule that needs an actor (`__actor.model equals 'User'`, an id compared to `__actor.record`) never passes: who the writer is is not
    authority that can be handed on. Rules are positive (`validateActionRule` refuses the rest),
    which is what makes a pass on `placed` hold for every record the `where` admits.
 2. **One held entitlement.** Failing that, the entry is one entitlement the writer holds, passed on
@@ -302,13 +302,17 @@ anchor is the anchor row itself.
    granter must still back the held action it lowers from). Held entitlements never combine: to
    pass on two, grant two.
 
+`reachableFrom(schema, resource, action)` is that pure-delegation walk: the actions on `resource`
+whose holding grants `action` (itself included). An app that caps a delegate at a role can keep
+the actions an entry implies with it.
+
 Permissions evaluates every rule with exact strings (json-rules `string.caseInsensitive` and
 `string.fuzzy` off), whatever the app sets globally, so grant time and read time always agree; a
 leaf that wants case-insensitivity says so itself, and such a leaf never narrows.
 
 An action's rule is ReBAC (walks to parents) plus ABAC (`{ rule }` conditions on the record,
 conditions on `__actor`, who acts). Granting checks both on the placed record, with no actor, so a
-rule on `__actor` never grants; at read time the holder's check walks the writer's table on the real
+rule that needs an actor never grants; at read time the holder's check walks the writer's table on the real
 record with the request's actor. A holder of a granted action reaches no further than its writer
 would on that record.
 

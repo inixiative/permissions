@@ -190,13 +190,13 @@ describe('canGrantEntitlement: never more than the writer could do from that anc
     );
   });
 
-  test('false actions grant nothing and need nothing', async () => {
+  test('an entry that grants no action is malformed, so it is never granted (R104)', async () => {
     const granted: EntitlementEntry = {
       resource: 'db:organization',
       anchor: at('db:organization', 'o1'),
       actions: { own: false },
     };
-    expect(may(await holding('db:organization', 'o1', ['read']), granted, o1)).toBe(true);
+    expect(may(await holding('db:organization', 'o1', ['own']), granted, o1)).toBe(false);
   });
 
   test('the grant check has no actor: a person-only action is never granted, by a person or a token', async () => {
