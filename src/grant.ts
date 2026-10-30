@@ -3,16 +3,9 @@ import { createRebacCheck } from './check';
 import { entitlementProblem } from './entitlementProblem';
 import { asOwner } from './identity';
 import type { EntitlementEntry } from './permix';
+import { reachableFrom } from './reachableFrom';
 import { conjuncts, type SchemaMap } from './schemaMap';
-import type {
-  ActionRule,
-  Anchor,
-  CheckOptions,
-  Entitlement,
-  PermixLike,
-  RebacSchema,
-  Row,
-} from './types';
+import type { Anchor, CheckOptions, Entitlement, PermixLike, RebacSchema, Row } from './types';
 
 export type CanGrantEntitlement<R extends string = string> = (
   permix: PermixLike,
@@ -23,29 +16,6 @@ export type CanGrantEntitlement<R extends string = string> = (
 
 const sameAnchor = (a: Anchor, b: Anchor) =>
   a.resource === b.resource && a.id === b.id && a.path === b.path;
-
-const pureDelegates = (rule: ActionRule | undefined): string[] => {
-  if (typeof rule === 'string') return [rule];
-  if (typeof rule === 'object' && rule !== null && 'any' in rule && Object.keys(rule).length === 1)
-    return rule.any.filter((arm): arm is string => typeof arm === 'string');
-  return [];
-};
-
-export const reachableFrom = (
-  schema: RebacSchema,
-  resource: string,
-  action: string,
-): Set<string> => {
-  const actions = schema.permissions[resource]?.actions ?? {};
-  const reached = new Set<string>();
-  const climb = (current: string) => {
-    if (reached.has(current)) return;
-    reached.add(current);
-    for (const next of pureDelegates(actions[current])) climb(next);
-  };
-  climb(action);
-  return reached;
-};
 
 const narrows = (held: Entitlement, entry: EntitlementEntry) => {
   const granted = conjuncts(entry.where);

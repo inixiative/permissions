@@ -706,10 +706,10 @@ describe('the chain: token ← org-user’s entitlement ← organization’s rig
     expect(manage(t, 'db:space', s1moved)).toBe(false);
   });
 
-  test('the token’s entitlement is wider than the org-user’s: nothing, not even the narrower action', async () => {
+  test('the token’s entitlement is wider than the org-user’s: only what both hold, the narrower action (R111)', async () => {
     const t = await tokenOf(await orgUser('member', [readS1]), [manageS1]);
     expect(manage(t, 'db:space', s1)).toBe(false);
-    expect(read(t, 'db:space', s1)).toBe(false);
+    expect(read(t, 'db:space', s1)).toBe(true);
   });
 
   test('the token’s entitlement is narrower: only the narrower action', async () => {

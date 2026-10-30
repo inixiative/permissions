@@ -1,6 +1,7 @@
 import { type Absent, type Condition, check as checkRule } from '@inixiative/json-rules';
 import { evaluate, type Walk } from './evaluate';
 import { asOwner, nodeId, permixId } from './identity';
+import { reachableFrom } from './reachableFrom';
 import { recordId } from './recordId';
 import { relationOf } from './schemaMap';
 import type { Anchor, PermixLike, Row } from './types';
@@ -39,7 +40,10 @@ export const entitled = <R extends string>(
   visited: Set<string>,
 ): boolean => {
   const actor = permix.getActor();
-  return (permix.entitlements?.(resource, action) ?? []).some(
+  const held = [...reachableFrom(walk.schema, resource, action)].flatMap(
+    (implying) => permix.entitlements?.(resource, implying) ?? [],
+  );
+  return held.some(
     ({ anchor, where, owner }) =>
       !visited.has(`${permixId(owner)}:${nodeId(record)}:${resource}:${action}`) &&
       (where === undefined || holds(where, record, walk.absent)) &&
