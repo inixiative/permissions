@@ -120,11 +120,12 @@ describe('two jumps: a user token reaches a distributor product through the org 
   const chain = async ({ distributorBacks = true, orgHolds = true, userHolds = true } = {}) => {
     const distributor = createPermissions();
     if (distributorBacks)
-      await distributor.setup({
-        resource: 'db:distributor',
-        id: 'd',
-        actions: { own: true },
-      } as PermissionEntry);
+      for (const id of ['d', 'd2'])
+        await distributor.setup({
+          resource: 'db:distributor',
+          id,
+          actions: { own: true },
+        } as PermissionEntry);
     const organization = createPermissions();
     if (orgHolds) await organization.setup([readProducts], { owner: distributor });
     const user = createPermissions();
@@ -153,7 +154,7 @@ describe('two jumps: a user token reaches a distributor product through the org 
     expect((await chain({ userHolds: false }))(productOf('d'), 'read')).toBe(false);
   });
 
-  test('the last mile: the product moved to another distributor, so the token reaches nothing', async () => {
+  test('the last mile: the product moved to another distributor the granter also owns, so only the anchor stops it', async () => {
     expect((await chain())(productOf('d2'), 'read')).toBe(false);
   });
 });
