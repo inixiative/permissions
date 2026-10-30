@@ -30,7 +30,11 @@ const pureDelegates = (rule: ActionRule | undefined): string[] => {
   return [];
 };
 
-const reachableFrom = (schema: RebacSchema, resource: string, action: string): Set<string> => {
+export const reachableFrom = (
+  schema: RebacSchema,
+  resource: string,
+  action: string,
+): Set<string> => {
   const actions = schema.permissions[resource]?.actions ?? {};
   const reached = new Set<string>();
   const climb = (current: string) => {
