@@ -81,7 +81,7 @@ export const createPermissions = <
   let isSuperadmin = false;
   let actor: A | null = null;
   let accumulated: PermissionState = {};
-  let entitlements: (Entitlement & { resource: string; actions: ActionState })[] = [];
+  let entitlements = new Map<string, Entitlement[]>();
 
   return {
     check: (resource, action, id, data) => {
@@ -100,18 +100,19 @@ export const createPermissions = <
       for (const entry of entries) validate(entry, options?.owner);
       if (options?.replace) {
         accumulated = {};
-        entitlements = [];
+        entitlements = new Map();
       }
       for (const entry of entries) {
         if (isEntitlement(entry)) {
           const { resource, anchor, where, actions } = entry;
-          entitlements.push({
-            resource,
-            anchor,
-            where,
-            actions,
-            owner: options?.owner as PermixLike,
-          });
+          const held = { anchor, where, actions, owner: options?.owner as PermixLike };
+          for (const [action, value] of Object.entries(actions)) {
+            if (value !== true) continue;
+            const key = `${resource}\0${action}`;
+            const list = entitlements.get(key);
+            if (list) list.push(held);
+            else entitlements.set(key, [held]);
+          }
           continue;
         }
         const { resource, id, actions } = entry;
@@ -122,10 +123,7 @@ export const createPermissions = <
       }
       await permix.setup(accumulated as Parameters<typeof permix.setup>[0]);
     },
-    entitlements: (resource, action) =>
-      entitlements
-        .filter((e) => e.resource === resource && e.actions[action] === true)
-        .map(({ anchor, where, actions, owner }) => ({ anchor, where, actions, owner })),
+    entitlements: (resource, action) => [...(entitlements.get(`${resource}\0${action}`) ?? [])],
     setSuperadmin: (value) => {
       isSuperadmin = value;
     },

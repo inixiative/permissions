@@ -1,3 +1,9 @@
+## Unreleased
+
+- **Entitlements are indexed by resource and action at `setup`.** A check no longer scans every held entitlement: holding 10,000 on other resources costs the same as holding none (2.7 ms → 21 µs per refused check at 3 hops), and on the same resource it is about twice as fast. Same results, same order.
+- **`bun run bench`** (`bench/`, not shipped): check cost by walk depth and by entitlements held.
+- Tests: boundary scenarios (agent vs licensee, sublicense chains, cycles, two distributors, License rows).
+
 ## 0.14.0 — a grant is the writer's table without an actor, or one held entitlement passed on whole
 
 - **Breaking: `canGrantEntitlement` runs in two passes.** First the writer's table, with no entitlements and no actor: a rule that needs an actor never grants, so person-only actions are not grantable. Failing it, the entry may be one entitlement the writer holds, passed on whole (held entitlements never combine): same resource and anchor, each action held or reached by pure delegation (holding `manage` grants `read`), the held `where` copied or narrowed, and its granter still backing the held action on the placed record.
