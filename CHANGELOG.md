@@ -1,3 +1,7 @@
+## 0.16.0 — the hydrator walks the schema map
+
+- **Breaking: `createHydrator({ map, load })`.** It takes the schema map the checks walk instead of a `parents` function, and `load(resource, where)` instead of `load(model, id)`. It follows every to-one relation that owns its foreign key and leads to a resource in the map, loads composite keys and non-id targets by every column the target names, gives a polymorphic record every relation whose columns are set, and skips a relation tagged `/// @permissions(hydrate: false)`. Cycles are still cut by the ancestors on the path. `ParentRelation` is gone.
+
 ## 0.15.0 — entitlements indexed, duplicates collide at setup, a performance bench
 
 - **Entitlements are indexed by resource and action at `setup`.** A check no longer scans every held entitlement: holding 10,000 on other resources costs the same as holding none (2.7 ms → 21 µs per refused check at 3 hops), and on the same resource it is about twice as fast. Same results, same order.

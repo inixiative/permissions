@@ -8,7 +8,7 @@ One check, over your own data, that covers:
 - **RuBAC** — rules as data: every condition is a serializable, positive [`@inixiative/json-rules`](https://github.com/inixiative/json-rules) rule, the same AST everywhere it appears.
 - **Delegation (entitlements)** — attenuated grants a holder passes on (copied, narrowed, lowered, never widened), each re-checked live at every link of its chain and at every tenant boundary it crosses.
 
-It runs on your actual database: the checks walk your own records through the schema map you pass (which model each resource is, its relations and foreign keys — a [`@inixiative/prisma-map`](https://github.com/inixiative/prisma-map) map in the inixiative stack — and its polymorphic models' kinds). There is no separate authorization store and no relationship tuples to sync. The core never imports a database layer; **loading and hydration stay in the app**. About a thousand lines of TypeScript.
+It runs on your actual database: the checks walk your own records through the schema map you pass (which model each resource is, its relations and foreign keys — a [`@inixiative/prisma-map`](https://github.com/inixiative/prisma-map) map in the inixiative stack — and its polymorphic models' kinds). There is no separate authorization store and no relationship tuples to sync. The core never imports a database layer: `createHydrator` walks the schema map and calls the `load` you give it. About a thousand lines of TypeScript.
 
 ## Permission algebra (`ActionRule`)
 
@@ -340,50 +340,52 @@ assign: {
 ## Hydration (Prisma example)
 
 `check` walks relation **fields on the record you pass in** — it never queries. The robust pattern
-is to make under-hydration impossible by construction: recursively load every FK-backed to-one
-relation (the record's ownership closure) before checking, instead of maintaining per-action
-include shapes. Then a missing relation can only mean the FK is null — a real deny, not a loading
-artifact. `createHydrator` is that pattern as an injected-seam primitive: give it `parents` (the
-to-one, FK-owning relations for a model) and `load` (a single read — also where you wrap caching).
+is to make under-hydration impossible by construction: recursively load every to-one relation that
+owns its foreign key (the record's ownership closure) before checking, instead of maintaining
+per-action include shapes. Then a missing relation can only mean the key is null — a real deny, not a
+loading artifact.
 
-Don't hand-maintain the relation map — extract it from the generated Prisma client with
-[`@inixiative/prisma-map`](https://github.com/inixiative/prisma-map), and feed the **same map** to
-both the schema map and the hydrator's `parents` so they can't drift:
+`createHydrator` is that pattern over the **same schema map** the checks walk, so the two can't drift.
+Give it the map and `load`, one read of a resource's record by its target columns (`{ id }`, or every
+column of a composite key). `load` is the cache seam: the hydrator de-duplicates loads within one
+hydration, your wrapper caches across calls.
 
 ```ts
-import { buildPrismaMapV7, type RelationField } from '@inixiative/prisma-map';
-import { createHydrator, createRebacCheck, type ParentRelation } from '@inixiative/permissions';
+import { buildPrismaMapV7 } from '@inixiative/prisma-map';
+import { createHydrator, createRebacCheck, type SchemaMap } from '@inixiative/permissions';
 
-const map = buildPrismaMapV7();
-
-const check = createRebacCheck({
-  resources: { Document: 'Document', Team: 'Team' },
-  fieldMap: { models: map },
+const prismaMap = buildPrismaMapV7();
+const map: SchemaMap = {
+  resources: { document: 'Document', team: 'Team' },
+  fieldMap: { models: prismaMap },
   polymorphism, // your false-polymorphism registry, if you have one
-});
+};
 
-// to-one parents: relation fields whose FK lives on this model (fromFields is empty on back-relations)
-const parents = (model: string): ParentRelation[] =>
-  Object.entries(map[model]?.fields ?? {})
-    .filter((e): e is [string, RelationField] => e[1].kind === 'object' && !e[1].isList && e[1].fromFields.length > 0)
-    .map(([field, rel]) => ({ field, model: rel.type, fk: rel.fromFields[0] }));
-
-// load is the cache seam: the hydrator de-dupes within one call, your wrapper caches across calls
+const check = createRebacCheck(map);
 const hydrate = createHydrator({
-  parents,
-  load: (model, id) => cached(`${model}:${id}`, () => db[model].findFirst({ where: { id } })),
+  map,
+  load: (resource, where) => cached(resource, where, () => db[resource].findFirst({ where })),
 });
 
-const doc = await hydrate('Document', await db.document.findFirstOrThrow({ where: { id } }));
-check(permix, schema, { resource: 'Document', record: doc }, 'manage');
+const doc = await hydrate('document', await db.document.findFirstOrThrow({ where: { id } }));
+check(permix, schema, { resource: 'document', record: doc }, 'manage');
 ```
 
-(`buildPrismaMapV6` covers Prisma 6 clients. The map keys models by Prisma name — `Document` — so
-if your schema and delegates use accessor casing, `lowerFirst`/`upperFirst` at the boundary.)
+- **What it follows:** every to-one relation with its foreign key on the record (`fromFields`) that
+  leads to a resource in the map. Lists, back-relations and models outside the map are not followed.
+- **Composite keys and non-id targets** load by every column the target names (`toFields`); a key with
+  one column null loads nothing.
+- **Polymorphic records** get every relation whose columns are set, whatever the kind: hydration does
+  not know which check comes next.
+- **Skipping an edge:** a relation tagged `/// @permissions(hydrate: false)` in the Prisma schema (a
+  prisma-map annotation) is not followed. Use it for an edge that is not part of ownership, or to
+  break a loop in the schema.
+- **Cycles:** an edge back to a record already on the path from the root is cut, so a self-referential
+  key or an A to B to A loop terminates; a parent reached on two paths is hydrated on both and loaded
+  once.
 
-This guarantees the vast majority of the path automatically; records are plain data, so nothing
-stops you from attaching extra relations or predicate fields by hand before checking, or
-special-casing relations that don't traverse cleanly (self-references) in a custom hydration step.
+Records are plain data, so nothing stops you from attaching extra relations or predicate fields by
+hand before checking.
 
 ## Also exported
 
