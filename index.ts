@@ -4,6 +4,7 @@ export * from './src/grant';
 export * from './src/hydrate';
 export * from './src/permix';
 export { reachableFrom } from './src/reachableFrom';
+export * from './src/redundantEntitlements';
 export {
   type PolymorphicAxis,
   type Polymorphism,

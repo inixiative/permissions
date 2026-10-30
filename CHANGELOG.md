@@ -1,7 +1,8 @@
 ## Unreleased
 
 - **Entitlements are indexed by resource and action at `setup`.** A check no longer scans every held entitlement: holding 10,000 on other resources costs the same as holding none (2.7 ms → 21 µs per refused check at 3 hops), and on the same resource it is about twice as fast. Same results, same order.
-- **`bun run bench`** (`bench/`, not shipped): check cost by walk depth and by entitlements held.
+- **A duplicate entitlement is a no-op at `setup`:** one the holder already holds from the same owner, identical or with fewer actions, is skipped. `coversEntitlement(held, entry)` and `withoutRedundantEntitlements(entries)` apply the rule to a list before it is stored.
+- **`bun run bench`** (`bench/`): check cost by walk depth and by entitlements held; README § Performance.
 - Tests: boundary scenarios (agent vs licensee, sublicense chains, cycles, two distributors, License rows).
 
 ## 0.14.0 — a grant is the writer's table without an actor, or one held entitlement passed on whole

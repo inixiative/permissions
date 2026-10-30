@@ -2,6 +2,8 @@ import type { Condition } from '@inixiative/json-rules';
 import { castArray } from 'lodash-es';
 import { createPermix } from 'permix';
 import { entitlementProblem } from './entitlementProblem';
+import { permixId } from './identity';
+import { coversEntitlement } from './redundantEntitlements';
 import type { Actor, Anchor, Entitlement, PermixLike } from './types';
 
 export type ActionState<Action extends string = string> = Partial<
@@ -82,6 +84,7 @@ export const createPermissions = <
   let actor: A | null = null;
   let accumulated: PermissionState = {};
   let entitlements = new Map<string, Entitlement[]>();
+  let granted = new Map<string, EntitlementEntry[]>();
 
   return {
     check: (resource, action, id, data) => {
@@ -101,11 +104,17 @@ export const createPermissions = <
       if (options?.replace) {
         accumulated = {};
         entitlements = new Map();
+        granted = new Map();
       }
       for (const entry of entries) {
         if (isEntitlement(entry)) {
           const { resource, anchor, where, actions } = entry;
-          const held = { anchor, where, actions, owner: options?.owner as PermixLike };
+          const owner = options?.owner as PermixLike;
+          const same = `${permixId(owner)}\0${resource}\0${JSON.stringify(anchor)}\0${JSON.stringify(where)}`;
+          const alike = granted.get(same) ?? [];
+          if (alike.some((held) => coversEntitlement(held, entry))) continue;
+          granted.set(same, [...alike, entry]);
+          const held = { anchor, where, actions, owner };
           for (const [action, value] of Object.entries(actions)) {
             if (value !== true) continue;
             const key = `${resource}\0${action}`;

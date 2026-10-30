@@ -251,7 +251,7 @@ where `read` delegates up to `manage`. One applies when all three hold:
 another resource without a `path` or on its own resource with one, an `id` beside a
 `anchor` (a single row is `where: { field: 'id', … }`), a non-boolean action, `where: null`, or a
 malformed or non-positive rule, before touching any state; `entitlementProblem(entry)` names the
-problem (or returns `null`), so stored entries can be filtered before they are installed. `replace: true` clears entitlements with the table. `getJSON`
+problem (or returns `null`), so stored entries can be filtered before they are installed. An entitlement the holder already holds from the same owner — identical, or the same with fewer actions — is a no-op; `coversEntitlement(held, entry)` and `withoutRedundantEntitlements(entries)` apply the same rule to a list before it is stored. `replace: true` clears entitlements with the table. `getJSON`
 carries grants only. Tenancy is as live as the owner's grants are id-keyed: an owner table with a
 resource-wide grant, or the superadmin flag, short-circuits before any walk.
 
@@ -391,7 +391,22 @@ special-casing relations that don't traverse cleanly (self-references) in a cust
   json-rules `validateRule` checks a condition, and returns the same `{ ok, errors }`: the shape,
   and every `{ rule }` a positive json-rules condition. No schema library involved.
 
-## Boundary
+## Performance
+
+`bun run bench` (in `bench/`, beside `test/`) times a check by walk depth and by entitlements held;
+add a `*.bench.ts` beside it to measure your own shapes. On an M-series Mac (bun 1.4.4), p50 per check:
+
+| Case | Cost |
+|---|---|
+| A table hit | ~1.5 µs |
+| An allowed walk, up to 6 hops | ~2 µs |
+| A refused walk, 2 / 4 / 6 hops | 8.5 / 28 / 70 µs |
+| A refused walk at 3 hops, 10,000 entitlements on other resources | ~20 µs (same as none) |
+| The same, 1,000 / 10,000 entitlements on the same resource | 285 µs / 2.9 ms |
+
+An allowed check stops at the first grant that answers. A refused one tries every way the schema
+offers, so its cost grows with depth and with the entitlements held on the resource asked.
+
 
 This package owns the **wrapping, checking and grant placement**. It does **not** own loading —
 fetching records, hydrating them, mapping roles → grants, building an entitlement's owner table, or
