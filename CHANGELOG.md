@@ -1,3 +1,11 @@
+## Unreleased — delegate resolution
+
+- **`delegate(schema, owner, { full?, ceiling?, entitlements? })`** resolves a delegate's table from its owner's: `full` is the owner's table whole (its entitlements included); otherwise the owner's table grants capped at the ceiling (none without one; the owner's entitlements never) plus the delegate's entitlements backed by the owner's table. Nothing set is the empty table. Delegates chain (a token on an integration of a member). Who may set `full` stays app policy.
+- **`Table`**, a table as data (`{ entries, owner? }[]`), with `installTable(permix, table)` and `tablePermix(table)`.
+- **`capEntry(schema, entry, ceiling)`** keeps an entry at a ceiling by the schema's pure-delegation chain; no role ladder.
+- **`wellFormedEntitlements(value)`** keeps a stored value's well-formed, non-redundant entitlement entries.
+- README § Delegating a table.
+
 ## 0.16.0 — the hydrator walks the schema map
 
 - **Breaking: `createHydrator({ map, load })`.** It takes the schema map the checks walk instead of a `parents` function, and `load(resource, where)` instead of `load(model, id)`. It follows every to-one relation that owns its foreign key and leads to a resource in the map, loads composite keys and non-id targets by every column the target names, gives a polymorphic record every relation whose columns are set, and skips a relation tagged `/// @permissions(hydrate: false)`. Cycles are still cut by the ancestors on the path. `ParentRelation` is gone.
