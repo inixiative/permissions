@@ -12,5 +12,6 @@ export {
   placeUnder,
   type SchemaMap,
 } from './src/schemaMap';
+export * from './src/table';
 export type * from './src/types';
 export * from './src/validateActionRule';
