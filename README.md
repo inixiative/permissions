@@ -508,6 +508,26 @@ hand before checking.
   json-rules `validateRule` checks a condition, and returns the same `{ ok, errors }`: the shape,
   and every `{ rule }` a positive json-rules condition. No schema library involved.
 
+## Roadmap: 1.0, reflection
+
+Today the engine checks: one record, already loaded, allow or deny. 1.0 adds reflection: the same
+rules compile to a Prisma `where` and to SQL, the two targets
+[`@inixiative/json-rules`](https://github.com/inixiative/json-rules) already has. Serialization made
+rules data you can store and let tenants author; reflection makes that data answer questions about
+whole tables:
+
+- **Which records can this actor read?** One query, paged, sorted and indexed, instead of loading
+  candidates and checking each.
+- **Who can read this record?** The reverse question, for notification recipients and audits.
+
+It is mostly a mapping. The algebra is positive, and what a query can't express cleanly (negation,
+missing values, array and aggregate rules) is already refused in permission rules and entitlement
+`where`s. A condition reuses json-rules' compilers, `any` and `all` become `OR` and `AND`, a
+relation walk becomes a nested relation filter, role grants become `id IN (...)` or `TRUE`, and an
+entitlement becomes its anchor path, its `where` and its owner's own permissions, compiled the same
+way. Bridges to another data source are where it degrades: prefetch the far ids, or fall back to
+`check` for that hop. `check` stays for single records.
+
 ## Performance
 
 `bun run bench` (in `bench/`, beside `test/`) times a check by walk depth and by entitlements held;
