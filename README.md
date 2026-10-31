@@ -2,7 +2,7 @@
 
 One check, over your own data, that covers:
 
-- **RBAC** — roles as permissions grants, and delegates: a token or integration's ceiling caps its owner's permissions grants along your schema's own action chain, and only `full` passes the owner's permissions on whole.
+- **RBAC** — roles as table grants, and delegates: a token or integration's ceiling caps its owner's role grants along your schema's own action chain, and only `full` passes the owner's permissions on whole.
 - **ReBAC** — relationship walks (`{ rel, action }`) over your schema's relations, polymorphic owners included.
 - **ABAC** — conditions on the record and on the acting principal (`{ rule }`, `__actor`).
 - **RuBAC** — rules as data: every condition is a serializable, positive [`@inixiative/json-rules`](https://github.com/inixiative/json-rules) rule, the same AST everywhere it appears.
