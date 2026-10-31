@@ -1,3 +1,8 @@
+## 0.17.1 — core and helpers
+
+- **`src/core` and `src/helpers`.** The core (the algebra, `check`, the permix, entitlements, the grant check, validation) never imports a helper; `test/layout.test.ts` enforces it. Delegation (`delegate`, `capAtRole`, `installPermissions`, `permixOf`, `wellFormedEntitlements`) and hydration (`createHydrator`) are helpers. Exports are unchanged.
+- **Docs.** README: why this one, a comparison table, core and helpers, a vocabulary, the 1.0 roadmap (reflection to Prisma and SQL by the end of 2026). New `COMPARISON.md` with sources.
+
 ## 0.17.0 — delegate resolution
 
 - **Passing on a held entitlement asks its grantor about the action being granted (R111).** Holding `manage` by entitlement while the grantor is down to `read`, you may still pass on `read`, exactly as you may still use it; `manage` stays refused. Before, any grantor loss froze the whole entitlement for passing on.

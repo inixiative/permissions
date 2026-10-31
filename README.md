@@ -8,12 +8,44 @@ One check, over your own data, that covers:
 - **RuBAC** — rules as data: every condition is a serializable, positive [`@inixiative/json-rules`](https://github.com/inixiative/json-rules) rule, the same AST everywhere it appears.
 - **Delegation (entitlements)** — attenuated grants a holder passes on (copied, narrowed, lowered, never widened), each re-checked live at every link of its chain and at every tenant boundary it crosses.
 
-It decides on your own records: the checks walk them through the schema map you pass (which model each resource is, its relations and foreign keys — a [`@inixiative/prisma-map`](https://github.com/inixiative/prisma-map) map in the inixiative stack — and its polymorphic models' kinds), reached through a `load` you provide. There is no separate authorization store and no relationship tuples to sync. The core never imports a database layer: `createHydrator` walks the schema map and calls your `load`, which is also where caching goes. About a thousand lines of TypeScript.
+It decides on your own records: the checks walk them through the schema map you pass (which model each resource is, its relations and foreign keys — a [`@inixiative/prisma-map`](https://github.com/inixiative/prisma-map) map in the inixiative stack — and its polymorphic models' kinds), reached through a `load` you provide. There is no separate authorization store and no relationship tuples to sync. The core never imports a database layer: `createHydrator` walks the schema map and calls your `load`, which is also where caching goes. The core is about a thousand lines of TypeScript; optional helpers for delegation and hydration add about two hundred more. MIT licensed.
 
 Everything you configure it with is plain JSON: the schema's rules, role grants, entitlements, `Permissions`. So
 they can live in your database, be composed like any other data, and be authored at runtime. A
 tenant can manage its own rules and roles instead of you writing one per tenant, and nothing is a
 config file shipped on deploy. `validateActionRule` checks a stored rule before you persist it.
+
+## Why this one
+
+- **No second store.** A check reads the records you already have. There is no authorization service to run, no relationship tuples to dual-write, no consistency tokens, nothing to reconcile, so nothing drifts.
+- **Rules are data, down to one record.** The schema, role grants, entitlements and per-record rules are all JSON. A tenant can write a rule on one of its own records, validated before it is saved, and it can only widen access. Policy grows per tenant instead of being one global document someone else has to edit.
+- **Delegation that stays honest.** An entitlement names who granted it. Every check asks again whether that grantor still allows the action on that record, up the whole chain and across tenant boundaries. Demote anyone in the chain and what they handed on stops on the next request, with nothing to clean up.
+- **Granting is checked by the same rules.** You can only hand on what you could do yourself on every record the grant reaches. No separate admin policy to keep in step.
+- **Change the rules, not the data.** What an action means and what implies what are read at check time, so changing them never means migrating or re-checking stored grants.
+- **Positive by design.** No deny rules: you narrow by composing a stricter rule (`all`), so there is no deny-versus-allow conflict, and a rule never passes because something wasn't loaded.
+- **Small enough to read.** About a thousand lines of core, in your process.
+
+| | This library | SpiceDB, OpenFGA, Permify | Cedar / AVP | Oso Cloud | Cerbos | OPA |
+|---|---|---|---|---|---|---|
+| Decides on your own rows, no second store | Yes | No, tuple store you sync | Entities passed per request | Fact store you sync | Attributes passed per request | Data pushed to it |
+| Rules are JSON data | Yes | DSL | DSL (JSON form exists) | Polar | YAML | Rego |
+| A tenant writes a rule on one record | Yes, can only widen | Parameters per tuple; logic is global | Template-linked policies | Facts per record; logic is global | No | No |
+| Delegation re-checked against its grantor at every use | Yes | No | No | No | No | No |
+| Grant-time check from the same rules | Yes | No | No | No | n/a | No |
+| Lists "what can I read" as a query | 1.0, end of 2026 | Id lists | Experimental | Yes | Yes | Partial evaluation |
+| Runs in your process | Yes | No | Cedar yes, AVP hosted | No | Service or sidecar | Sidecar or library |
+| Size | ~1,000 lines core | Service | Library and service | Service | Service | Service |
+
+The full comparison, with sources for every cell and where the others are ahead: [COMPARISON.md](./COMPARISON.md).
+
+## Core and helpers
+
+The code is split the same way you can use it:
+
+- **`src/core`**: the algebra, `check`, the permix, entitlements, the grant check and validation. This is the library. It never imports a helper, and a test keeps it that way.
+- **`src/helpers`**: optional building blocks on top of the core. **Delegation** (`delegate`, `capAtRole`, `installPermissions`, `permixOf`, `wellFormedEntitlements`) resolves a token's or integration's permissions from its owner's. **Hydration** (`createHydrator`) loads a record with the relations a check walks.
+
+Want your own delegation model or your own loading? Skip the helpers and call `check` with a permix you set up and a record you loaded.
 
 ## Vocabulary
 
@@ -363,7 +395,7 @@ assign: {
 // No one grants token.create: the grant check has no actor, so the person-only rule never passes.
 ```
 
-## Delegation: full or specified
+## Helper: delegation, full or specified
 
 A delegate (a token, an integration) acts from its owner's permissions (a user, a member, an
 organization, another delegate). The library resolves what those permissions become; the app loads
@@ -452,7 +484,7 @@ Boundaries compose: distributor to vendor to buyer to member to token is a chain
 re-checked live. `test/boundaries.test.ts`, `test/crossTenant.test.ts` and `test/licensing.test.ts`
 build these scenarios.
 
-## Hydration (Prisma example)
+## Helper: hydration (Prisma example)
 
 `check` walks relation **fields on the record you pass in** — it never queries. The robust pattern
 is to make under-hydration impossible by construction: recursively load every to-one relation that
@@ -510,7 +542,7 @@ hand before checking.
 
 ## Roadmap: 1.0, reflection
 
-Today the engine checks: one record, already loaded, allow or deny. 1.0 adds reflection: the same
+Today the engine checks: one record, already loaded, allow or deny. 1.0, by the end of 2026, adds reflection: the same
 rules compile to a Prisma `where` and to SQL, the two targets
 [`@inixiative/json-rules`](https://github.com/inixiative/json-rules) already has. Serialization made
 rules data you can store and let tenants author; reflection makes that data answer questions about
