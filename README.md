@@ -8,7 +8,12 @@ One check, over your own data, that covers:
 - **RuBAC** — rules as data: every condition is a serializable, positive [`@inixiative/json-rules`](https://github.com/inixiative/json-rules) rule, the same AST everywhere it appears.
 - **Delegation (entitlements)** — attenuated grants a holder passes on (copied, narrowed, lowered, never widened), each re-checked live at every link of its chain and at every tenant boundary it crosses.
 
-It runs on your actual database: the checks walk your own records through the schema map you pass (which model each resource is, its relations and foreign keys — a [`@inixiative/prisma-map`](https://github.com/inixiative/prisma-map) map in the inixiative stack — and its polymorphic models' kinds). There is no separate authorization store and no relationship tuples to sync. The core never imports a database layer: `createHydrator` walks the schema map and calls the `load` you give it. About a thousand lines of TypeScript.
+It decides on your own records: the checks walk them through the schema map you pass (which model each resource is, its relations and foreign keys — a [`@inixiative/prisma-map`](https://github.com/inixiative/prisma-map) map in the inixiative stack — and its polymorphic models' kinds), reached through a `load` you provide. There is no separate authorization store and no relationship tuples to sync. The core never imports a database layer: `createHydrator` walks the schema map and calls your `load`, which is also where caching goes. About a thousand lines of TypeScript.
+
+Everything it reads is plain JSON: the schema's rules, role grants, entitlements, `Permissions`. So
+they can live in your database, be composed like any other data, and be authored at runtime. A
+tenant can manage its own rules and roles instead of you writing one per tenant, and nothing is a
+config file shipped on deploy. `validateActionRule` checks a stored rule before you persist it.
 
 ## Vocabulary
 
@@ -38,7 +43,8 @@ type ActionRule =
   | { rule: Condition }          // abac: a json-rules predicate over the record, the actor under `__actor`
   | { any: ActionRule[] }        // OR
   | { all: ActionRule[] }        // AND
-  | null;                        // terminal deny
+  | boolean                      // terminal: `true` allows, `false` denies
+  | null;                        // terminal deny, like any falsy value
 ```
 
 A `RebacSchema` is `{ bridges?, permissions }` — `permissions` maps a (map-qualified) **resource**,
@@ -89,7 +95,8 @@ const schema: RebacSchema = {
 `rel` accepts dot-paths for multi-hop walks — `{ rel: 'space.organization', action: 'own' }` chains
 through `record.space.organization`, resolving each hop's model from the schema map.
 
-Records may also carry a `permissionRules` JSON field (`action → ActionRule`); `check` merges a row
+Records may also carry a `permissionRules` JSON field (`action → ActionRule`): ABAC on the record
+itself, so one record can take a rule its model's schema doesn't. `check` merges a row
 rule **additively** (OR) with the schema rule, so per-record overrides can widen but never revoke.
 Validate tenant-authored overrides with `validateActionRule` before persisting them.
 
