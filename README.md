@@ -44,7 +44,7 @@ type ActionRule =
   | { any: ActionRule[] }        // OR
   | { all: ActionRule[] }        // AND
   | boolean                      // terminal: `true` allows, `false` denies
-  | null;                        // terminal deny, like any falsy value
+  | null;                        // terminal deny, as is an action the schema does not name
 ```
 
 A `RebacSchema` is `{ bridges?, permissions }` — `permissions` maps a (map-qualified) **resource**,
