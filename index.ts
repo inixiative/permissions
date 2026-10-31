@@ -15,3 +15,4 @@ export {
 export * from './src/table';
 export type * from './src/types';
 export * from './src/validateActionRule';
+export * from './src/wellFormedEntitlements';
