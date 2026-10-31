@@ -2,13 +2,13 @@
 
 One check, over your own data, that covers:
 
-- **RBAC** — roles as table grants, and delegates: a token or integration's ceiling caps its owner's role grants along your schema's own action chain, and only `full` passes the owner's permissions on whole.
+- **RBAC** — roles as table grants. Tokens and integrations act for their owner, capped at a role or, with `full`, holding the owner's permissions whole.
 - **ReBAC** — relationship walks (`{ rel, action }`) over your schema's relations, polymorphic owners included.
 - **ABAC** — conditions on the record and on the acting principal (`{ rule }`, `__actor`).
-- **RuBAC** — rules as data: every condition is a serializable, positive [`@inixiative/json-rules`](https://github.com/inixiative/json-rules) rule, the same AST everywhere it appears.
+- **RuBAC** — rules as data: every condition is a serializable [`@inixiative/json-rules`](https://github.com/inixiative/json-rules) rule, positive by design (`validateActionRule` refuses the rest), the same AST everywhere it appears.
 - **Delegation (entitlements)** — attenuated grants a holder passes on (copied, narrowed, lowered, never widened), each re-checked live at every link of its chain and at every tenant boundary it crosses.
 
-It decides on your own records: the checks walk them through the schema map you pass (which model each resource is, its relations and foreign keys — a [`@inixiative/prisma-map`](https://github.com/inixiative/prisma-map) map in the inixiative stack — and its polymorphic models' kinds), reached through a `load` you provide. There is no separate authorization store and no relationship tuples to sync. The core never imports a database layer: `createHydrator` walks the schema map and calls your `load`, which is also where caching goes. The core is about a thousand lines of TypeScript; optional helpers for delegation and hydration add about two hundred more. MIT licensed.
+It decides on your own records: the checks walk them through the schema map you pass (which model each resource is, its relations and foreign keys — a [`@inixiative/prisma-map`](https://github.com/inixiative/prisma-map) map in the inixiative stack — and its polymorphic models' kinds), reached through a `load` you provide. There is no separate authorization store and no relationship tuples to sync. Nothing in it imports a database layer: the `createHydrator` helper walks the schema map and calls your `load`, which is also where caching goes. The core is about a thousand lines of TypeScript; optional helpers for delegation and hydration add about two hundred more. MIT licensed.
 
 Everything you configure it with is plain JSON: the schema's rules, role grants, entitlements, `Permissions`. So
 they can live in your database, be composed like any other data, and be authored at runtime. A
@@ -19,22 +19,22 @@ config file shipped on deploy. `validateActionRule` checks a stored rule before 
 
 - **No second store.** A check reads the records you already have. There is no authorization service to run, no relationship tuples to dual-write, no consistency tokens, nothing to reconcile, so nothing drifts.
 - **Rules are data, down to one record.** The schema, role grants, entitlements and per-record rules are all JSON. A tenant can write a rule on one of its own records, validated before it is saved, and it can only widen access. Policy grows per tenant instead of being one global document someone else has to edit.
-- **Delegation that stays honest.** An entitlement names who granted it. Every check asks again whether that grantor still allows the action on that record, up the whole chain and across tenant boundaries. Demote anyone in the chain and what they handed on stops on the next request, with nothing to clean up.
+- **Delegation that stays honest.** Every entitlement is backed by whoever granted it. Every check asks again whether that grantor still allows the action on that record, up the whole chain and across tenant boundaries. Demote anyone in the chain and what they handed on stops on the next request, with nothing to clean up.
 - **Granting is checked by the same rules.** You can only hand on what you could do yourself on every record the grant reaches. No separate admin policy to keep in step.
 - **Change the rules, not the data.** What an action means and what implies what are read at check time, so changing them never means migrating or re-checking stored grants.
-- **Positive by design.** No deny rules: you narrow by composing a stricter rule (`all`), so there is no deny-versus-allow conflict, and a rule never passes because something wasn't loaded.
+- **Positive by design.** No deny rules: you narrow by composing a stricter rule (`all`), so there is no deny-versus-allow conflict, and a validated rule never passes because something wasn't loaded.
 - **Small enough to read.** About a thousand lines of core, in your process.
 
 | | This library | SpiceDB, OpenFGA, Permify | Cedar / AVP | Oso Cloud | Cerbos | OPA |
 |---|---|---|---|---|---|---|
 | Decides on your own rows, no second store | Yes | No, tuple store you sync | Entities passed per request | Fact store you sync | Attributes passed per request | Data pushed to it |
-| Rules are JSON data | Yes | DSL | DSL (JSON form exists) | Polar | YAML | Rego |
-| A tenant writes a rule on one record | Yes, can only widen | Parameters per tuple; logic is global | Template-linked policies | Facts per record; logic is global | No | No |
-| Delegation re-checked against its grantor at every use | Yes | No | No | No | No | No |
+| Rules are JSON data | Yes | DSL (OpenFGA's model is JSON) | DSL (JSON form exists) | Polar | YAML | Rego |
+| A tenant writes a rule on one record | Yes, can only widen | Parameters per tuple; logic is global | Template-linked policies | Facts per record; logic is global | No | Not built in |
+| Delegation re-checked against its grantor at every use | Yes | No | No | No | No | Not built in |
 | Grant-time check from the same rules | Yes | No | No | No | n/a | No |
 | Lists "what can I read" as a query | 1.0, end of 2026 | Id lists | Experimental | Yes | Yes | Partial evaluation |
 | Runs in your process | Yes | No | Cedar yes, AVP hosted | No | Service or sidecar | Sidecar or library |
-| Size | ~1,000 lines core | Service | Library and service | Service | Service | Service |
+| Size | About 1,000 lines of core | Service | Library and service | Service | Service or sidecar | Sidecar or library |
 
 The full comparison, with sources for every cell and where the others are ahead: [COMPARISON.md](./COMPARISON.md).
 
@@ -577,13 +577,11 @@ An allowed check stops at the first grant that answers. A refused one tries ever
 offers, so its cost grows with depth and with the entitlements held on the resource asked.
 
 
-This package owns the **wrapping, checking, grant placement and delegate resolution**. It does
-**not** own loading: fetching records, hydrating them, mapping roles to grants, loading an owner's
-rows, and populating permix from a user graph stay in the consuming app; composing a delegate's
-permissions from its owner's does not (e.g. [`@template/permissions`](https://github.com/inixiative/template) passes
-its generated prisma map and polymorphism registry, app `rebacSchema`, and role mappings — including app-specific
-action sets like `ownerActions`). Action and role **naming conventions** also stay in the app —
-this core makes no assumptions about what actions or roles are called.
+The core owns wrapping, checking, grant placement and validation. The helpers resolve a delegate's
+permissions and hydrate a record through your `load`. Fetching rows, mapping roles to grants, and
+naming actions and roles stay in your app (e.g. [`@template/permissions`](https://github.com/inixiative/template)
+passes its prisma map, polymorphism registry, `rebacSchema` and role mappings). The core makes no
+assumptions about what actions or roles are called.
 
 ## License
 

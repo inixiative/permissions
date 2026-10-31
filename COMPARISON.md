@@ -6,9 +6,9 @@
 
 - **No second store.** The Zanzibar family (SpiceDB, OpenFGA, Permify) and Oso Cloud keep their own copy of your relationships, and you keep it in sync. Here a check reads the records you already have. Nothing to dual-write, no consistency tokens, nothing to reconcile.
 - **Rules are data, down to one record.** Every system lets an operator change the policy at runtime. Here a tenant can also write a rule on one of its own records, validated before it is saved, and the rule can only widen access. Policy can grow per tenant instead of being one global document.
-- **Delegation that stays honest.** An entitlement names who granted it, and every check asks again whether that grantor still allows the action on that record, up the whole chain and across tenant boundaries. Demote anyone in the chain and everything they handed on stops on the next request, with nothing to clean up. None of the systems here documents this.
+- **Delegation that stays honest.** Every entitlement is backed by whoever granted it, and every check asks again whether that grantor still allows the action on that record, up the whole chain and across tenant boundaries. Demote anyone in the chain and everything they handed on stops on the next request, with nothing to clean up. None of the systems here documents this.
 - **Granting is checked by the same rules.** Whether you may hand an entitlement on is decided by the same check, on a stand-in for every record the grant would reach. You can only grant what you could do on all of it.
-- **Positive by design.** There are no deny rules. You narrow by composing a stricter rule, so there is no deny-versus-allow conflict to resolve, and a rule can never pass because a relation wasn't loaded.
+- **Positive by design.** There are no deny rules. You narrow by composing a stricter rule, so there is no deny-versus-allow conflict to resolve, and a validated rule can never pass because a relation wasn't loaded.
 - **Tiny.** The core is about a thousand lines; delegation and hydration helpers are about two hundred more. You can read all of it.
 
 ## The table
@@ -26,7 +26,6 @@ Columns: this library, SpiceDB, OpenFGA, Permify, Cedar and AWS Verified Permiss
 | A relation condition asks the related record's own rule | Yes (`{ rel, action }`) | Arrows on objects; not on a subject's permission [S3] | Tuple-to-userset [O11] | Yes, relations [P6] | `in` on a passed hierarchy [C2] | Yes, via facts and rules [X6] | No relations [R1] | No | No | Written by hand [A5] |
 | Entitlement re-checked against its grantor at every use | Yes | No; usersets resolve membership, not the grantor [S3] | No [O11] | No [P6] | No [C4] | No; impersonation and custom roles are static facts [X8][X7] | No [R8] | No; static inheritance [B7] | No [L1] | Not a feature [A5] |
 | Grant-time check derived from the read-time rules | Yes | No; API credential [S2] | No [O2] | No [P5] | No; IAM [C10] | No [X10] | n/a, stateless | No | No | No |
-| Delegate capped by the schema's action chain | Yes (`capAtRole`) | Not a feature | Not a feature | Not a feature | Not a feature | Not a feature | Not a feature | Not a feature | Not a feature | Not a feature |
 | Negation | No, by design: you restrict by adding a condition (`all`), not by a deny that has to win a conflict | Exclusion [S3] | `but not` [O3] | `not` [P6] | `forbid`, `unless` [C4] | `not` on one fact [X5] | DENY, `!` [R7] | deny-override [B6] | `cannot` [L4] | `not` [A5] |
 | Reverse lookup today | 1.0, end of 2026, as one query | Id lists; about 10k cap guidance [S5] | Id lists; 1,000 default, 3 s [O7][O8] | Id lists, paged 100 [P7] | Batch of 30 pre-enumerated pairs [C11]; Cedar partial eval experimental [C7] | Ids (`list`) or SQL WHERE (`list_local`) [X9] | Query plan AST, ORM adapters [R9][R10] | Implicit permission rows [B8] | Prisma `where` via `accessibleBy` [L7] | Compile API, partial eval [A4] |
 | Compiles rules to a DB query | 1.0, end of 2026: Prisma and SQL | No | No | No | Experimental [C7] | Yes, `list_local` [X9] | Yes, adapters [R10] | No | Yes [L7] | Partial eval [A4] |
@@ -42,7 +41,7 @@ Columns: this library, SpiceDB, OpenFGA, Permify, Cedar and AWS Verified Permiss
 - **Listing today.** Oso Cloud (`list_local`), Cerbos (`PlanResources`) and CASL (`accessibleBy`) already turn "which records can I read" into a query; the Zanzibar family returns id lists. Here that arrives in 1.0, as a Prisma `where` and SQL, by the end of 2026.
 - **Languages.** This is TypeScript. The others ship SDKs for several languages or a wire protocol.
 - **Tooling.** Cerbos, OPA and Oso Cloud log decisions and explain them; Cedar ships a verifier; most have a playground. Here a check returns a boolean, and tests are your own.
-- **Scale proof.** SpiceDB and OpenFGA publish benchmarks at very large tuple counts. Here a check is an in-process call on a loaded record, so it scales with your database and your loading.
+- **Scale proof.** SpiceDB and OpenFGA publish benchmarks at very large tuple counts. Here the published benchmark is in-process on one machine (README, Performance); a check costs what loading its record costs.
 
 ## Sources
 
