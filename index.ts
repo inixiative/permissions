@@ -1,3 +1,4 @@
+export * from './src/capEntry';
 export * from './src/check';
 export * from './src/entitlementProblem';
 export * from './src/grant';
