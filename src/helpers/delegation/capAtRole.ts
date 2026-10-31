@@ -1,7 +1,7 @@
 import { union } from 'lodash-es';
-import type { PermissionEntry } from './permix';
-import { reachableFrom } from './reachableFrom';
-import type { RebacSchema } from './types';
+import type { PermissionEntry } from '../../core/permix';
+import { reachableFrom } from '../../core/reachableFrom';
+import type { RebacSchema } from '../../core/types';
 
 /**
  * `entry` kept at `ceiling` — the action the delegate's role maps to — by the schema's chain on

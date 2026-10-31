@@ -1,5 +1,5 @@
-import { createPermissions, type PermissionEntry, type Permix } from './permix';
-import type { Actor } from './types';
+import { createPermissions, type PermissionEntry, type Permix } from '../../core/permix';
+import type { Actor } from '../../core/types';
 
 /**
  * Permissions as data: groups of entries. A group without `owner` is permissions grants; a group

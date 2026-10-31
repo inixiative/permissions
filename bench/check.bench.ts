@@ -1,5 +1,5 @@
 import { createRebacCheck, type EntitlementEntry, type PermissionEntry } from '../index';
-import { withExactStrings } from '../src/exactStrings';
+import { withExactStrings } from '../src/core/exactStrings';
 import { entitlement, map, model, pool, rootOwner, schema, table } from './fixtures';
 import { measure, report } from './harness';
 

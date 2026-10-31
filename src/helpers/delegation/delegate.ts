@@ -1,7 +1,7 @@
+import type { EntitlementEntry } from '../../core/permix';
+import type { RebacSchema } from '../../core/types';
 import { capAtRole } from './capAtRole';
 import type { Permissions } from './permissions';
-import type { EntitlementEntry } from './permix';
-import type { RebacSchema } from './types';
 
 /**
  * What a delegate's row says: `full` (its owner's permissions whole), a `ceiling` (the owner's

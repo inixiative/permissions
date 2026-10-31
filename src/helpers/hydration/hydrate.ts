@@ -1,5 +1,5 @@
-import { type Relation, relationOf, type SchemaMap } from './schemaMap';
-import type { Row } from './types';
+import { type Relation, relationOf, type SchemaMap } from '../../core/schemaMap';
+import type { Row } from '../../core/types';
 
 /**
  * What the hydrator needs: the schema map the checks walk, and `load`, one read of a `resource`'s
