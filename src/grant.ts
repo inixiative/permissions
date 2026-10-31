@@ -36,7 +36,7 @@ const narrows = (held: Entitlement, entry: EntitlementEntry) => {
  * resource and anchor, each of its actions one the held entitlement holds or reaches by pure
  * delegation (a bare action name, alone or an arm of a top-level `any`), and every condition of the held `where`
  * among the entry's (the held `where` itself, or each child of its top `all`) — and for each granted
- * action, whoever granted the held one still takes the held action it lowers from on `placed`.
+ * action, whoever granted the held one still takes that granted action on `placed`.
  */
 export const createCanGrantEntitlement = <R extends string = string>(
   map: SchemaMap<R>,
@@ -63,9 +63,11 @@ export const createCanGrantEntitlement = <R extends string = string>(
     );
     return candidates.some((held) => {
       const owner = asOwner(held.owner, null);
-      const backed = (action: string) =>
-        held.actions[action] === true && check(owner, schema, { resource, record: placed }, action);
-      return narrows(held, entry) && reached.every((up) => [...up].some(backed));
+      const lowers = (up: Set<string>) => [...up].some((action) => held.actions[action] === true);
+      const backed = (action: string) => check(owner, schema, { resource, record: placed }, action);
+      return (
+        narrows(held, entry) && actions.every((action, i) => lowers(reached[i]!) && backed(action))
+      );
     });
   };
 };

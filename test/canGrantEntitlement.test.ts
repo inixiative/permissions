@@ -298,12 +298,12 @@ describe('a held entitlement is passed on only as a copy or a narrowing of itsel
     );
   });
 
-  test('a held entitlement its granter no longer backs is not passed on: copying never revives it', async () => {
+  test('a held entitlement passes on only what its granter still backs: copying never revives the rest (R111)', async () => {
     const holder = createPermissions();
     await holder.setup([underS1(['manage'])], { owner: await holding('db:space', 's1', ['read']) });
     holder.setActor({ model: 'User', record: { id: 'h1' } });
     expect(may(holder, underS1(['manage']), placed())).toBe(false);
-    expect(may(holder, underS1(['read']), placed())).toBe(false);
+    expect(may(holder, underS1(['read']), placed())).toBe(true);
   });
 
   test('two held entitlements never combine into one wider grant', async () => {
@@ -357,6 +357,45 @@ describe('a held entitlement passes on lower actions: each granted action reache
   test('a delegation that needs more than the action is not pure: holding read on a space does not grant rename', async () => {
     const onSpace = (actions: string[]) => entry('db:space', at('db:space', 's1'), actions);
     expect(may(await holderOf(onSpace(['read'])), onSpace(['rename']), s1)).toBe(false);
+  });
+});
+
+describe('passing on a lower action asks the grantor about that action, not the held one (R111)', () => {
+  const underS1 = (actions: string[]) =>
+    entry('db:integration', at('db:space', 's1', 'space'), actions);
+  const placed = integrationUnder(s1);
+  const heldWhileGrantorReads = async () => {
+    const holder = createPermissions();
+    await holder.setup([underS1(['manage'])], {
+      owner: await holding('db:space', 's1', ['read']),
+    });
+    holder.setActor({ model: 'User', record: { id: 'h1' } });
+    return holder;
+  };
+
+  test('the grantor lowered to read: the holder of manage still passes on read', async () => {
+    expect(may(await heldWhileGrantorReads(), underS1(['read']), placed)).toBe(true);
+  });
+
+  test('and not manage, which the grantor no longer allows', async () => {
+    expect(may(await heldWhileGrantorReads(), underS1(['manage']), placed)).toBe(false);
+  });
+
+  test("the same when the grantor's read reaches the space through its organization", async () => {
+    const holder = createPermissions();
+    await holder.setup([underS1(['manage'])], {
+      owner: await holding('db:organization', 'o1', ['read']),
+    });
+    holder.setActor({ model: 'User', record: { id: 'h1' } });
+    expect(may(holder, underS1(['read']), placed)).toBe(true);
+    expect(may(holder, underS1(['manage']), placed)).toBe(false);
+  });
+
+  test('a grantor that lost even read passes on nothing', async () => {
+    const holder = createPermissions();
+    await holder.setup([underS1(['manage'])], { owner: await holding('db:space', 's9', ['own']) });
+    holder.setActor({ model: 'User', record: { id: 'h1' } });
+    expect(may(holder, underS1(['read']), placed)).toBe(false);
   });
 });
 

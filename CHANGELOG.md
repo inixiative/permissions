@@ -1,5 +1,6 @@
 ## Unreleased — delegate resolution
 
+- **Passing on a held entitlement asks its grantor about the action being granted (R111).** Holding `manage` by entitlement while the grantor is down to `read`, you may still pass on `read`, exactly as you may still use it; `manage` stays refused. Before, any grantor loss froze the whole entitlement for passing on.
 - **`delegate(schema, owner, { full?, ceiling?, entitlements? })`** resolves a delegate's permissions from its owner's: `full` is the owner's permissions whole (its entitlements included); otherwise the owner's permissions grants capped at the ceiling (none without one; the owner's entitlements never) plus the delegate's entitlements backed by the owner's permissions. Nothing set is the empty permissions. Delegates chain (a token on an integration of a member). Who may set `full` stays app policy.
 - **`Permissions`**, permissions as data (`{ entries, owner? }[]`), with `installPermissions(permix, permissions)` and `permixOf(permissions)`.
 - **`capAtRole(schema, entry, ceiling)`** keeps an entry at a ceiling — the action the delegate's role maps to — by the schema's pure-delegation chain; no role ladder.
