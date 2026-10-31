@@ -340,14 +340,14 @@ assign: {
 ## Delegation: full or specified
 
 A delegate (a token, an integration) acts from its owner's permissions (a user, a member, an
-organization, another delegate). The library resolves what that permissions become; the app loads
+organization, another delegate). The library resolves what those permissions become; the app loads
 the owner's rows and decides who may make what. Permissions are data:
 
 ```ts
 type Permissions = { entries: PermissionEntry[]; owner?: Permissions }[];
 ```
 
-A group without `owner` is permissions grants; a group with one is entitlements, backed by the
+A group without `owner` is role grants; a group with one is entitlements, backed by the
 permissions of whoever granted them. `installPermissions(permix, permissions)` sets each group up
 in order, building every owner's permix from its own permissions; `permixOf(permissions)` returns
 a fresh permix with the permissions installed.
@@ -363,7 +363,7 @@ const permix = await permixOf(permissions);
 
 - **`full` is the only way through whole.** A full delegate's permissions are its owner's, the
   owner's own entitlements included.
-- **A ceiling never carries entitlements.** Without `full`, the owner's permissions grants are kept
+- **A ceiling never carries entitlements.** Without `full`, the owner's role grants are kept
   at the ceiling and its entitlement groups are dropped. `capAtRole(schema, entry, ceiling)` keeps
   action `x` on the entry's resource when the ceiling — the action the delegate's role maps to —
   reaches `x` by pure delegation (`reachableFrom`) and the entry holds something that does: `own`
@@ -387,11 +387,44 @@ delegate model needs:
 | Column | Holds |
 |---|---|
 | `full` | boolean: the owner's permissions whole |
-| `ceiling` (or a `role` the app maps to its action) | the action the owner's permissions grants are kept at, or none |
+| `ceiling` (or a `role` the app maps to its action) | the action the owner's role grants are kept at, or none |
 | `entitlements` | stored entitlement entries, filtered by `wellFormedEntitlements` before resolving |
 
 `wellFormedEntitlements(value)` keeps the entries of a stored value `setup` would accept, without
 the redundant ones; anything but an array is none.
+
+## Tenant boundaries
+
+The library has no notion of a tenant. A boundary is whatever junction rows your app turns into
+tables, and there are two kinds:
+
+- **Acting for a tenant (membership).** A member of an organization holds a role *at* the
+  organization: table entries on `db:organization`, installed from the membership row. Whatever the
+  schema lets the organization's role reach, the member reaches.
+- **A tenant passing on actions on its own resources (delegation, licensing).** A distributor that
+  licenses its products to an organization does not give the organization a role at the
+  distributor. It gives it entitlements on its products, anchored at the distributor and **owned by
+  the distributor's table**, installed from the license row. The organization then passes them on
+  to its members the same way, as entitlements owned by the organization.
+
+Pick by asking whose behalf the action is on. If the holder acts as the tenant, it's a membership.
+If the tenant hands out actions on things it owns, it's an entitlement owned by the tenant.
+
+What keeps a boundary closed:
+
+- **The owner re-walk is the crossing check.** At every read, each entitlement's owner must still
+  allow the asked action on the record, through the normal walk, at every link of the chain. Revoke
+  the license, demote the owner, or cut any link, and everything downstream of it stops at once.
+- **The anchor is the last mile.** An entitlement reaches only records under its anchor, so a record
+  moved to another tenant, even one the owner also controls, is out of reach.
+- **Junction rows are written under an action on the granting side.** An agent that issues
+  licenses writes the license row under an action the schema gives it on the distributor. The
+  license's entitlement is owned by the distributor, not the agent, so it outlives the agent, and the
+  agent's authority is judged when the row is written.
+
+Boundaries compose: distributor to vendor to buyer to member to token is a chain of such links, each
+re-checked live. `test/boundaries.test.ts`, `test/crossTenant.test.ts` and `test/licensing.test.ts`
+build these scenarios.
 
 ## Hydration (Prisma example)
 
