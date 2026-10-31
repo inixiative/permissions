@@ -44,3 +44,27 @@ describe('validateActionRule: an action rule, checked like json-rules checks a c
     expect(result.errors[0]?.path).toBe('$.any[1].rule');
   });
 });
+
+describe('validateActionRule: a rule that delegates back to its own action is a cycle', () => {
+  const schema = {
+    permissions: {
+      doc: { actions: { own: null, manage: 'own', operate: 'manage', read: 'operate' } },
+    },
+  };
+  const at = (action: string, rule: unknown, rowRules?: Record<string, unknown>) =>
+    validateActionRule(rule, { schema, resource: 'doc', action, rowRules });
+
+  it('refuses a rule for read that is read', () => {
+    expect(at('read', 'read').errors.map((issue) => issue.code)).toEqual(['cycle']);
+  });
+
+  it("refuses a cycle through the schema and the record's other rules", () => {
+    expect(at('read', { any: ['operate'] }, { operate: 'read' }).ok).toBe(false);
+    expect(at('own', { all: ['manage', { rule: true }] }).ok).toBe(false);
+  });
+
+  it('accepts delegation that never comes back, and a relation walk, which leaves the record', () => {
+    expect(at('read', 'manage').ok).toBe(true);
+    expect(at('read', { rel: 'parent', action: 'read' }).ok).toBe(true);
+  });
+});

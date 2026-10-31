@@ -130,7 +130,9 @@ through `record.space.organization`, resolving each hop's model from the schema 
 Records may also carry a `permissionRules` JSON field (`action → ActionRule`): a per-record rule (a
 condition, a relation walk or both), so one record can take a rule its model's schema doesn't. `check` merges a row
 rule **additively** (OR) with the schema rule, so per-record overrides can widen but never revoke.
-Validate tenant-authored overrides with `validateActionRule` before persisting them.
+`check` validates a row rule before merging it: one that isn't positive, or that delegates back to
+its own action (a cycle), widens nothing. Validate tenant-authored rules with `validateActionRule`
+before persisting them too, so the author hears about it.
 
 ## The check engine
 
@@ -536,9 +538,11 @@ hand before checking.
 
 ## Also exported
 
-- `validateActionRule(rule)` — checks a serialized `ActionRule` (tenant/row overrides) the way
-  json-rules `validateRule` checks a condition, and returns the same `{ ok, errors }`: the shape,
-  and every `{ rule }` a positive json-rules condition. No schema library involved.
+- `validateActionRule(rule, context?)` — checks a serialized `ActionRule` (tenant/row overrides)
+  the way json-rules `validateRule` checks a condition, and returns the same `{ ok, errors }`: the
+  shape, and every `{ rule }` a positive json-rules condition. Given `{ schema, resource, action,
+  rowRules? }`, it also refuses a rule that delegates back to its own action through the schema or
+  the record's other rules. No schema library involved.
 
 ## Roadmap: 1.0, reflection
 

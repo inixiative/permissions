@@ -196,6 +196,22 @@ describe('rebac check', () => {
     ).toBe(true);
   });
 
+  test('a stored row rule the core would refuse widens nothing and never throws', () => {
+    const member = { role: 'member' };
+    const at = (permissionRules: Record<string, unknown>) =>
+      check(
+        stub(),
+        schema,
+        { resource: 'organization', record: { ...member, permissionRules } },
+        'read',
+      );
+    expect(at({ read: 'read' })).toBe(false);
+    expect(at({ read: { rule: { field: 'role', operator: Operator.notIn, value: ['x'] } } })).toBe(
+      false,
+    );
+    expect(at({ read: { rule: true } })).toBe(true);
+  });
+
   test('per-row permissionRules override is additive (OR)', () => {
     const record = { role: 'member', permissionRules: { own: { rule: true } } };
     expect(check(stub(), schema, { resource: 'organization', record }, 'own')).toBe(true);

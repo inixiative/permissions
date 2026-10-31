@@ -1,3 +1,8 @@
+## 0.18.0 — stored rules the core refuses widen nothing
+
+- **`check` validates a record's `permissionRules` entry before ORing it in.** A row rule that isn't positive, or that delegates back to its own action, widens nothing; it never throws. Before, `{ read: 'read' }` stored on a record threw "Cycle detected" on every check of it, and a negated condition widened as written.
+- **`validateActionRule(rule, context?)`** takes `{ schema, resource, action, rowRules? }` and refuses a cycle: a rule that comes back to its own action through the schema or the record's other rules.
+
 ## 0.17.1 — core and helpers
 
 - **`src/core` and `src/helpers`.** The core (the algebra, `check`, the permix, entitlements, the grant check, validation) never imports a helper; `test/layout.test.ts` enforces it. Delegation (`delegate`, `capAtRole`, `installPermissions`, `permixOf`, `wellFormedEntitlements`) and hydration (`createHydrator`) are helpers. Exports are unchanged.

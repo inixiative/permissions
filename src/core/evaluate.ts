@@ -6,6 +6,7 @@ import { nodeId, permixId } from './identity';
 import { recordId } from './recordId';
 import { resolveField, type SchemaMap } from './schemaMap';
 import type { ActionRule, PermixLike, RebacSchema, Row } from './types';
+import { validateActionRule } from './validateActionRule';
 
 // One check's walk: the app's schema map, the schema, and the bridge dictionary built on first use.
 export type Walk<R extends string> = {
@@ -42,8 +43,16 @@ export const evaluate = <R extends string>(
     const schemaRule = walk.schema.permissions[resource]?.actions[actionOrRule] ?? null;
     const rowRules = record.permissionRules as Record<string, ActionRule> | null | undefined;
     const rowRule = rowRules?.[actionOrRule];
+    const rowRuleHolds =
+      rowRule !== undefined &&
+      validateActionRule(rowRule, {
+        schema: walk.schema,
+        resource,
+        action: actionOrRule,
+        rowRules,
+      }).ok;
     // Row-level override is additive (OR) with the schema rule — a per-record grant can only widen.
-    const merged: ActionRule = rowRule !== undefined ? { any: [schemaRule, rowRule] } : schemaRule;
+    const merged: ActionRule = rowRuleHolds ? { any: [schemaRule, rowRule] } : schemaRule;
     if (evaluate(walk, permix, resource, record, merged, visited)) return true;
     return entitled(walk, permix, resource, record, actionOrRule, visited);
   }
