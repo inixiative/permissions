@@ -10,7 +10,7 @@ One check, over your own data, that covers:
 
 It decides on your own records: the checks walk them through the schema map you pass (which model each resource is, its relations and foreign keys — a [`@inixiative/prisma-map`](https://github.com/inixiative/prisma-map) map in the inixiative stack — and its polymorphic models' kinds), reached through a `load` you provide. There is no separate authorization store and no relationship tuples to sync. The core never imports a database layer: `createHydrator` walks the schema map and calls your `load`, which is also where caching goes. About a thousand lines of TypeScript.
 
-Everything it reads is plain JSON: the schema's rules, role grants, entitlements, `Permissions`. So
+Everything you configure it with is plain JSON: the schema's rules, role grants, entitlements, `Permissions`. So
 they can live in your database, be composed like any other data, and be authored at runtime. A
 tenant can manage its own rules and roles instead of you writing one per tenant, and nothing is a
 config file shipped on deploy. `validateActionRule` checks a stored rule before you persist it.
@@ -95,8 +95,8 @@ const schema: RebacSchema = {
 `rel` accepts dot-paths for multi-hop walks — `{ rel: 'space.organization', action: 'own' }` chains
 through `record.space.organization`, resolving each hop's model from the schema map.
 
-Records may also carry a `permissionRules` JSON field (`action → ActionRule`): ABAC on the record
-itself, so one record can take a rule its model's schema doesn't. `check` merges a row
+Records may also carry a `permissionRules` JSON field (`action → ActionRule`): a per-record rule (a
+condition, a relation walk or both), so one record can take a rule its model's schema doesn't. `check` merges a row
 rule **additively** (OR) with the schema rule, so per-record overrides can widen but never revoke.
 Validate tenant-authored overrides with `validateActionRule` before persisting them.
 
