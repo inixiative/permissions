@@ -10,6 +10,25 @@ One check, over your own data, that covers:
 
 It runs on your actual database: the checks walk your own records through the schema map you pass (which model each resource is, its relations and foreign keys — a [`@inixiative/prisma-map`](https://github.com/inixiative/prisma-map) map in the inixiative stack — and its polymorphic models' kinds). There is no separate authorization store and no relationship tuples to sync. The core never imports a database layer: `createHydrator` walks the schema map and calls the `load` you give it. About a thousand lines of TypeScript.
 
+## Vocabulary
+
+| Word | Means |
+|---|---|
+| **resource** | a model name in your schema (`db:organization`); a record is one row of it |
+| **action** | a verb on a resource, defined by the schema (`own`, `manage`, `operate`, `read`, or your own) |
+| **schema** | per resource, the rule (`ActionRule`) that decides each action: a grant, a relation walk, a condition, or a combination |
+| **grant** | an entry a role gives: actions on a resource or one record (`{ resource, id?, actions }`); the grants a permix holds are its table |
+| **entitlement** | an entry given beyond a role: actions on a resource, from an anchor, with an optional `where`, backed by whoever granted it |
+| **anchor** | the record an entitlement acts from, reached from the entitled record along `path` |
+| **permissions** | what a principal holds, as data: groups of entries, a group with an `owner` being entitlements backed by that owner (`Permissions`) |
+| **owner** | the principal a delegate acts for, and whose permissions back its entitlements |
+| **delegate** | a principal that acts from an owner's permissions (a token, an integration); its permissions are `full`, a ceiling, entitlements, or a mix |
+| **full** | the owner's permissions, whole and live |
+| **ceiling** | the action a delegate's role maps to; the owner's grants are kept at it (`capAtRole`) |
+| **actor** | who is acting the request, read by rules as `__actor` |
+| **permix** | the installed form of a principal's permissions that `check` reads |
+| **pseudo record** | the would-be row a create or a grant is checked on |
+
 ## Permission algebra (`ActionRule`)
 
 ```ts
@@ -189,7 +208,7 @@ stays app-side); the check engine reads it back through the `PermixLike` slice.
 
 A grant says what a role holds. An entitlement says what a holder (a token, a membership, an
 integration) was given beyond its role: **an action, on a resource, from an anchor, with an
-optional `where`**. It is installed with the table of whoever granted it, bound once per `setup`
+optional `where`**. It is installed with the permissions of whoever granted it, bound once per `setup`
 call because the grantor is on the holder's row, never in the entitlement:
 
 ```ts
@@ -238,21 +257,21 @@ where `read` delegates up to `manage`. One applies when all three hold:
   `notExists`, `if`/`then`/`else`, array or aggregate rule, so it never passes on what is not
   loaded; "no value" is `equals null`. `where: false` is a `where` that fails, not its absence;
   `where: null` is refused at setup.
-- **The grantor is still in control** — the owner's table, walked from this very record through
-  the normal schema, allows the action being asked, not the one held: a `manage` entitlement
+- **The grantor is still in control** — the owner's permissions, walked from this very record through
+  the normal schema, allow the action being asked, not the one held: a `manage` entitlement
   whose grantor is down to `read` still answers `read`, and every owner up a chain is asked the
   same action. That is the only tenancy check and it is live: a space
   moved to another org stops reaching the grantor on the next request, no fetch. The record's
   schema guards run inside that walk, and a `{ rule }` met there still sees the
   request's actor as `__actor`. A holder can never exceed its owner on the same record and action; owners nest
-  (token ← membership ← org) because an owner's table carries its own entitlements.
+  (token ← membership ← org) because an owner's permissions carry its own entitlements.
 
 `setup` refuses an entitlement without an `owner`, a `where` without a `anchor`, an `anchor` on
 another resource without a `path` or on its own resource with one, an `id` beside a
 `anchor` (a single row is `where: { field: 'id', … }`), a non-boolean action, `where: null`, or a
 malformed or non-positive rule, before touching any state; `entitlementProblem(entry)` names the
 problem (or returns `null`), so stored entries can be filtered before they are installed. An entitlement the holder already holds from the same owner — identical, or the same with fewer actions — is a no-op; `coversEntitlement(held, entry)` and `withoutRedundantEntitlements(entries)` apply the same rule to a list before it is stored. `replace: true` clears entitlements with the table. `getJSON`
-carries grants only. Tenancy is as live as the owner's grants are id-keyed: an owner table with a
+carries grants only. Tenancy is as live as the owner's grants are id-keyed: an owner's permissions with a
 resource-wide grant, or the superadmin flag, short-circuits before any walk.
 
 #### Granting one
