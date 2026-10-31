@@ -337,6 +337,39 @@ assign: {
 // No one grants token.create: the grant check has no actor, so the person-only rule never passes.
 ```
 
+## Tenant boundaries
+
+The library has no notion of a tenant. A boundary is whatever junction rows your app turns into
+tables, and there are two kinds:
+
+- **Acting for a tenant (membership).** A member of an organization holds a role *at* the
+  organization: table entries on `db:organization`, installed from the membership row. Whatever the
+  schema lets the organization's role reach, the member reaches.
+- **A tenant passing on actions on its own resources (delegation, licensing).** A distributor that
+  licenses its products to an organization does not give the organization a role at the
+  distributor. It gives it entitlements on its products, anchored at the distributor and **owned by
+  the distributor's table**, installed from the license row. The organization then passes them on
+  to its members the same way, as entitlements owned by the organization.
+
+Pick by asking whose behalf the action is on. If the holder acts as the tenant, it's a membership.
+If the tenant hands out actions on things it owns, it's an entitlement owned by the tenant.
+
+What keeps a boundary closed:
+
+- **The owner re-walk is the crossing check.** At every read, each entitlement's owner must still
+  allow the asked action on the record, through the normal walk, at every link of the chain. Revoke
+  the license, demote the owner, or cut any link, and everything downstream of it stops at once.
+- **The anchor is the last mile.** An entitlement reaches only records under its anchor, so a record
+  moved to another tenant, even one the owner also controls, is out of reach.
+- **Junction rows are written under an action on the granting side.** An agent that issues
+  licenses writes the license row under an action the schema gives it on the distributor. The
+  license's entitlement is owned by the distributor, not the agent, so it outlives the agent, and the
+  agent's authority is judged when the row is written.
+
+Boundaries compose: distributor to vendor to buyer to member to token is a chain of such links, each
+re-checked live. `test/boundaries.test.ts`, `test/crossTenant.test.ts` and `test/licensing.test.ts`
+build these scenarios.
+
 ## Hydration (Prisma example)
 
 `check` walks relation **fields on the record you pass in** — it never queries. The robust pattern
