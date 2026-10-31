@@ -4,10 +4,10 @@ import {
   type Delegation,
   delegate,
   type EntitlementEntry,
+  type Permissions,
+  permixOf,
   type RebacSchema,
   type Row,
-  type Table,
-  tablePermix,
 } from '../index';
 import { mapOf } from './schemaMaps';
 
@@ -34,10 +34,10 @@ const o1 = { id: 'o1' };
 const s1 = { id: 's1', organizationId: 'o1', organization: o1 };
 const s2 = { id: 's2', organizationId: 'o1', organization: o1 };
 
-const can = async (table: Table, resource: string, record: Row, action: string) =>
-  check(await tablePermix(table), schema, { resource, record }, action);
+const can = async (table: Permissions, resource: string, record: Row, action: string) =>
+  check(await permixOf(table), schema, { resource, record }, action);
 
-const grants = (...entries: Table[number]['entries']): Table[number] => ({ entries });
+const grants = (...entries: Permissions[number]['entries']): Permissions[number] => ({ entries });
 const onOrg = (actions: Record<string, boolean>) => ({
   resource: 'db:organization',
   id: 'o1',
@@ -49,15 +49,15 @@ const onSpace = (id: string, actions: Record<string, boolean>): EntitlementEntry
   actions,
 });
 
-const organizationOwner: Table = [grants(onOrg({ own: true }))];
+const organizationOwner: Permissions = [grants(onOrg({ own: true }))];
 // A member: manages o1 by role, and owns s2 by an entitlement the organization granted.
-const member: Table = [
+const member: Permissions = [
   grants(onOrg({ manage: true })),
   { entries: [onSpace('s2', { own: true })], owner: organizationOwner },
 ];
-const reader: Table = [grants(onOrg({ read: true }))];
+const reader: Permissions = [grants(onOrg({ read: true }))];
 
-describe('delegate: a delegate resolves to a table from its owner', () => {
+describe('delegate: a delegate resolves to permissions from its owner', () => {
   test('full: the owner whole, its entitlements included', async () => {
     const table = delegate(schema, member, { full: true });
     expect(table).toBe(member);
@@ -76,7 +76,7 @@ describe('delegate: a delegate resolves to a table from its owner', () => {
   });
 
   test("a ceiling caps the owner's table grants by the schema chain", () => {
-    const owner: Table = [
+    const owner: Permissions = [
       grants(
         onOrg({ own: true }),
         { resource: 'db:space', id: 's1', actions: { read: true } },

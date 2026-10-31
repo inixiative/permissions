@@ -2,7 +2,7 @@
 
 One check, over your own data, that covers:
 
-- **RBAC** — roles as table grants, and delegates: a token or integration's ceiling caps its owner's table grants along your schema's own action chain, and only `full` passes the owner's table on whole.
+- **RBAC** — roles as permissions grants, and delegates: a token or integration's ceiling caps its owner's permissions grants along your schema's own action chain, and only `full` passes the owner's permissions on whole.
 - **ReBAC** — relationship walks (`{ rel, action }`) over your schema's relations, polymorphic owners included.
 - **ABAC** — conditions on the record and on the acting principal (`{ rule }`, `__actor`).
 - **RuBAC** — rules as data: every condition is a serializable, positive [`@inixiative/json-rules`](https://github.com/inixiative/json-rules) rule, the same AST everywhere it appears.
@@ -293,8 +293,8 @@ anchor is the anchor row itself.
 `canGrantEntitlement` judges each placed record in two passes:
 
 1. **The writer's table.** Its table alone — its role — with no entitlements and no actor, takes
-   each action on `placed`. (A delegate's table capped at a ceiling, from `delegate`, is table
-   entries too.) It reads `placed` with json-rules `absent: 'unknown'`: a field it does not carry fails
+   each action on `placed`. (A delegate's permissions capped at a ceiling, from `delegate`, is
+   permissions entries too.) It reads `placed` with json-rules `absent: 'unknown'`: a field it does not carry fails
    every positive leaf, `equals null` included, so a writer whose authority reads a field the
    `where` leaves open is refused. A rule that needs an actor (`__actor.model equals 'User'`, an id compared to `__actor.record`) never passes: who the writer is is not
    authority that can be handed on. Rules are positive (`validateActionRule` refuses the rest),
@@ -310,7 +310,7 @@ anchor is the anchor row itself.
    pass on two, grant two.
 
 `reachableFrom(schema, resource, action)` is that pure-delegation walk: the actions on `resource`
-whose holding grants `action` (itself included). `capEntry` keeps a delegate's entries at its
+whose holding grants `action` (itself included). `capAtRole` keeps a delegate's entries at its
 ceiling by it.
 
 Permissions evaluates every rule with exact strings (json-rules `string.caseInsensitive` and
@@ -337,47 +337,48 @@ assign: {
 // No one grants token.create: the grant check has no actor, so the person-only rule never passes.
 ```
 
-## Delegating a table
+## Delegation: full or specified
 
-A delegate (a token, an integration) acts from its owner's table (a user, a member, an
-organization, another delegate). The library resolves what that table becomes; the app loads the
-owner's rows and decides who may make what. A table is data:
+A delegate (a token, an integration) acts from its owner's permissions (a user, a member, an
+organization, another delegate). The library resolves what that permissions become; the app loads
+the owner's rows and decides who may make what. Permissions are data:
 
 ```ts
-type Table = { entries: PermissionEntry[]; owner?: Table }[];
+type Permissions = { entries: PermissionEntry[]; owner?: Permissions }[];
 ```
 
-A group without `owner` is table grants; a group with one is entitlements, backed by the table of
-whoever granted them. `installTable(permix, table)` sets each group up in order, building every
-owner's permix from its own table; `tablePermix(table)` returns a fresh permix with the table
-installed.
+A group without `owner` is permissions grants; a group with one is entitlements, backed by the
+permissions of whoever granted them. `installPermissions(permix, permissions)` sets each group up
+in order, building every owner's permix from its own permissions; `permixOf(permissions)` returns
+a fresh permix with the permissions installed.
 
 ```ts
-const table = delegate(schema, ownerTable, {
+const permissions = delegate(schema, ownerPermissions, {
   full: row.full,
   ceiling: row.ceiling,
   entitlements: wellFormedEntitlements(row.entitlements),
 });
-const permix = await tablePermix(table);
+const permix = await permixOf(permissions);
 ```
 
-- **`full` is the only way through whole.** A full delegate's table is its owner's, the owner's own
-  entitlements included.
-- **A ceiling never carries entitlements.** Without `full`, the owner's table grants are kept at the
-  ceiling and its entitlement groups are dropped. `capEntry(schema, entry, ceiling)` keeps action
-  `x` on the entry's resource when the ceiling reaches `x` by pure delegation (`reachableFrom`) and
-  the entry holds something that does: `own` at `operate` keeps `operate` and `read` where
-  `read` delegates to `operate` and `operate` to `manage` to `own`; `read` at `operate` stays
-  `read`; an entry on a resource without the ceiling action is dropped. No role ladder: the
-  schema's chain is the only order. A conditional action is not held.
-- **A delegate's own entitlements are backed by its owner's table** and re-checked live like any
-  other: an owner that loses the action takes the entitlement with it.
-- **Silence never widens.** No `full`, no ceiling and no entitlements is the empty table.
+- **`full` is the only way through whole.** A full delegate's permissions are its owner's, the
+  owner's own entitlements included.
+- **A ceiling never carries entitlements.** Without `full`, the owner's permissions grants are kept
+  at the ceiling and its entitlement groups are dropped. `capAtRole(schema, entry, ceiling)` keeps
+  action `x` on the entry's resource when the ceiling — the action the delegate's role maps to —
+  reaches `x` by pure delegation (`reachableFrom`) and the entry holds something that does: `own`
+  at `operate` keeps `operate` and `read` where `read` delegates to `operate` and `operate` to
+  `manage` to `own`; `read` at `operate` stays `read`; an entry on a resource without the ceiling
+  action is dropped. No role ladder: the schema's chain is the only order. A conditional action is
+  not held.
+- **A delegate's own entitlements are backed by its owner's permissions** and re-checked live like
+  any other: an owner that loses the action takes the entitlement with it.
+- **Silence never widens.** No `full`, no ceiling and no entitlements is the empty permissions.
 
 Delegates chain: a token on an integration of a member is `delegate(schema, delegate(schema,
-member, integration), token)`. A full token on a full integration is the member's table; a ceiling
-anywhere on the chain caps what is below it and drops the entitlements above it; a token's
-entitlements are backed by the integration's table, whatever that resolved to.
+member, integration), token)`. A full token on a full integration is the member's permissions; a
+ceiling anywhere on the chain caps what is below it and drops the entitlements above it; a token's
+entitlements are backed by the integration's permissions, whatever that resolved to.
 
 The library resolves `full`; who may set it is the app's policy, written as an action in its
 schema (a `delegateFull` action on the owner, say, checked before the row is saved). The columns a
@@ -385,8 +386,8 @@ delegate model needs:
 
 | Column | Holds |
 |---|---|
-| `full` | boolean: the owner's table whole |
-| `ceiling` (or a `role` the app maps to its action) | the action the owner's table grants are kept at, or none |
+| `full` | boolean: the owner's permissions whole |
+| `ceiling` (or a `role` the app maps to its action) | the action the owner's permissions grants are kept at, or none |
 | `entitlements` | stored entitlement entries, filtered by `wellFormedEntitlements` before resolving |
 
 `wellFormedEntitlements(value)` keeps the entries of a stored value `setup` would accept, without
@@ -468,7 +469,7 @@ offers, so its cost grows with depth and with the entitlements held on the resou
 This package owns the **wrapping, checking, grant placement and delegate resolution**. It does
 **not** own loading: fetching records, hydrating them, mapping roles to grants, loading an owner's
 rows, and populating permix from a user graph stay in the consuming app; composing a delegate's
-table from its owner's does not (e.g. [`@template/permissions`](https://github.com/inixiative/template) passes
+permissions from its owner's does not (e.g. [`@template/permissions`](https://github.com/inixiative/template) passes
 its generated prisma map and polymorphism registry, app `rebacSchema`, and role mappings — including app-specific
 action sets like `ownerActions`). Action and role **naming conventions** also stay in the app —
 this core makes no assumptions about what actions or roles are called.

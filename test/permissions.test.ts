@@ -2,11 +2,11 @@ import { describe, expect, test } from 'bun:test';
 import {
   createPermissions,
   createRebacCheck,
-  installTable,
+  installPermissions,
+  type Permissions,
+  permixOf,
   type RebacSchema,
   type Row,
-  type Table,
-  tablePermix,
 } from '../index';
 import { mapOf } from './schemaMaps';
 
@@ -27,25 +27,25 @@ const check = createRebacCheck(mapOf({ 'db:space': { organization: 'db:organizat
 const o1 = { id: 'o1' };
 const s1 = { id: 's1', organizationId: 'o1', organization: o1 };
 const s2 = { id: 's2', organizationId: 'o1', organization: o1 };
-const can = async (table: Table, resource: string, record: Row, action: string) =>
-  check(await tablePermix(table), schema, { resource, record }, action);
+const can = async (table: Permissions, resource: string, record: Row, action: string) =>
+  check(await permixOf(table), schema, { resource, record }, action);
 
-const orgOwner: Table = [
+const orgOwner: Permissions = [
   { entries: [{ resource: 'db:organization', id: 'o1', actions: { own: true } }] },
 ];
 
-describe('a table as data', () => {
-  test('the empty table holds nothing', async () => {
+describe('permissions as data', () => {
+  test('the empty permissions hold nothing', async () => {
     expect(await can([], 'db:organization', o1, 'read')).toBe(false);
   });
 
-  test('a group without an owner is table grants', async () => {
+  test('a group without an owner is permissions grants', async () => {
     expect(await can(orgOwner, 'db:organization', o1, 'own')).toBe(true);
     expect(await can(orgOwner, 'db:space', s1, 'manage')).toBe(true);
   });
 
-  test('a group with an owner installs its entries as entitlements backed by that table', async () => {
-    const table: Table = [
+  test('a group with an owner installs its entries as entitlements backed by that permissions', async () => {
+    const table: Permissions = [
       {
         entries: [
           {
@@ -62,8 +62,8 @@ describe('a table as data', () => {
     expect(await can(table, 'db:organization', o1, 'read')).toBe(false);
   });
 
-  test('nested owners: an entitlement backed by a table whose own entitlement is backed by the org', async () => {
-    const member: Table = [
+  test('nested owners: an entitlement backed by permissions whose own entitlement is backed by the org', async () => {
+    const member: Permissions = [
       { entries: [{ resource: 'db:organization', id: 'o1', actions: { read: true } }] },
       {
         entries: [
@@ -76,7 +76,7 @@ describe('a table as data', () => {
         owner: orgOwner,
       },
     ];
-    const holder: Table = [
+    const holder: Permissions = [
       {
         entries: [
           {
@@ -98,17 +98,17 @@ describe('a table as data', () => {
     expect(await can(holder, 'db:space', s2, 'read')).toBe(true);
   });
 
-  test('installTable adds to a permix the app already holds', async () => {
+  test('installPermissions adds to a permix the app already holds', async () => {
     const permix = createPermissions();
     await permix.setup({ resource: 'db:organization', id: 'o2', actions: { read: true } });
-    await installTable(permix, orgOwner);
+    await installPermissions(permix, orgOwner);
     expect(permix.check('db:organization', 'read', 'o2')).toBe(true);
     expect(permix.check('db:organization', 'own', 'o1')).toBe(true);
   });
 
-  test('installTable and tablePermix agree', async () => {
+  test('installPermissions and permixOf agree', async () => {
     const permix = createPermissions();
-    await installTable(permix, orgOwner);
-    expect((await tablePermix(orgOwner)).getJSON()).toEqual(permix.getJSON());
+    await installPermissions(permix, orgOwner);
+    expect((await permixOf(orgOwner)).getJSON()).toEqual(permix.getJSON());
   });
 });

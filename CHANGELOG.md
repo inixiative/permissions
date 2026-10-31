@@ -1,10 +1,10 @@
 ## Unreleased — delegate resolution
 
-- **`delegate(schema, owner, { full?, ceiling?, entitlements? })`** resolves a delegate's table from its owner's: `full` is the owner's table whole (its entitlements included); otherwise the owner's table grants capped at the ceiling (none without one; the owner's entitlements never) plus the delegate's entitlements backed by the owner's table. Nothing set is the empty table. Delegates chain (a token on an integration of a member). Who may set `full` stays app policy.
-- **`Table`**, a table as data (`{ entries, owner? }[]`), with `installTable(permix, table)` and `tablePermix(table)`.
-- **`capEntry(schema, entry, ceiling)`** keeps an entry at a ceiling by the schema's pure-delegation chain; no role ladder.
+- **`delegate(schema, owner, { full?, ceiling?, entitlements? })`** resolves a delegate's permissions from its owner's: `full` is the owner's permissions whole (its entitlements included); otherwise the owner's permissions grants capped at the ceiling (none without one; the owner's entitlements never) plus the delegate's entitlements backed by the owner's permissions. Nothing set is the empty permissions. Delegates chain (a token on an integration of a member). Who may set `full` stays app policy.
+- **`Permissions`**, permissions as data (`{ entries, owner? }[]`), with `installPermissions(permix, permissions)` and `permixOf(permissions)`.
+- **`capAtRole(schema, entry, ceiling)`** keeps an entry at a ceiling — the action the delegate's role maps to — by the schema's pure-delegation chain; no role ladder.
 - **`wellFormedEntitlements(value)`** keeps a stored value's well-formed, non-redundant entitlement entries.
-- README § Delegating a table.
+- README § Delegation: full or specified.
 
 ## 0.16.0 — the hydrator walks the schema map
 

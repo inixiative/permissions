@@ -4,11 +4,11 @@ import { reachableFrom } from './reachableFrom';
 import type { RebacSchema } from './types';
 
 /**
- * `entry` kept at `ceiling`, by the schema's chain on its resource: each action the ceiling
- * reaches by pure delegation and the entry holds or implies, as plain `true`. Null when nothing
- * is kept. A conditional action is not held.
+ * `entry` kept at `ceiling` — the action the delegate's role maps to — by the schema's chain on
+ * its resource: each action the ceiling reaches by pure delegation and the entry holds or implies,
+ * as plain `true`. Null when nothing is kept. A conditional action is not held.
  */
-export const capEntry = <Action extends string = string>(
+export const capAtRole = <Action extends string = string>(
   schema: RebacSchema,
   entry: PermissionEntry<NoInfer<Action>>,
   ceiling: string,
