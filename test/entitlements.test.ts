@@ -112,7 +112,7 @@ const own = (resource: string, id: string): PermissionEntry => ({
   actions: { own: true },
 });
 
-// The grantors, built the way the app builds any principal: an org owns itself.
+// The grantors, built the way the app builds any owner's permissions: an org owns itself.
 const o1Table = () => table(own('db:organization', 'o1'));
 
 const manage = (permix: Permix, resource: string, record: Row) =>
