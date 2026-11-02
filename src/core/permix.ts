@@ -57,7 +57,7 @@ const validate = (entry: PermissionEntry, owner: PermixLike | undefined): void =
 /**
  * A thin, role-agnostic wrapper over `permix`. Holds the actor's granted actions (keyed by
  * `resource` or `resource:id`), its entitlements (kept beside the table, each with the table of
- * whoever granted it), a superadmin bypass, and the current actor (its id plus app-supplied meta).
+ * whoever granted it), a superadmin bypass, and the current actor (its credential `model` and `record`).
  * App code populates it from roles/entitlements (hydration stays app-side); the rebac
  * {@link createRebacCheck} engine reads it back through the {@link PermixLike} slice.
  */

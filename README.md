@@ -4,7 +4,7 @@ One check, over your own data, that covers:
 
 - **RBAC** — roles as table grants. Tokens and integrations act for their owner, capped at a role or, with `full`, holding the owner's permissions whole.
 - **ReBAC** — relationship walks (`{ rel, action }`) over your schema's relations, polymorphic owners included.
-- **ABAC** — conditions on the record and on the acting principal (`{ rule }`, `__actor`).
+- **ABAC** — conditions on the record and on the actor, who is acting (`{ rule }`, `__actor`).
 - **RuBAC** — rules as data: every condition is a serializable [`@inixiative/json-rules`](https://github.com/inixiative/json-rules) rule, positive by design (`validateActionRule` refuses the rest), the same AST everywhere it appears.
 - **Delegation (entitlements)** — attenuated grants a holder passes on (copied, narrowed, lowered, never widened), each re-checked live at every link of its chain and at every tenant boundary it crosses.
 
@@ -57,13 +57,13 @@ Want your own delegation model or your own loading? Skip the helpers and call `c
 | **grant** | an entry a role gives: actions on a resource or one record (`{ resource, id?, actions }`); the grants a permix holds are its table |
 | **entitlement** | an entry given beyond a role: actions on a resource, from an anchor, with an optional `where`, backed by whoever granted it |
 | **anchor** | the record an entitlement acts from, reached from the entitled record along `path` |
-| **permissions** | what a principal holds, as data: groups of entries, a group with an `owner` being entitlements backed by that owner (`Permissions`) |
-| **owner** | the principal a delegate acts for, and whose permissions back its entitlements |
-| **delegate** | a principal that acts from an owner's permissions (a token, an integration); its permissions are `full`, a ceiling, entitlements, or a mix |
+| **permissions** | what the actor acts from, as data: groups of entries, a group with an `owner` being entitlements backed by that owner (`Permissions`) |
+| **owner** | the record a delegate acts for (a user, a membership, an organization, another delegate), whose permissions back its entitlements |
+| **delegate** | a token or integration that acts from its owner's permissions: `full`, capped at a ceiling, entitlements, or a mix |
 | **full** | the owner's permissions, whole and live |
 | **ceiling** | the action a delegate's role maps to; the owner's grants are kept at it (`capAtRole`) |
-| **actor** | who is acting the request, read by rules as `__actor` |
-| **permix** | the installed form of a principal's permissions that `check` reads |
+| **actor** | who is acting: a credential kind (`model`, e.g. `User`, `Token`) and its row, set once per request and read by rules as `__actor` |
+| **permix** | the installed form of the actor's permissions that `check` reads |
 | **pseudo record** | the would-be row a create or a grant is checked on |
 
 ## Permission algebra (`ActionRule`)
@@ -149,10 +149,10 @@ check(permix, schema, { resource: 'membership', record }, 'manage');
 // see below); { rule } evals json-rules over the record (the actor under __actor); any/all compose. Cycles throw.
 ```
 
-**There is no `self` arm. Identity lives in the table.** A principal holds grants only on its own
-user entry, so acting on your own row is `{ rel: 'user', action }`: the walk reaches the hydrated
+**There is no `self` arm. Identity lives in the table.** The actor's table holds grants on its own
+user row like any other, so acting on your own row is `{ rel: 'user', action }`: the walk reaches the hydrated
 `record.user` and checks `action` there, through the delegation chain and custom user actions alike.
-A full principal holds `own` on itself; a narrowed one (a credential holding only `read` on its
+A person, or a `full` delegate of one, holds `own` on its user; a narrowed delegate (a token holding only `read` on its
 user) fails a write arm on its own row; a row without its `user` loaded is denied, never guessed
 from the foreign key. `validateActionRule` rejects `self`.
 
@@ -237,7 +237,7 @@ import { createPermissions } from '@inixiative/permissions';
 
 const permix = createPermissions<'read' | 'manage' | 'own'>();
 await permix.setup([{ resource: 'organization', id: 'o1', actions: { own: true } }]);
-permix.setActor({ id: 'u1' });
+permix.setActor({ model: 'User', record: { id: 'u1' } });
 permix.check('organization', 'own', 'o1'); // true
 ```
 
