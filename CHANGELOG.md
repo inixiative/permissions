@@ -1,3 +1,11 @@
+## 0.21.1 — the idField setting reaches consumers' types
+
+- **Fix: the published `index.d.ts` / `index.d.cts` now carry the `EngineGlobalValues`
+  augmentation**, so `engineGlobals.set('permissions.idField', 'uuid')` typechecks in a consumer
+  without redeclaring the key. The d.ts bundler dropped it because it sat in a module none of whose
+  exports were public; it now lives in `src/core/engineGlobals.ts`, which the index reaches through
+  the new `PermissionsEngineGlobals` type.
+
 ## 0.21.0 — the hydrator walks the map, nothing else
 
 - **Breaking: `createHydrator` no longer takes `schema`, and `walkedRelations` is gone.** The

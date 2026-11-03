@@ -1,13 +1,6 @@
 import { engineGlobals, registerEngineGlobals } from '@inixiative/json-rules';
 import type { Row } from './types';
 
-declare module '@inixiative/json-rules' {
-  interface EngineGlobalValues {
-    /** The field a record's grants are keyed by: `id` unless the app sets another (`uuid`, `_id`). */
-    'permissions.idField': string;
-  }
-}
-
 registerEngineGlobals('permissions', { idField: 'id' });
 
 /** The engine's id field, `permissions.idField` in `engineGlobals`. */
