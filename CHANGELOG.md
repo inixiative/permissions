@@ -1,3 +1,10 @@
+## 0.21.0 — the hydrator walks the map, nothing else
+
+- **Breaking: `createHydrator` no longer takes `schema`, and `walkedRelations` is gone.** The
+  hydrator loads every to-one relation the map gives it, as before 0.20; skip an edge with
+  `/// @permissions(hydrate: false)` (prisma-map 0.4.1 reads it on Prisma 6 too). `validateSchema`
+  stays.
+
 ## 0.20.0 — the hydrator loads what the rules walk; validateSchema
 
 - **`createHydrator({ map, load, schema })`**: given the schema, only the relations its rules walk

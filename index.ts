@@ -14,7 +14,6 @@ export {
 export type * from './src/core/types';
 export * from './src/core/validateActionRule';
 export * from './src/core/validateSchema';
-export { type WalkedRelations, walkedRelations } from './src/core/walkedRelations';
 export * from './src/helpers/delegation/capAtRole';
 export * from './src/helpers/delegation/delegate';
 export * from './src/helpers/delegation/permissions';

@@ -527,10 +527,6 @@ check(permix, schema, { resource: 'document', record: doc }, 'manage');
 
 - **What it follows:** every to-one relation with its foreign key on the record (`fromFields`) that
   leads to a resource in the map. Lists, back-relations and models outside the map are not followed.
-- **Only what the rules walk:** pass `schema` (`createHydrator({ map, load, schema })`) and it loads
-  just the relations the schema's rules walk: `{ rel }` paths, the relations a `{ rule }` reads a
-  field through, and a record's own `permissionRules`. Leave it off when you check entitlements:
-  their anchor paths are not in the schema.
 - **Check the schema against the map:** `validateSchema(map, schema)` returns every `{ rel }` that
   names a missing relation and every action named where it isn't defined, which would otherwise
   deny forever. Run it in a test or at boot.
