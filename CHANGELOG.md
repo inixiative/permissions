@@ -1,3 +1,17 @@
+## 0.20.0 — the hydrator loads what the rules walk; validateSchema
+
+- **`createHydrator({ map, load, schema })`**: given the schema, only the relations its rules walk
+  are loaded — each `{ rel }` path's segments, the relations a `{ rule }` reads a field through
+  (json-rules' `listFields`), and whatever a record's own `permissionRules` walk. Without `schema`
+  it loads every to-one relation, as before. An entitlement's anchor path is not in the schema, so a
+  consumer checking entitlements hydrates without it.
+- **`validateSchema(map, schema)`**: every action rule well formed and positive, every `{ rel }`
+  segment a relation or a bridge, every action a rule names defined where it lands. A rule naming a
+  relation the map doesn't have otherwise denies forever without saying why; run it in a test or at
+  boot.
+- **`walkedRelations(map, schema)`**: the relations a schema walks, by resource.
+- Requires `@inixiative/json-rules` ^3.18.
+
 ## 0.19.0 — the identifier is an engine setting
 
 - **`permissions.idField`** in json-rules' `engineGlobals` (3.17, the one engine interaction point)
