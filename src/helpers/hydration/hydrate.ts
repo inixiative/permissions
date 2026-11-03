@@ -1,9 +1,10 @@
+import { idField } from '../../core/recordId';
 import { type Relation, relationOf, type SchemaMap } from '../../core/schemaMap';
 import type { Row } from '../../core/types';
 
 /**
  * What the hydrator needs: the schema map the checks walk, and `load`, one read of a `resource`'s
- * record by its target columns (`{ id }`, or every column of a composite key). `load` is the cache
+ * record by its target columns (`{ id }` — `permissions.idField` — or every column of a composite key). `load` is the cache
  * seam; the hydrator only de-duplicates loads within one hydration.
  */
 export type HydrateDeps<R extends string = string> = {
@@ -21,7 +22,7 @@ const whereOf = (relation: Relation, record: Row): Row | null => {
   for (const [index, column] of relation.from.entries()) {
     const value = record[column];
     if (value == null || value === '') return null;
-    where[relation.to[index] ?? 'id'] = value;
+    where[relation.to[index] ?? idField()] = value;
   }
   return where;
 };

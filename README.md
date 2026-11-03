@@ -139,11 +139,14 @@ before persisting them too, so the author hears about it.
 ## The check engine
 
 ```ts
+import { engineGlobals } from '@inixiative/json-rules';
 import { createRebacCheck, type SchemaMap } from '@inixiative/permissions';
 
 // the schema the walk reads: which fieldMap model each resource is, its relations and foreign keys
 // (a json-rules FieldMap, structurally a prisma-map), and the polymorphic models' kinds
 const map: SchemaMap = { resources, fieldMap: prismaMap, polymorphism };
+// the field a record's grants are keyed by: `id` unless set (`uuid`, `_id`, `ID`…), once, at boot
+engineGlobals.set('permissions.idField', 'uuid');
 const check = createRebacCheck(map);
 
 check(permix, schema, { resource: 'membership', record }, 'manage');

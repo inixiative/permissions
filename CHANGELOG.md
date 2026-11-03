@@ -1,3 +1,13 @@
+## 0.19.0 — the identifier is an engine setting
+
+- **`permissions.idField`** in json-rules' `engineGlobals` (3.17, the one engine interaction point)
+  names the field a record's grants are keyed by: `id` unless the app sets another (`uuid`, `_id`,
+  `ID`). The direct grant probe, an entitlement's anchor match, `placeEntitlement` and the
+  hydrator's fallback target column all read it. A record without the field has no id, so only
+  resource-wide grants reach it. Set it once at boot:
+  `engineGlobals.set('permissions.idField', 'uuid')`, or scope it with `engineGlobals.with`.
+- Requires `@inixiative/json-rules` ^3.17.
+
 ## 0.18.0 — stored rules the core refuses widen nothing
 
 - **`check` validates a record's `permissionRules` entry before ORing it in.** A row rule that isn't positive, or that delegates back to its own action, widens nothing; it never throws. Before, `{ read: 'read' }` stored on a record threw "Cycle detected" on every check of it, and a negated condition widened as written.
