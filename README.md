@@ -1,14 +1,16 @@
 # @inixiative/permissions
 
+> One of the [inixiative](https://www.inixiative.com) building blocks. Stop rediscovering what you need to build. See [all the projects](https://github.com/inixiative).
+
 One check, over your own data, that covers:
 
-- **RBAC** — roles as table grants. Tokens and integrations act for their owner, capped at a role or, with `full`, holding the owner's permissions whole.
-- **ReBAC** — relationship walks (`{ rel, action }`) over your schema's relations, polymorphic owners included.
-- **ABAC** — conditions on the record and on the actor, who is acting (`{ rule }`, `__actor`).
-- **RuBAC** — rules as data: every condition is a serializable [`@inixiative/json-rules`](https://github.com/inixiative/json-rules) rule, positive by design (`validateActionRule` refuses the rest), the same AST everywhere it appears.
-- **Delegation (entitlements)** — attenuated grants a holder passes on (copied, narrowed, lowered, never widened), each re-checked live at every link of its chain and at every tenant boundary it crosses.
+- **RBAC:** roles as table grants. Tokens and integrations act for their owner, capped at a role or, with `full`, holding the owner's permissions whole.
+- **ReBAC:** relationship walks (`{ rel, action }`) over your schema's relations, polymorphic owners included.
+- **ABAC:** conditions on the record and on the actor, who is acting (`{ rule }`, `__actor`).
+- **RuBAC:** rules as data: every condition is a serializable [`@inixiative/json-rules`](https://github.com/inixiative/json-rules) rule, positive by design (`validateActionRule` refuses the rest), the same AST everywhere it appears.
+- **Delegation (entitlements):** attenuated grants a holder passes on (copied, narrowed, lowered, never widened), each re-checked live at every link of its chain and at every tenant boundary it crosses.
 
-It decides on your own records: the checks walk them through the schema map you pass (which model each resource is, its relations and foreign keys — a [`@inixiative/prisma-map`](https://github.com/inixiative/prisma-map) map in the inixiative stack — and its polymorphic models' kinds), reached through a `load` you provide. There is no separate authorization store and no relationship tuples to sync. Nothing in it imports a database layer: the `createHydrator` helper walks the schema map and calls your `load`, which is also where caching goes. The core is about a thousand lines of TypeScript; optional helpers for delegation and hydration add about two hundred more. MIT licensed.
+It decides on your own records: the checks walk them through the schema map you pass (which model each resource is, its relations and foreign keys, and its polymorphic models' kinds; in the inixiative stack that is a [`@inixiative/prisma-map`](https://github.com/inixiative/prisma-map) map), reached through a `load` you provide. There is no separate authorization store and no relationship tuples to sync. Nothing in it imports a database layer: the `createHydrator` helper walks the schema map and calls your `load`, which is also where caching goes. The core is about a thousand lines of TypeScript; optional helpers for delegation and hydration add about two hundred more. MIT licensed.
 
 Everything you configure it with is plain JSON: the schema's rules, role grants, entitlements, `Permissions`. So
 they can live in your database, be composed like any other data, and be authored at runtime. A
@@ -79,14 +81,14 @@ type ActionRule =
   | null;                        // terminal deny, as is an action the schema does not name
 ```
 
-A `RebacSchema` is `{ bridges?, permissions }` — `permissions` maps a (map-qualified) **resource**,
+A `RebacSchema` is `{ bridges?, permissions }`. `permissions` maps a (map-qualified) **resource**,
 e.g. `db:User`, to `{ actions: { name → ActionRule } }`; `bridges` are the cross-source edges a `rel`
 walk may cross (see [Bridges](#bridges-cross-source-rel-walks)). A single-source schema omits
 `bridges` and can use bare resource keys.
 
 ## Writing a schema
 
-Action names are **yours** — the engine imposes no vocabulary. The `own`/`manage`/`read` chain below
+Action names are **yours**: the engine imposes no vocabulary. The `own`/`manage`/`read` chain below
 is illustrative; use whatever your roles grant.
 
 ```ts
@@ -124,7 +126,7 @@ const schema: RebacSchema = {
 };
 ```
 
-`rel` accepts dot-paths for multi-hop walks — `{ rel: 'space.organization', action: 'own' }` chains
+`rel` accepts dot-paths for multi-hop walks: `{ rel: 'space.organization', action: 'own' }` chains
 through `record.space.organization`, resolving each hop's model from the schema map.
 
 Records may also carry a `permissionRules` JSON field (`action → ActionRule`): a per-record rule (a
@@ -156,11 +158,11 @@ A person, or a `full` delegate of one, holds `own` on its user; a narrowed deleg
 user) fails a write arm on its own row; a row without its `user` loaded is denied, never guessed
 from the foreign key. `validateActionRule` rejects `self`.
 
-The check takes a **subject** — `{ resource, record, data? }` — not a bare record; `data` is the
+The check takes a **subject**, `{ resource, record, data? }`, rather than a bare record; `data` is the
 supplemental rows that back cross-source bridge hops (below). `resources` gives each resource its own model (`createRebacCheck` refuses two resources on one
 model). `createRebacCheck` is generic over the
 resource key (default `string`). Pass your resource union and the schema, `subject.resource`, and
-map all enforce it — no casts for your own types:
+map all enforce it, so your own types need no casts:
 
 ```ts
 type Resource = 'organization' | 'membership' | 'document';
@@ -168,8 +170,8 @@ const check = createRebacCheck<Resource>(map); // map: SchemaMap<Resource>
 // now `schema: RebacSchema<Resource>`, `subject.resource: Resource` — a typo is a compile error.
 ```
 
-Cycle detection uses **object identity** (a `WeakMap`), not `record.id` — so id-less or
-id-colliding records never produce a false "cycle", and a genuine self/mutual delegation
+Cycle detection uses **object identity** (a `WeakMap`), not `record.id`, so id-less or
+id-colliding records never produce a false "cycle", and a true self/mutual delegation
 (`read: 'read'`) throws instead of overflowing the stack. The key includes the table being
 walked, so an entitlement's owner revisiting the same node is not a cycle. A loop built from grant
 data (two holders owning each other's entitlements) is not a schema bug and does not throw: the
@@ -197,7 +199,7 @@ the schema, so it skips these too.
 
 ## Bridges (cross-source `rel` walks)
 
-A `rel` can cross a **bridge** — a cross-source edge between two fieldMaps (see
+A `rel` can cross a **bridge**: a cross-source edge between two fieldMaps (see
 [`@inixiative/json-rules`](https://github.com/inixiative/json-rules)). Declare them on the schema;
 both ends are map-qualified resources:
 
@@ -218,7 +220,7 @@ const schema: RebacSchema = {
 ```
 
 Bridges **don't hydrate** (they aren't FK relations). The join key is a scalar on the record
-(`User.accountId`); pass the far rows as `subject.data` (keyed `map:model` — the `indexBridges`
+(`User.accountId`); pass the far rows as `subject.data` (keyed `map:model`, the `indexBridges`
 shape) and the engine builds the lookup itself. A far row absent from `subject.data` denies the
 walk, whatever the far action is, an rbac grant on the far id included:
 
@@ -277,7 +279,7 @@ the schema rule both miss, with the record in hand. An entitlement answers an ac
 that action or one that implies it by pure delegation (`reachableFrom`): `manage` answers `read`
 where `read` delegates up to `manage`. One applies when all three hold:
 
-- **Its `anchor` is reached along its `path`** — `anchor.path` names the relations from the
+- **Its `anchor` is reached along its `path`.** `anchor.path` names the relations from the
   record up to the anchor (`'space.organization'`); the hydrated record at the end of the path is
   the anchor (its resource and id). Only the anchor's id is fixed: a record that moves inside the
   anchor stays reached, one that moves out stops. The path picks the side when a record hangs from
@@ -291,14 +293,14 @@ where `read` delegates up to `manage`. One applies when all three hold:
   narrows them (`ownerModel equals Organization` is the organization's own; `ownerModel in [...]` keeps the kinds it names). A side is a
   different axis, so `targetOrganization` reaches what an organization received and never what it
   sent.
-- **`where` holds** — the `where` is plain json-rules over the record at that node, `field` and `path` both
+- **`where` holds.** The `where` is plain json-rules over the record at that node, `field` and `path` both
   starting there and free to climb hydrated parents (`space.organizationId`). Whatever referred to
   the holder (its own id, its user) is written in as a literal when the grant is made. A `where`
   is positive (json-rules `validateRule(where, { positive: true })`): no negation, `isEmpty`,
   `notExists`, `if`/`then`/`else`, array or aggregate rule, so it never passes on what is not
   loaded; "no value" is `equals null`. `where: false` is a `where` that fails, not its absence;
   `where: null` is refused at setup.
-- **The grantor is still in control** — the owner's permissions, walked from this very record through
+- **The grantor is still in control.** The owner's permissions, walked from this very record through
   the normal schema, allow the action being asked, not the one held: a `manage` entitlement
   whose grantor is down to `read` still answers `read`, and every owner up a chain is asked the
   same action. That is the only tenancy check and it is live: a space
@@ -311,7 +313,7 @@ where `read` delegates up to `manage`. One applies when all three hold:
 another resource without a `path` or on its own resource with one, an `id` beside a
 `anchor` (a single row is `where: { field: 'id', … }`), a non-boolean action, `where: null`, or a
 malformed or non-positive rule, before touching any state; `entitlementProblem(entry)` names the
-problem (or returns `null`), so stored entries can be filtered before they are installed. An entitlement the holder already holds from the same owner — identical, or the same with fewer actions — is a no-op; `coversEntitlement(held, entry)` and `withoutRedundantEntitlements(entries)` apply the same rule to a list before it is stored. `replace: true` clears entitlements with the table. `getJSON`
+problem (or returns `null`), so stored entries can be filtered before they are installed. An entitlement the holder already holds from the same owner (identical, or the same with fewer actions) is a no-op; `coversEntitlement(held, entry)` and `withoutRedundantEntitlements(entries)` apply the same rule to a list before it is stored. `replace: true` clears entitlements with the table. `getJSON`
 carries grants only. Tenancy is as live as the owner's grants are id-keyed: an owner's permissions with a
 resource-wide grant, or the superadmin flag, short-circuits before any walk.
 
@@ -352,7 +354,7 @@ anchor is the anchor row itself.
 
 `canGrantEntitlement` judges each placed record in two passes:
 
-1. **The writer's table.** Its table alone — its role — with no entitlements and no actor, takes
+1. **The writer's table.** Its table alone (its role), with no entitlements and no actor, takes
    each action on `placed`. (A delegate's permissions capped at a ceiling, from `delegate`, is
    permissions entries too.) It reads `placed` with json-rules `absent: 'unknown'`: a field it does not carry fails
    every positive leaf, `equals null` included, so a writer whose authority reads a field the
@@ -363,7 +365,7 @@ anchor is the anchor row itself.
    whole: the same `resource` and anchor (resource, id, path); each granted action one it holds or
    reaches by pure delegation (a bare action name, alone or an arm of a top-level `any`: holding
    `manage` grants `read` when `read` is `{ any: ['manage', …] }`); its `where` copied or narrowed
-   (every condition of the held `where` — itself, or each child of its top `all` — among the
+   (every condition of the held `where`, meaning itself or each child of its top `all`, among the
    entry's); and whoever granted the held one still takes each granted action on `placed`, so
    copying never revives an entitlement its granter no longer backs (for a lowered action, the
    granter must still back the held action it lowers from). Held entitlements never combine: to
@@ -425,7 +427,7 @@ const permix = await permixOf(permissions);
   owner's own entitlements included.
 - **A ceiling never carries entitlements.** Without `full`, the owner's role grants are kept
   at the ceiling and its entitlement groups are dropped. `capAtRole(schema, entry, ceiling)` keeps
-  action `x` on the entry's resource when the ceiling — the action the delegate's role maps to —
+  action `x` on the entry's resource when the ceiling (the action the delegate's role maps to)
   reaches `x` by pure delegation (`reachableFrom`) and the entry holds something that does: `own`
   at `operate` keeps `operate` and `read` where `read` delegates to `operate` and `operate` to
   `manage` to `own`; `read` at `operate` stays `read`; an entry on a resource without the ceiling
@@ -488,10 +490,10 @@ build these scenarios.
 
 ## Helper: hydration (Prisma example)
 
-`check` walks relation **fields on the record you pass in** — it never queries. The robust pattern
+`check` walks relation **fields on the record you pass in**; it never queries. The dependable pattern
 is to make under-hydration impossible by construction: recursively load every to-one relation that
 owns its foreign key (the record's ownership closure) before checking, instead of maintaining
-per-action include shapes. Then a missing relation can only mean the key is null — a real deny, not a
+per-action include shapes. Then a missing relation can only mean the key is null: a real deny, not a
 loading artifact.
 
 `createHydrator` is that pattern over the **same schema map** the checks walk, so the two can't drift.
@@ -538,7 +540,7 @@ hand before checking.
 
 ## Also exported
 
-- `validateActionRule(rule, context?)` — checks a serialized `ActionRule` (tenant/row overrides)
+- `validateActionRule(rule, context?)` checks a serialized `ActionRule` (tenant/row overrides)
   the way json-rules `validateRule` checks a condition, and returns the same `{ ok, errors }`: the
   shape, and every `{ rule }` a positive json-rules condition. Given `{ schema, resource, action,
   rowRules? }`, it also refuses a rule that delegates back to its own action through the schema or
