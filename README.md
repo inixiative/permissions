@@ -10,7 +10,7 @@ One check, over your own data, that covers:
 - **RuBAC:** rules as data: every condition is a serializable [`@inixiative/json-rules`](https://github.com/inixiative/json-rules) rule, positive by design (`validateActionRule` refuses the rest), the same AST everywhere it appears.
 - **Delegation (entitlements):** attenuated grants a holder passes on (copied, narrowed, lowered, never widened), each re-checked live at every link of its chain and at every tenant boundary it crosses.
 
-It decides on your own records: the checks walk them through the schema map you pass (which model each resource is, its relations and foreign keys, and its polymorphic models' kinds; in the inixiative stack that is a [`@inixiative/prisma-map`](https://github.com/inixiative/prisma-map) map), reached through a `load` you provide. There is no separate authorization store and no relationship tuples to sync. Nothing in it imports a database layer: the `createHydrator` helper walks the schema map and calls your `load`, which is also where caching goes. The core is about a thousand lines of TypeScript; optional helpers for delegation and hydration add about two hundred more. MIT licensed.
+It decides on your own records: the checks walk them through the schema map you pass (which model each resource is, its relations and foreign keys, and its polymorphic models' kinds; in the inixiative stack that is a [`@inixiative/prisma-map`](https://github.com/inixiative/prisma-map) map), reached through a `load` you provide. There is no separate authorization store and no relationship tuples to sync. Nothing in it imports a database layer: the `createHydrator` helper walks the schema map and calls your `load`, which is also where caching goes. The core is small enough to read, and it depends only on json-rules and lodash-es; the optional helpers for delegation and hydration sit outside it. MIT licensed.
 
 Everything you configure it with is plain JSON: the schema's rules, role grants, entitlements, `Permissions`. So
 they can live in your database, be composed like any other data, and be authored at runtime. A
@@ -25,7 +25,7 @@ config file shipped on deploy. `validateActionRule` checks a stored rule before 
 - **Granting is checked by the same rules.** You can only hand on what you could do yourself on every record the grant reaches. No separate admin policy to keep in step.
 - **Change the rules, not the data.** What an action means and what implies what are read at check time, so changing them never means migrating or re-checking stored grants.
 - **Positive by design.** No deny rules: you narrow by composing a stricter rule (`all`), so there is no deny-versus-allow conflict, and a validated rule never passes because something wasn't loaded.
-- **Small enough to read.** About a thousand lines of core, in your process.
+- **Small enough to read.** A compact core that runs in your process, with json-rules and lodash-es as its only dependencies.
 
 | | This library | SpiceDB, OpenFGA, Permify | Cedar / AVP | Oso Cloud | Cerbos | OPA |
 |---|---|---|---|---|---|---|
@@ -36,7 +36,7 @@ config file shipped on deploy. `validateActionRule` checks a stored rule before 
 | Grant-time check from the same rules | Yes | No | No | No | n/a | No |
 | Lists "what can I read" as a query | 1.0, end of 2026 | Id lists | Experimental | Yes | Yes | Partial evaluation |
 | Runs in your process | Yes | No | Cedar yes, AVP hosted | No | Service or sidecar | Sidecar or library |
-| Size | About 1,000 lines of core | Service | Library and service | Service | Service or sidecar | Sidecar or library |
+| Size | A small library you can read | Service | Library and service | Service | Service or sidecar | Sidecar or library |
 
 The full comparison, with sources for every cell and where the others are ahead: [COMPARISON.md](./COMPARISON.md).
 
