@@ -1,3 +1,19 @@
+## 0.22.0 — a writer passes on what it can do
+
+- **Breaking (widening): `canGrantEntitlement` decides a delegated writer by the schema.** Each
+  action the entry grants is checked on each placed record by the rebac walk over the writer's
+  table and its own entitlements (no actor, `absent: 'unknown'`): implications, `rel` hops and
+  owner backing as at read time. A writer holding `operate` on a resource by entitlement now
+  passes on the actions another resource's schema derives from that `operate`; before, a held
+  entitlement covered only an entry on the same resource and anchor, so `check()` allowed what
+  `canGrant` refused. A held `where` still bounds the grant: it applies only where the entry's
+  `where` pins what it reads, and a `where` the placed record cannot decide still passes as a
+  copy or narrowing of one held entitlement. Owner backing stays live.
+- Now granted, before refused: an entitlement on a parent passed on over its children (R103), a
+  held entitlement at a higher anchor passed on under a lower one with its `where`, and an entry
+  whose placed kinds are each covered by a different held entitlement (R101). Each is something
+  the writer could already do on every record the entry admits.
+
 ## 0.21.1 — the idField setting reaches consumers' types
 
 - **Fix: the published `index.d.ts` / `index.d.cts` now carry the `EngineGlobalValues`

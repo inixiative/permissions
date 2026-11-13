@@ -355,24 +355,36 @@ relation). It returns `null` when no kind is left, the anchor row is not the ent
 does not end at the anchor's model through to-one relations. A self
 anchor is the anchor row itself.
 
-`canGrantEntitlement` judges each placed record in two passes:
+`canGrantEntitlement` judges each placed record, action by action. A holder of X may pass on any
+part of X: what a writer can do and what it can pass on are one answer.
 
-1. **The writer's table.** Its table alone (its role), with no entitlements and no actor, takes
-   each action on `placed`. (A delegate's permissions capped at a ceiling, from `delegate`, is
-   permissions entries too.) It reads `placed` with json-rules `absent: 'unknown'`: a field it does not carry fails
-   every positive leaf, `equals null` included, so a writer whose authority reads a field the
-   `where` leaves open is refused. A rule that needs an actor (`__actor.model equals 'User'`, an id compared to `__actor.record`) never passes: who the writer is is not
-   authority that can be handed on. Rules are positive (`validateActionRule` refuses the rest),
+1. **What the writer can do there.** The rebac walk itself, over the writer's table (its role; a
+   delegate's permissions capped at a ceiling, from `delegate`, are permissions entries too) and
+   its own entitlements, with no actor, takes the action on `placed`. Implications, `rel` hops and
+   each held entitlement's owner backing apply exactly as at read time, so a writer holding
+   `operate` on an integration resource by entitlement passes on `messages.read` on that
+   resource's channels when the channel's schema derives it from `operate`, and nothing once its
+   owner loses `operate`. It reads `placed` with json-rules `absent: 'unknown'`: a field it does
+   not carry fails every positive leaf, `equals null` included. So a writer whose authority reads
+   a field the `where` leaves open is refused, and a held `where` applies only when the entry's
+   `where` pins what it reads (`name equals 'general'` held: the entry needs that leaf too, or a
+   narrower `all` around it). A rule that needs an actor (`__actor.model equals 'User'`, an id
+   compared to `__actor.record`) never passes: who the writer is is not authority that can be
+   handed on. Rules are positive (`validateActionRule` and `entitlementProblem` refuse the rest),
    which is what makes a pass on `placed` hold for every record the `where` admits.
-2. **One held entitlement.** Failing that, the entry is one entitlement the writer holds, passed on
-   whole: the same `resource` and anchor (resource, id, path); each granted action one it holds or
-   reaches by pure delegation (a bare action name, alone or an arm of a top-level `any`: holding
-   `manage` grants `read` when `read` is `{ any: ['manage', …] }`); its `where` copied or narrowed
-   (every condition of the held `where`, meaning itself or each child of its top `all`, among the
-   entry's); and whoever granted the held one still takes each granted action on `placed`, so
-   copying never revives an entitlement its granter no longer backs (for a lowered action, the
-   granter must still back the held action it lowers from). Held entitlements never combine: to
-   pass on two, grant two.
+2. **One held entitlement, copied or narrowed.** Failing that, for a `where` the placed record
+   cannot decide (`name in [...]`), the action comes from one entitlement the writer holds: the
+   same `resource` and anchor (resource, id, path); the action one it holds or reaches by pure
+   delegation (a bare action name, alone or an arm of a top-level `any`: holding `manage` grants
+   `read` when `read` is `{ any: ['manage', …] }`); its `where` copied or narrowed (every
+   condition of the held `where`, meaning itself or each child of its top `all`, among the
+   entry's); and whoever granted the held one still takes the action on `placed`, so copying never
+   revives an entitlement its granter no longer backs.
+
+Two held entitlements never widen into one grant: each placed record and action must be covered
+on its own, so `provider in [slack, teams]` is refused to a writer holding Slack and Teams apart
+(no placed record pins a provider), while an entry whose kinds each place their own record is
+granted when every kind is covered.
 
 `reachableFrom(schema, resource, action)` is that pure-delegation walk: the actions on `resource`
 whose holding grants `action` (itself included). `capAtRole` keeps a delegate's entries at its
