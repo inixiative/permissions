@@ -1,8 +1,13 @@
-import { type Condition, check as checkRule, type FieldMap } from '@inixiative/json-rules';
+import {
+  type Condition,
+  check as checkRule,
+  type FieldMap,
+  listFields,
+} from '@inixiative/json-rules';
 import { entitlementProblem } from './entitlementProblem';
 import { withExactStrings } from './exactStrings';
 import type { EntitlementEntry } from './permix';
-import { recordId } from './recordId';
+import { idField, recordId } from './recordId';
 import type { Row } from './types';
 
 /** A polymorphic model's discriminator: `field` names the kind, `fkMap` the columns each kind carries. */
@@ -272,11 +277,31 @@ export const placeUnder = <R extends string>(
   return withExactStrings(() => place(resource, path.split('.'), true));
 };
 
+const withoutPath = (row: Row, [segment, ...rest]: string[]): Row => {
+  if (segment === undefined || !(segment in row)) return row;
+  const { [segment]: value, ...others } = row;
+  if (!rest.length) return others;
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? { ...others, [segment]: withoutPath(value as Row, rest) }
+    : row;
+};
+
+const placeSelf = (anchor: Row, where: Condition | undefined): Row => {
+  if (where === undefined) return anchor;
+  const unread = listFields(where).reduce(
+    (row, field) => withoutPath(row, field.split('.')),
+    anchor,
+  );
+  return { ...unread, ...pinned(rootLeaves(where)), [idField()]: anchor[idField()] };
+};
+
 /**
  * The pseudo records a grant is checked on: `placeUnder` from the hydrated `anchor` along the entry's
  * path, less the kinds of its first step a root leaf of the `where` (the `where` itself, or a leaf
  * of its top `all`) on the kind field fails, each given the root's exact `equals` values (the path
- * wins over a pinned foreign key). A self anchor is the anchor row itself. Null when the entry
+ * wins over a pinned foreign key). A self anchor is the anchor row with every field the `where`
+ * reads unknown, save the root's exact `equals` values and the anchor's id, so a held `where` is
+ * decided by the entry's own `where`, never by the row as it is today. Null when the entry
  * is malformed (the rules `setup` applies), the anchor is not the entry's, or the path reaches
  * nothing; the writer must pass on every record.
  */
@@ -286,7 +311,7 @@ export const placeEntitlement = <R extends string>(
   anchor: Row,
 ): Row[] | null => {
   if (entitlementProblem(entry) !== null || recordId(anchor) !== entry.anchor.id) return null;
-  if (entry.anchor.path === undefined) return [anchor];
+  if (entry.anchor.path === undefined) return [placeSelf(anchor, entry.where)];
   const pins = pinned(rootLeaves(entry.where));
   const placed = placeUnder(
     map,

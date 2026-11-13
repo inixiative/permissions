@@ -353,7 +353,10 @@ wins over a pinned foreign key it knows, so a `where` cannot move the record out
 anchor (a pin on a foreign key the path leaves unknown stays, and the rules still walk the placed
 relation). It returns `null` when no kind is left, the anchor row is not the entry's, or the path
 does not end at the anchor's model through to-one relations. A self
-anchor is the anchor row itself.
+anchor is the anchor row with every field its `where` reads unknown (json-rules `listFields`),
+save the root's exact `equals` values and the anchor's own id: a held `where` is decided by the
+entry's `where`, never by what the row happens to hold today (`name equals 'general'` on a channel
+now named `random` is refused to a writer that holds only `name equals 'random'`).
 
 `canGrantEntitlement` judges each placed record, action by action. A holder of X may pass on any
 part of X: what a writer can do and what it can pass on are one answer.
@@ -371,7 +374,11 @@ part of X: what a writer can do and what it can pass on are one answer.
    narrower `all` around it). A rule that needs an actor (`__actor.model equals 'User'`, an id
    compared to `__actor.record`) never passes: who the writer is is not authority that can be
    handed on. Rules are positive (`validateActionRule` and `entitlementProblem` refuse the rest),
-   which is what makes a pass on `placed` hold for every record the `where` admits.
+   which is what makes a pass on `placed` hold for every record the `where` admits; a schema rule
+   the walk reads that is not (a negated `notEquals` would pass on a field `placed` lacks) throws,
+   naming the resource and action. The walk checks only the rules it reads, not the whole schema,
+   because `createCanGrantEntitlement` is not given one and a consumer's schema may carry
+   `validateSchema` issues in rules no grant reaches.
 2. **One held entitlement, copied or narrowed.** Failing that, for a `where` the placed record
    cannot decide (`name in [...]`), the action comes from one entitlement the writer holds: the
    same `resource` and anchor (resource, id, path); the action one it holds or reaches by pure

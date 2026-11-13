@@ -13,6 +13,19 @@
   held entitlement at a higher anchor passed on under a lower one with its `where`, and an entry
   whose placed kinds are each covered by a different held entitlement (R101). Each is something
   the writer could already do on every record the entry admits.
+- **Fix: a self-anchored entry is judged by its own `where`.** `placeEntitlement` returned the live
+  anchor row for an entry with no path, so a held `where` was decided by the row's values today:
+  a writer holding `name equals 'random'` passed on `name equals 'general'` on a channel now named
+  `random`. The placed record now leaves unknown every field the entry's `where` reads (json-rules
+  `listFields`), except the root's exact `equals` values and the anchor's id.
+- **Breaking: the grant walk throws on a schema rule that is not positive.** Under
+  `absent: 'unknown'` a negated leaf (`notEquals`, `notIn`, `notContains`) on a field the placed
+  record lacks passed, so `canGrant` admitted what the writer could not do on every record. Each
+  schema rule the walk reads is now checked with `validateActionRule` (as `validateSchema` does)
+  and an invalid one throws, naming `resource.action`. Only the rules the walk reads are checked:
+  the factory is not given the schema, and a consumer's schema may carry `validateSchema` issues
+  in rules no grant reaches. Write a gating rule positively (`role in ['member', 'guest']`, not
+  `role notIn ['owner', 'admin']`).
 
 ## 0.21.1 — the idField setting reaches consumers' types
 

@@ -18,6 +18,7 @@ import { mapOf } from './schemaMaps';
 
 const person = { rule: { field: '__actor.model', operator: Operator.equals, value: 'User' } };
 const highRoles = ['owner', 'admin'];
+const lowRoles = ['member', 'guest'];
 
 const schema: RebacSchema = {
   permissions: {
@@ -30,10 +31,7 @@ const schema: RebacSchema = {
           any: [
             { all: [{ rule: { field: 'role', operator: Operator.in, value: highRoles } }, 'own'] },
             {
-              all: [
-                { rule: { field: 'role', operator: Operator.notIn, value: highRoles } },
-                'manage',
-              ],
+              all: [{ rule: { field: 'role', operator: Operator.in, value: lowRoles } }, 'manage'],
             },
           ],
         },
@@ -45,7 +43,7 @@ const schema: RebacSchema = {
         own: { rel: 'organization', action: 'own' },
         manage: { any: ['own', { rel: 'organization', action: 'manage' }] },
         read: { any: ['manage', { rel: 'organization', action: 'read' }] },
-        assign: { rule: { field: 'role', operator: Operator.notIn, value: highRoles } },
+        assign: { rule: { field: 'role', operator: Operator.in, value: lowRoles } },
         rename: {
           all: [{ rule: { field: 'label', operator: Operator.equals, value: null } }, 'read'],
         },
@@ -122,9 +120,14 @@ describe('canGrantEntitlement: never more than the writer could do from that anc
 
   test('a rule-gated action is granted by whoever could take it at the anchor', async () => {
     const assign = entry('db:organization', at('db:organization', 'o1'), ['assign']);
-    expect(may(await holding('db:organization', 'o1', ['read']), assign, o1)).toBe(false);
-    expect(may(await holding('db:organization', 'o1', ['manage']), assign, o1)).toBe(true);
-    expect(may(await holding('db:organization', 'o1', ['own']), assign, o1)).toBe(true);
+    const member = { ...o1, role: 'member' };
+    const owner = { ...o1, role: 'owner' };
+    expect(may(await holding('db:organization', 'o1', ['read']), assign, member)).toBe(false);
+    expect(may(await holding('db:organization', 'o1', ['manage']), assign, member)).toBe(true);
+    expect(may(await holding('db:organization', 'o1', ['manage']), assign, owner)).toBe(false);
+    expect(may(await holding('db:organization', 'o1', ['manage']), assign, o1)).toBe(false);
+    expect(may(await holding('db:organization', 'o1', ['own']), assign, member)).toBe(true);
+    expect(may(await holding('db:organization', 'o1', ['own']), assign, owner)).toBe(true);
   });
 
   test('a granted rule-gated action reaches exactly as far as its writer: the owner walk runs the rule', async () => {
@@ -145,7 +148,8 @@ describe('canGrantEntitlement: never more than the writer could do from that anc
   test('a rule-only action is granted by anyone who could take it, and its holder still meets the rule', async () => {
     const assign = entry('db:space', at('db:space', 's1'), ['assign']);
     const nobody = await writer([]);
-    expect(may(nobody, assign, s1)).toBe(true);
+    expect(may(nobody, assign, { ...s1, role: 'member' })).toBe(true);
+    expect(may(nobody, assign, s1)).toBe(false);
     const holder = createPermissions();
     await holder.setup([assign], { owner: nobody });
     expect(check(holder, 'db:space', { ...s1, role: 'member' }, 'assign')).toBe(true);
@@ -522,6 +526,71 @@ describe('a delegated writer passes on what the schema says it can do: any subse
     expect(can(writer, channel, 'messages.read')).toBe(false);
     expect(grants(writer, onChannels(['messages.read']))).toBe(false);
     expect(grants(writer, operateOnR1)).toBe(false);
+  });
+
+  test('a self-anchored entry is judged by its own where, not by the anchor row as it is today', async () => {
+    const random = { field: 'name', operator: Operator.equals, value: 'random' };
+    const general = { field: 'name', operator: Operator.equals, value: 'general' };
+    const writer = await holderOf(await operator(), onChannels(['messages.*'], random));
+    const c1 = { ...channel, name: 'random' };
+    const onC1 = (where?: EntitlementEntry['where']) =>
+      entry('slack:channel', at('slack:channel', 'c1'), ['messages.read'], where);
+    const grantsOnC1 = (granted: EntitlementEntry) => {
+      const placed = placeEntitlement(surfaceMap, granted, c1);
+      return (
+        placed !== null && placed.every((record) => canGrant(writer, surfaces, granted, record))
+      );
+    };
+    expect(can(writer, { ...c1, name: 'general' }, 'messages.read')).toBe(false);
+    expect(grantsOnC1(onC1(general))).toBe(false);
+    expect(grantsOnC1(onC1({ field: 'name', operator: Operator.in, value: ['random'] }))).toBe(
+      false,
+    );
+    expect(grantsOnC1(onC1(random))).toBe(true);
+    expect(grantsOnC1(onC1())).toBe(true);
+  });
+
+  test('a self-anchored entry keeps its anchor id and leaves unknown what its where reads', () => {
+    const c1 = { ...channel, name: 'random', topic: 'x' };
+    const granted = entry('slack:channel', at('slack:channel', 'c1'), ['messages.read'], {
+      all: [
+        { field: 'name', operator: Operator.equals, value: 'general' },
+        { field: 'topic', operator: Operator.in, value: ['y'] },
+        { field: 'integrationResource.provider', operator: Operator.equals, value: 'slack' },
+        { field: 'id', operator: Operator.equals, value: 'c9' },
+      ],
+    });
+    expect(placeEntitlement(surfaceMap, granted, c1)).toEqual([
+      {
+        id: 'c1',
+        name: 'general',
+        integrationResourceId: 'r1',
+        integrationResource: { id: 'r1' },
+      },
+    ]);
+    expect(c1.integrationResource).toEqual(r1);
+  });
+
+  test('a negated schema rule cannot be judged on a placed record: the grant walk refuses the schema', async () => {
+    const unlocked = { field: 'locked', operator: Operator.notEquals, value: true };
+    const negated: RebacSchema = {
+      permissions: {
+        ...surfaces.permissions,
+        'slack:channel': {
+          actions: {
+            ...surfaces.permissions['slack:channel']?.actions,
+            'messages.post': { all: ['messages.*', { rule: unlocked }] },
+          },
+        },
+      },
+    };
+    const writer = await holderOf(await operator(), operateOnR1);
+    const post = onChannels(['messages.post']);
+    const [placed] = placeEntitlement(surfaceMap, post, r1) ?? [];
+    expect(() => canGrant(writer, negated, post, placed as Row)).toThrow(
+      /slack:channel.*messages\.post.*positive/,
+    );
+    expect(can(writer, { ...channel, locked: true }, 'messages.post')).toBe(false);
   });
 
   test('a writer holding operate on another resource passes on nothing under r1', async () => {
