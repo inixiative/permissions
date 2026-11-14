@@ -1,5 +1,7 @@
 ## 0.22.0 — a writer passes on what it can do
 
+- `delegatedWhere(held, ...added)`: the `where` of an entry granted under a held one, in the shape the grant check reads as narrowing it (the held `where` exactly when nothing is added, otherwise `all` of the added conditions then the held `where`'s own conjuncts, each kept intact). Consumers build delegated `where`s with it instead of their own conjunction.
+
 - **Breaking (widening): `canGrantEntitlement` decides a delegated writer by the schema.** Each
   action the entry grants is checked on each placed record by the rebac walk over the writer's
   table and its own entitlements (no actor, `absent: 'unknown'`): implications, `rel` hops and

@@ -4,6 +4,7 @@ import {
   createCanGrantEntitlement,
   createPermissions,
   createRebacCheck,
+  delegatedWhere,
   type EntitlementEntry,
   type PermissionEntry,
   type Permix,
@@ -647,5 +648,41 @@ describe('a delegated writer passes on what the schema says it can do: any subse
       entry('db:integrationResource', at('db:integrationResource', 'r9'), ['operate']),
     );
     expect(grants(writer, onChannels(['messages.read']))).toBe(false);
+  });
+});
+
+describe('delegatedWhere builds the where a delegated grant narrows a held one with', () => {
+  const slack = { field: 'provider', operator: Operator.equals, value: 'slack' };
+  const general = { field: 'name', operator: Operator.equals, value: 'general' };
+  const both = { all: [slack, { field: 'name', operator: Operator.startsWith, value: 'g' }] };
+  const heldUnder = (where: EntitlementEntry['where']) =>
+    entry('db:integration', at('db:space', 's1', 'space'), ['manage'], where);
+  const placed = integrationUnder(s1);
+  const holderOf = async (held: EntitlementEntry) => {
+    const holder = createPermissions();
+    await holder.setup([held], { owner: await holding('db:space', 's1', ['own']) });
+    return holder;
+  };
+
+  test('nothing added keeps the held where exactly; nothing held keeps what is added', () => {
+    expect(delegatedWhere(slack)).toEqual(slack);
+    expect(delegatedWhere(undefined, general)).toEqual(general);
+    expect(delegatedWhere(undefined)).toBeUndefined();
+  });
+
+  test('added conditions come first, then the held conjuncts, each kept intact', () => {
+    expect(delegatedWhere(slack, general)).toEqual({ all: [general, slack] });
+    expect(delegatedWhere(both, general)).toEqual({ all: [general, ...both.all] });
+    const guarded = { all: [slack], any: [general] };
+    expect(delegatedWhere(guarded as never, general)).toEqual({ all: [general, guarded] });
+    expect(delegatedWhere(slack, slack)).toEqual(slack);
+  });
+
+  test('the grant check reads what it builds as narrowing the held where', async () => {
+    for (const held of [slack, both]) {
+      const holder = await holderOf(heldUnder(held));
+      expect(may(holder, heldUnder(delegatedWhere(held, general)), placed)).toBe(true);
+      expect(may(holder, heldUnder(general), placed)).toBe(false);
+    }
   });
 });
