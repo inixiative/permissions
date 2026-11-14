@@ -1,3 +1,46 @@
+## 0.22.0 — a writer passes on what it can do
+
+- `delegatedWhere(held, ...added)`: the `where` of an entry granted under a held one, in the shape the grant check reads as narrowing it (the held `where` exactly when nothing is added, otherwise `all` of the added conditions then the held `where`'s own conjuncts, each kept intact). Consumers build delegated `where`s with it instead of their own conjunction.
+
+- **Breaking (widening): `canGrantEntitlement` decides a delegated writer by the schema.** Each
+  action the entry grants is checked on each placed record by the rebac walk over the writer's
+  table and its own entitlements (no actor, `absent: 'unknown'`): implications, `rel` hops and
+  owner backing as at read time. A writer holding `operate` on a resource by entitlement now
+  passes on the actions another resource's schema derives from that `operate`; before, a held
+  entitlement covered only an entry on the same resource and anchor, so `check()` allowed what
+  `canGrant` refused. A held `where` still bounds the grant: it applies only where the entry's
+  `where` pins what it reads, and a `where` the placed record cannot decide still passes as a
+  copy or narrowing of one held entitlement. Owner backing stays live.
+- Now granted, before refused: an entitlement on a parent passed on over its children (R103), a
+  held entitlement at a higher anchor passed on under a lower one with its `where`, and an entry
+  whose placed kinds are each covered by a different held entitlement (R101). Each is something
+  the writer could already do on every record the entry admits.
+- **Fix: a self-anchored entry is judged by its own `where`.** `placeEntitlement` returned the live
+  anchor row for an entry with no path, so a held `where` was decided by the row's values today:
+  a writer holding `name equals 'random'` passed on `name equals 'general'` on a channel now named
+  `random`. The placed record now leaves unknown every field the entry's `where` reads (json-rules
+  `listFields`), except the root's exact `equals` values and the anchor's id.
+- **A literal list pins its placed records, so a list passes on at any depth.** `placeEntitlement`
+  pinned only exact `equals` leaves, so an entry `threadId in [a, b]` left `threadId` unknown: a
+  writer whose authority came through a granter holding `threadId in [a, b, c]` could not be backed
+  on the placed record, and a list pin passed one hop and was refused at the next. A root `in` of
+  literals (strings, numbers, booleans) on a field no `equals` pins and the path does not set now
+  places one record per value; lists on one field intersect, lists on several multiply, and lists
+  sharing no value or placing more than 256 records pin nothing. A writer holding two values apart
+  now passes on `in` of both (each placed record is covered on its own); before, it was refused.
+- **A held `in` is narrowed by a subset.** The copy-or-narrowing fallback took a held condition
+  only verbatim; a held `in` of literals is now also narrowed by an `equals` or `in` on the same
+  field whose values it lists, so a list narrowed beside a condition the placed record cannot
+  decide still passes on.
+- **Breaking: the grant walk throws on a schema rule that is not positive.** Under
+  `absent: 'unknown'` a negated leaf (`notEquals`, `notIn`, `notContains`) on a field the placed
+  record lacks passed, so `canGrant` admitted what the writer could not do on every record. Each
+  schema rule the walk reads is now checked with `validateActionRule` (as `validateSchema` does)
+  and an invalid one throws, naming `resource.action`. Only the rules the walk reads are checked:
+  the factory is not given the schema, and a consumer's schema may carry `validateSchema` issues
+  in rules no grant reaches. Write a gating rule positively (`role in ['member', 'guest']`, not
+  `role notIn ['owner', 'admin']`).
+
 ## 0.21.1 — the idField setting reaches consumers' types
 
 - **Fix: the published `index.d.ts` / `index.d.cts` now carry the `EngineGlobalValues`

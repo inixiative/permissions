@@ -16,6 +16,19 @@ export type Walk<R extends string> = {
   getDict: () => BridgeDictionary | undefined;
 };
 
+const judgedRules = new WeakMap<object, boolean>();
+
+// Under `absent: 'unknown'` a negated rule on a field the record lacks passes, so a schema rule the
+// grant walk reads must be one validateSchema accepts.
+const assertJudgeable = (rule: ActionRule, resource: string, action: string) => {
+  if (rule === null || typeof rule !== 'object') return;
+  if (!judgedRules.has(rule)) judgedRules.set(rule, validateActionRule(rule).ok);
+  if (!judgedRules.get(rule))
+    throw new Error(
+      `\`${resource}.${action}\` cannot be judged on a placed record: a grant reads only schema rules that are well formed and positive (run validateSchema)`,
+    );
+};
+
 export const evaluate = <R extends string>(
   walk: Walk<R>,
   permix: PermixLike,
@@ -41,6 +54,7 @@ export const evaluate = <R extends string>(
     visited.add(key);
 
     const schemaRule = walk.schema.permissions[resource]?.actions[actionOrRule] ?? null;
+    if (walk.absent === 'unknown') assertJudgeable(schemaRule, resource, actionOrRule);
     const rowRules = record.permissionRules as Record<string, ActionRule> | null | undefined;
     const rowRule = rowRules?.[actionOrRule];
     const rowRuleHolds =

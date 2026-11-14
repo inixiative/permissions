@@ -223,8 +223,8 @@ describe('an anchor path names the anchor and the axis; every kind on it is reac
   });
 });
 
-describe('held entitlements never combine: to grant two, grant two (R101, R103)', () => {
-  test("holding the organization's own and the members' does not grant both in one entry", async () => {
+describe('a grant is judged per placed kind: held entitlements that cover each kind cover the entry', () => {
+  test("holding the organization's own and the members' grants both in one entry, and no third kind", async () => {
     const kindsIn = (...values: string[]) =>
       underO1({ field: 'ownerModel', operator: 'in', value: values } as never);
     const writer = createPermissions();
@@ -232,7 +232,8 @@ describe('held entitlements never combine: to grant two, grant two (R101, R103)'
       owner: await owner(),
     });
     expect(await may(writer, kindsIn('Organization'))).toBe(true);
-    expect(await may(writer, kindsIn('Organization', 'OrganizationUser'))).toBe(false);
+    expect(await may(writer, kindsIn('Organization', 'OrganizationUser'))).toBe(true);
+    expect(await may(writer, kindsIn('Organization', 'OrganizationUser', 'Space'))).toBe(false);
   });
 });
 
