@@ -668,6 +668,8 @@ describe('delegatedWhere builds the where a delegated grant narrows a held one w
     expect(delegatedWhere(slack)).toEqual(slack);
     expect(delegatedWhere(undefined, general)).toEqual(general);
     expect(delegatedWhere(undefined)).toBeUndefined();
+    expect(delegatedWhere(null, general)).toEqual(general);
+    expect(delegatedWhere(slack, null)).toEqual(slack);
   });
 
   test('added conditions come first, then the held conjuncts, each kept intact', () => {

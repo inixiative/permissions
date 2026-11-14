@@ -8,8 +8,8 @@ import { conjuncts } from './schemaMap';
  * intact. This is the shape `createCanGrantEntitlement` reads as narrowing the held `where`.
  */
 export const delegatedWhere = (
-  held: Condition | undefined,
-  ...added: (Condition | undefined)[]
+  held: Condition | null | undefined,
+  ...added: (Condition | null | undefined)[]
 ): Condition | undefined => {
   const parts = [...added.flatMap((where) => conjuncts(where)), ...conjuncts(held)].filter(
     (part, index, all) => all.findIndex((other) => isEqual(other, part)) === index,

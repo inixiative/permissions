@@ -124,8 +124,8 @@ const isLiteralLeaf = (rule: unknown): rule is Leaf =>
   'value' in rule &&
   Object.keys(rule).every((key) => exactKeys.has(key));
 
-export const conjuncts = (where: Condition | undefined): unknown[] => {
-  if (where === undefined) return [];
+export const conjuncts = (where: Condition | null | undefined): unknown[] => {
+  if (where == null) return [];
   if (
     typeof where === 'object' &&
     'all' in where &&
