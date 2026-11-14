@@ -543,14 +543,17 @@ describe('a delegated writer passes on what the schema says it can do: any subse
     };
     expect(can(writer, { ...c1, name: 'general' }, 'messages.read')).toBe(false);
     expect(grantsOnC1(onC1(general))).toBe(false);
-    expect(grantsOnC1(onC1({ field: 'name', operator: Operator.in, value: ['random'] }))).toBe(
+    expect(grantsOnC1(onC1({ field: 'name', operator: Operator.in, value: ['general'] }))).toBe(
       false,
+    );
+    expect(grantsOnC1(onC1({ field: 'name', operator: Operator.in, value: ['random'] }))).toBe(
+      true,
     );
     expect(grantsOnC1(onC1(random))).toBe(true);
     expect(grantsOnC1(onC1())).toBe(true);
   });
 
-  test('a self-anchored entry keeps its anchor id and leaves unknown what its where reads', () => {
+  test('a self-anchored entry keeps its anchor id, pins its literal lists and leaves unknown the rest its where reads', () => {
     const c1 = { ...channel, name: 'random', topic: 'x' };
     const granted = entry('slack:channel', at('slack:channel', 'c1'), ['messages.read'], {
       all: [
@@ -564,6 +567,7 @@ describe('a delegated writer passes on what the schema says it can do: any subse
       {
         id: 'c1',
         name: 'general',
+        topic: 'y',
         integrationResourceId: 'r1',
         integrationResource: { id: 'r1' },
       },
@@ -591,6 +595,50 @@ describe('a delegated writer passes on what the schema says it can do: any subse
       /slack:channel.*messages\.post.*positive/,
     );
     expect(can(writer, { ...channel, locked: true }, 'messages.post')).toBe(false);
+  });
+
+  test('a list pin passes on at any depth: each hop names a subset of the list above it', async () => {
+    const named = (...names: string[]) => ({ field: 'name', operator: Operator.in, value: names });
+    const first = await holderOf(
+      await operator(),
+      onChannels(['messages.*'], named('general', 'random', 'ops')),
+    );
+    const second = await holderOf(first, onChannels(['messages.read'], named('general', 'random')));
+    const third = await holderOf(second, onChannels(['messages.read'], named('general')));
+    expect(grants(second, onChannels(['messages.read'], named('general', 'random')))).toBe(true);
+    expect(grants(second, onChannels(['messages.read'], named('general')))).toBe(true);
+    expect(
+      grants(
+        second,
+        onChannels(['messages.read'], { field: 'name', operator: 'equals', value: 'random' }),
+      ),
+    ).toBe(true);
+    expect(grants(second, onChannels(['messages.read'], named('general', 'ops')))).toBe(false);
+    expect(grants(second, onChannels(['messages.read'], named('secret')))).toBe(false);
+    expect(grants(second, onChannels(['messages.read']))).toBe(false);
+    expect(grants(third, onChannels(['messages.read'], named('general')))).toBe(true);
+    expect(grants(third, onChannels(['messages.read'], named('random')))).toBe(false);
+    expect(grants(third, onChannels(['messages.*'], named('general')))).toBe(false);
+  });
+
+  test('a list narrowed to a subset is a narrowing even beside a condition the placed record cannot decide', async () => {
+    const large = { field: 'members', operator: Operator.greaterThan, value: 5 };
+    const named = (...names: string[]) => ({
+      all: [large, { field: 'name', operator: Operator.in, value: names }],
+    });
+    const writer = await holderOf(
+      await operator(),
+      onChannels(['messages.read'], named('general', 'random')),
+    );
+    expect(grants(writer, onChannels(['messages.read'], named('general')))).toBe(true);
+    expect(grants(writer, onChannels(['messages.read'], named('general', 'random')))).toBe(true);
+    expect(grants(writer, onChannels(['messages.read'], named('general', 'secret')))).toBe(false);
+    expect(
+      grants(
+        writer,
+        onChannels(['messages.read'], { field: 'name', operator: Operator.in, value: ['general'] }),
+      ),
+    ).toBe(false);
   });
 
   test('a writer holding operate on another resource passes on nothing under r1', async () => {

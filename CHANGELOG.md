@@ -18,6 +18,18 @@
   a writer holding `name equals 'random'` passed on `name equals 'general'` on a channel now named
   `random`. The placed record now leaves unknown every field the entry's `where` reads (json-rules
   `listFields`), except the root's exact `equals` values and the anchor's id.
+- **A literal list pins its placed records, so a list passes on at any depth.** `placeEntitlement`
+  pinned only exact `equals` leaves, so an entry `threadId in [a, b]` left `threadId` unknown: a
+  writer whose authority came through a granter holding `threadId in [a, b, c]` could not be backed
+  on the placed record, and a list pin passed one hop and was refused at the next. A root `in` of
+  literals (strings, numbers, booleans) on a field no `equals` pins and the path does not set now
+  places one record per value; lists on one field intersect, lists on several multiply, and lists
+  sharing no value or placing more than 256 records pin nothing. A writer holding two values apart
+  now passes on `in` of both (each placed record is covered on its own); before, it was refused.
+- **A held `in` is narrowed by a subset.** The copy-or-narrowing fallback took a held condition
+  only verbatim; a held `in` of literals is now also narrowed by an `equals` or `in` on the same
+  field whose values it lists, so a list narrowed beside a condition the placed record cannot
+  decide still passes on.
 - **Breaking: the grant walk throws on a schema rule that is not positive.** Under
   `absent: 'unknown'` a negated leaf (`notEquals`, `notIn`, `notContains`) on a field the placed
   record lacks passed, so `canGrant` admitted what the writer could not do on every record. Each

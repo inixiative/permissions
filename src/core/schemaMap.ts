@@ -145,6 +145,49 @@ const pinned = (leaves: Leaf[]): Row =>
       .map((leaf) => [leaf.field, leaf.value]),
   );
 
+/** The most pseudo records the literal `in` lists of one entry place; past it they pin nothing. */
+const maxListPlacements = 256;
+
+const isLiteral = (value: unknown): value is string | number | boolean =>
+  typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean';
+
+/** The values a root leaf admits when it is an `equals` or an `in` of literals, else null. */
+export const literalValues = (rule: unknown): unknown[] | null => {
+  if (!isLiteralLeaf(rule) || rule.field.includes('.')) return null;
+  if (rule.operator === 'equals') return [rule.value];
+  if (rule.operator === 'in' && Array.isArray(rule.value) && rule.value.every(isLiteral))
+    return rule.value;
+  return null;
+};
+
+const listedFields = (leaves: Leaf[], fixed: Row): [string, unknown[]][] => {
+  const lists = new Map<string, unknown[]>();
+  for (const leaf of leaves) {
+    if (leaf.operator !== 'in' || leaf.field in fixed) continue;
+    const values = literalValues(leaf);
+    if (!values) continue;
+    const held = lists.get(leaf.field);
+    lists.set(
+      leaf.field,
+      held ? held.filter((value) => values.includes(value)) : [...new Set(values)],
+    );
+  }
+  return [...lists].filter(([, values]) => values.length > 0);
+};
+
+const pinnedRows = (where: Condition | undefined, placed: Row = {}): Row[] => {
+  const leaves = rootLeaves(where);
+  const exact = pinned(leaves);
+  const lists = listedFields(leaves, { ...exact, ...placed });
+  const count = lists.reduce((product, [, values]) => product * values.length, 1);
+  if (count > maxListPlacements) return [exact];
+  return lists.reduce<Row[]>(
+    (rows, [field, values]) =>
+      rows.flatMap((row) => values.map((value) => ({ ...row, [field]: value }))),
+    [exact],
+  );
+};
+
 const admits = (leaves: Leaf[], field: string, value: string) =>
   leaves.every(
     (leaf) => leaf.field !== field || checkRule(leaf as Condition, { [field]: value }) === true,
@@ -286,24 +329,27 @@ const withoutPath = (row: Row, [segment, ...rest]: string[]): Row => {
     : row;
 };
 
-const placeSelf = (anchor: Row, where: Condition | undefined): Row => {
-  if (where === undefined) return anchor;
+const placeSelf = (anchor: Row, where: Condition | undefined): Row[] => {
+  if (where === undefined) return [anchor];
   const unread = listFields(where).reduce(
     (row, field) => withoutPath(row, field.split('.')),
     anchor,
   );
-  return { ...unread, ...pinned(rootLeaves(where)), [idField()]: anchor[idField()] };
+  return pinnedRows(where).map((pins) => ({ ...unread, ...pins, [idField()]: anchor[idField()] }));
 };
 
 /**
  * The pseudo records a grant is checked on: `placeUnder` from the hydrated `anchor` along the entry's
  * path, less the kinds of its first step a root leaf of the `where` (the `where` itself, or a leaf
  * of its top `all`) on the kind field fails, each given the root's exact `equals` values (the path
- * wins over a pinned foreign key). A self anchor is the anchor row with every field the `where`
- * reads unknown, save the root's exact `equals` values and the anchor's id, so a held `where` is
- * decided by the entry's own `where`, never by the row as it is today. Null when the entry
- * is malformed (the rules `setup` applies), the anchor is not the entry's, or the path reaches
- * nothing; the writer must pass on every record.
+ * wins over a pinned foreign key). A root `in` of literals (strings, numbers, booleans) on a field
+ * no `equals` pins and the path does not set places one record per value, the lists on one field
+ * intersected and those on several multiplied; lists sharing no value, or placing more than
+ * `maxListPlacements` records, pin nothing. A self anchor is the anchor row with every field the
+ * `where` reads unknown, save those pins and the anchor's id, so a held `where` is decided by the
+ * entry's own `where`, never by the row as it is today. Null when the entry is malformed (the rules
+ * `setup` applies), the anchor is not the entry's, or the path reaches nothing; the writer must
+ * pass on every record.
  */
 export const placeEntitlement = <R extends string>(
   map: SchemaMap<R>,
@@ -311,8 +357,7 @@ export const placeEntitlement = <R extends string>(
   anchor: Row,
 ): Row[] | null => {
   if (entitlementProblem(entry) !== null || recordId(anchor) !== entry.anchor.id) return null;
-  if (entry.anchor.path === undefined) return [placeSelf(anchor, entry.where)];
-  const pins = pinned(rootLeaves(entry.where));
+  if (entry.anchor.path === undefined) return placeSelf(anchor, entry.where);
   const placed = placeUnder(
     map,
     entry.resource as R,
@@ -320,6 +365,6 @@ export const placeEntitlement = <R extends string>(
     entry.anchor.resource as R,
     anchor,
     entry.where,
-  ).map((record) => ({ ...pins, ...record }));
+  ).flatMap((record) => pinnedRows(entry.where, record).map((pin) => ({ ...pin, ...record })));
   return placed.length ? placed : null;
 };
