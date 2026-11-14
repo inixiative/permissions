@@ -180,6 +180,27 @@ walked, so an entitlement's owner revisiting the same node is not a cycle. A loo
 data (two holders owning each other's entitlements) is not a schema bug and does not throw: the
 back edge contributes nothing, and only a chain that reaches a real grant allows.
 
+### Every path: `createRebacPaths`
+
+`check` answers whether anything admits and stops at the first thing that does. To know which
+entitlements admitted, for routing a use, charging it or explaining it, run the same walk without
+stopping:
+
+```ts
+const paths = createRebacPaths(map, { limit: 20 });
+paths(permix, schema, { resource: 'db:space', record: space }, 'read');
+// [[['d-from-b', 'b']], [['d-from-c', 'c']]]
+```
+
+Each entry of the result is one way the check is admitted: the chains of entitlement `ref`s it
+stands on, holder first. A grant held directly is `[[]]` and nothing admitting is `[]`. An `all`
+that needs two delegated branches is one admission with two chains. Give an entitlement a `ref`
+(the app's id for its row) to see it in a chain; an entitlement without one is walked but not
+named. The order is the walk's: the schema before entitlements, entitlements in the order they
+were set up. `check` and `paths` share one walk, so they never disagree on what admits. A walk
+that finds more than `limit` admissions (default 20) throws `PathLimitError`; stacked diamonds
+double the count at each layer, so the limit is what bounds the work.
+
 ## The actor
 
 The actor is who is acting: what kind of credential (`model`) and its row (`record`). The app sets
@@ -415,7 +436,9 @@ type Permissions = { entries: PermissionEntry[]; owner?: Permissions }[];
 A group without `owner` is role grants; a group with one is entitlements, backed by the
 permissions of whoever granted them. `installPermissions(permix, permissions)` sets each group up
 in order, building every owner's permix from its own permissions; `permixOf(permissions)` returns
-a fresh permix with the permissions installed.
+a fresh permix with the permissions installed. An owner reached more than once in one install is
+built once when it is the same `Permissions` object, so build each owner's permissions once and
+reuse the object: two delegates of one owner, or the two sides of a diamond, then share it.
 
 ```ts
 const permissions = delegate(schema, ownerPermissions, {

@@ -1,3 +1,14 @@
+## Unreleased — every path a check is admitted along
+
+- **`createRebacPaths(map, { limit })`**: the walk `check` runs, without stopping at the first
+  admission. It returns every way the check is admitted, each the chains of entitlement `ref`s it
+  stands on, holder first. `check` and `paths` are one walk over a shared combinator, so they cannot
+  disagree. More than `limit` admissions (default 20) throws `PathLimitError`.
+- **`ref` on an entitlement entry**: the app's id for its row, reported by `paths`. It is not part
+  of what the entry grants; `entitlementProblem` refuses an empty one.
+- **`installPermissions` / `permixOf` build an owner once per install** when the same
+  `Permissions` object is reached more than once, so a diamond is not rebuilt per path.
+
 ## 0.21.1 — the idField setting reaches consumers' types
 
 - **Fix: the published `index.d.ts` / `index.d.cts` now carry the `EngineGlobalValues`
