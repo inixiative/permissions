@@ -21,13 +21,13 @@ export type Walk<R extends string, T = boolean> = {
 
 const judgedRules = new WeakMap<object, boolean>();
 
-// why: under `absent: 'unknown'` a negated rule on a field the placed record lacks passes
-const assertJudgeable = (rule: ActionRule, resource: string, action: string) => {
+// why: a negated rule passes on a field the record lacks, so no schema rule may be one
+const assertPositive = (rule: ActionRule, resource: string, action: string) => {
   if (rule === null || typeof rule !== 'object') return;
   if (!judgedRules.has(rule)) judgedRules.set(rule, validateActionRule(rule).ok);
   if (!judgedRules.get(rule))
     throw new Error(
-      `\`${resource}.${action}\` cannot be judged on a placed record: a grant reads only schema rules that are well formed and positive (run validateSchema)`,
+      `\`${resource}.${action}\` is not a positive schema rule: negated rules are refused on every check (run validateSchema)`,
     );
 };
 
@@ -71,7 +71,7 @@ const walkAction = <R extends string, T>(
   visited.add(key);
 
   const schemaRule = walk.schema.permissions[resource]?.actions[actionOrRule] ?? null;
-  if (walk.absent === 'unknown') assertJudgeable(schemaRule, resource, actionOrRule);
+  assertPositive(schemaRule, resource, actionOrRule);
   const rowRules = record.permissionRules as Record<string, ActionRule> | null | undefined;
   const rowRule = rowRules?.[actionOrRule];
   const rowRuleHolds =

@@ -1,7 +1,6 @@
 import { isEqual } from 'lodash-es';
 import { createRebacCheck } from './check';
 import { entitlementProblem } from './entitlementProblem';
-import { asOwner } from './identity';
 import type { EntitlementEntry } from './permix';
 import { reachableFrom } from './reachableFrom';
 import { conjuncts, type SchemaMap } from './schemaMap';
@@ -35,8 +34,9 @@ const narrows = (held: Entitlement, entry: EntitlementEntry) => {
  * entitlement pass: the entry is one entitlement the writer holds, copied or narrowed — same
  * resource and anchor, each of its actions one the held entitlement holds or reaches by pure
  * delegation (a bare action name, alone or an arm of a top-level `any`), and every condition of the held `where`
- * among the entry's (the held `where` itself, or each child of its top `all`) — and for each granted
- * action, whoever granted the held one still takes that granted action on `placed`.
+ * among the entry's (the held `where` itself, or each child of its top `all`). A copy is judged
+ * by its structure only: whether its grantor still backs it is the live walk at read time, so a
+ * copy from a grantor who has since lost the action is stored and never admits.
  */
 export const createCanGrantEntitlement = <R extends string = string>(
   map: SchemaMap<R>,
@@ -62,12 +62,8 @@ export const createCanGrantEntitlement = <R extends string = string>(
       (action) => permix.entitlements?.(resource, action) ?? [],
     );
     return candidates.some((held) => {
-      const owner = asOwner(held.owner, null);
       const lowers = (up: Set<string>) => [...up].some((action) => held.actions[action] === true);
-      const backed = (action: string) => check(owner, schema, { resource, record: placed }, action);
-      return (
-        narrows(held, entry) && actions.every((action, i) => lowers(reached[i]!) && backed(action))
-      );
+      return narrows(held, entry) && actions.every((action, i) => lowers(reached[i]!));
     });
   };
 };

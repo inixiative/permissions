@@ -3,8 +3,10 @@ import { type Condition, Operator } from '@inixiative/json-rules';
 import {
   createCanGrantEntitlement,
   createPermissions,
+  createRebacCheck,
   delegatedWhere,
   type EntitlementEntry,
+  type Permix,
   placeEntitlement,
   type RebacSchema,
   type Row,
@@ -78,7 +80,7 @@ describe('the copy rule reads what delegatedWhere builds as narrowing the held w
   });
 });
 
-describe('the grant walk refuses a schema rule it cannot judge on a placed record', () => {
+describe('a negated schema rule is refused in the grant walk too', () => {
   test('a negated rule on a field the placed record lacks throws instead of passing', async () => {
     const schema: RebacSchema = {
       permissions: {
@@ -106,7 +108,63 @@ describe('the grant walk refuses a schema rule it cannot judge on a placed recor
     const [placed] = placeEntitlement(map, entry, { id: 's1' }) as Row[];
 
     expect(() => createCanGrantEntitlement(map)(writer, schema, entry, placed as Row)).toThrow(
-      'cannot be judged on a placed record',
+      'is not a positive schema rule',
     );
+  });
+});
+
+describe('a list pin passes on at any depth: copies are judged by structure, the walk by the chain', () => {
+  const schema: RebacSchema = {
+    permissions: {
+      'db:space': { actions: { own: null } },
+      'db:thread': { actions: { read: { rel: 'space', action: 'own' } } },
+    },
+  };
+  const map = mapOf({ 'db:thread': { space: 'db:space' } });
+  const canGrant = createCanGrantEntitlement(map);
+  const check = createRebacCheck(map);
+  const threads = (where: Condition): EntitlementEntry => ({
+    resource: 'db:thread',
+    anchor: { resource: 'db:space', id: 's1', path: 'space' },
+    actions: { read: true },
+    where,
+  });
+  const listed = (...ids: string[]): Condition => ({
+    field: 'id',
+    operator: Operator.in,
+    value: ids,
+  });
+  const grantable = (writer: Permix, entry: EntitlementEntry) =>
+    (placeEntitlement(map, entry, { id: 's1' }) as Row[]).every((record) =>
+      canGrant(writer, schema, entry, record),
+    );
+  const holding = async (owner: Permix, entry: EntitlementEntry) => {
+    const holder = createPermissions();
+    await holder.setup(entry, { owner });
+    return holder;
+  };
+  const reads = (permix: Permix, id: string) =>
+    check(
+      permix,
+      schema,
+      { resource: 'db:thread', record: { id, spaceId: 's1', space: { id: 's1' } } },
+      'read',
+    );
+
+  test('B pins [A, B], C copies it, D narrows to [A] beside it: each hop is granted, and reads only what every link allows', async () => {
+    const owner = createPermissions();
+    await owner.setup({ resource: 'db:space', id: 's1', actions: { own: true } });
+    const pinned = threads(listed('tA', 'tB'));
+    const b = await holding(owner, pinned);
+    expect(grantable(b, pinned)).toBe(true);
+    const c = await holding(b, pinned);
+    const narrowed = threads(delegatedWhere(listed('tA', 'tB'), listed('tA')) as Condition);
+    expect(grantable(c, pinned)).toBe(true);
+    expect(grantable(c, narrowed)).toBe(true);
+    const d = await holding(c, narrowed);
+
+    expect([reads(c, 'tA'), reads(c, 'tB'), reads(c, 'tC')]).toEqual([true, true, false]);
+    expect([reads(d, 'tA'), reads(d, 'tB')]).toEqual([true, false]);
+    expect(grantable(c, threads(listed('tA', 'tC')))).toBe(false);
   });
 });

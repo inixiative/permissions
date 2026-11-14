@@ -368,21 +368,23 @@ const placed = placeEntitlement(map, entry, await hydrate('Space', space)); // n
 placed?.every((record) => canGrantEntitlement(writer, schema, entry, record)); // every Slack integration of s1?
 ```
 
-**Passing on a held entitlement narrowed.** A delegated grant is the held entitlement exactly, or
-the held `where` narrowed: `all` of the added conditions, then the held `where`'s own conjuncts,
-each kept whole and flat (a held `all` is spread, never nested). `delegatedWhere(held, ...added)`
-builds that shape, and it is the only shape the grant check reads as a narrowing:
+**Passing on a held entitlement narrowed.** A delegated grant keeps every condition of the held
+`where` and may add conditions beside them, never rewriting one: a narrower list is
+`all[ id in [A], id in [A, B] ]`, the held `in` kept whole. `delegatedWhere(held, ...added)` builds
+it: `all` of the added conditions, then the held `where`'s conjuncts, flat (a held `all` is spread,
+never nested; one conjunct comes back alone). The grant check reads a narrowing as "every held
+conjunct is among the entry's", in any order; build it with `delegatedWhere`:
 
 ```ts
 delegatedWhere(slack, general); // { all: [general, slack] }
 delegatedWhere({ all: [slack, team] }, general); // { all: [general, slack, team] }
 ```
 
-**A schema rule the grant walk reads must be positive.** The grant walk runs with every field the
-placed record lacks unknown (`absent: 'unknown'`), and a negated rule (`notEquals`, `notIn`, …) on
-an unknown field would pass, granting what the writer cannot do. The walk throws on any schema
-rule `validateActionRule` refuses; run `validateSchema` and write the rule positively
-(`role in ['member', 'guest']`, not `role notIn ['owner', 'admin']`).
+**No negative rules.** Every check throws on a schema rule `validateActionRule` refuses, negated
+ones (`notEquals`, `notIn`, …) included. A negated rule passes on a field the record lacks, so in
+the grant walk, where every field the placed record lacks is unknown, it granted what the writer
+cannot do. Run `validateSchema` and write rules positively (`role in ['member', 'guest']`, not
+`role notIn ['owner', 'admin']`).
 
 `placeEntitlement` first refuses a malformed entry (null), by the rules `setup` applies at install, so validity and the grant are one check before saving. It then builds the pseudo records of `entry.resource` from the anchor down the path (`placeUnder(map, resource, path, anchorResource, anchor, where?)`, also exported for placing a
 record you are about to create, narrowed by its `where` the same way): at
@@ -415,10 +417,10 @@ anchor is the anchor row itself.
    reaches by pure delegation (a bare action name, alone or an arm of a top-level `any`: holding
    `manage` grants `read` when `read` is `{ any: ['manage', …] }`); its `where` copied or narrowed
    (every condition of the held `where`, meaning itself or each child of its top `all`, among the
-   entry's); and whoever granted the held one still takes each granted action on `placed`, so
-   copying never revives an entitlement its granter no longer backs (for a lowered action, the
-   granter must still back the held action it lowers from). Held entitlements never combine: to
-   pass on two, grant two.
+   entry's). A copy is judged by this structure only. Whether its granter still backs it is not
+   re-proved on `placed`: the live walk asks every granter up the chain at each check, so a copy
+   never revives what its granter no longer backs. One from a granter who has since lost the
+   action is stored and never admits. Held entitlements never combine: to pass on two, grant two.
 
 `reachableFrom(schema, resource, action)` is that pure-delegation walk: the actions on `resource`
 whose holding grants `action` (itself included). `capAtRole` keeps a delegate's entries at its

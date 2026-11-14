@@ -622,14 +622,14 @@ describe('an absent far row denies the bridge walk', () => {
   const c = createRebacCheck(mapOf({}));
   const record = { id: 'u1', accountId: 'acc1' };
 
-  test('a negative rule on the far row denies without the row, and judges the row when supplied', () => {
+  test('a rule on the far row denies without the row, and judges the row when supplied', () => {
     const s: RebacSchema = {
       bridges,
       permissions: {
         'db:User': { actions: { read: { rel: 'crm:Account', action: 'view' } } },
         'crm:Account': {
           actions: {
-            view: { rule: { field: 'status', operator: Operator.notEquals, value: 'blocked' } },
+            view: { rule: { field: 'status', operator: Operator.equals, value: 'active' } },
           },
         },
       },
@@ -829,21 +829,19 @@ describe('the actor is data: a { rule } reads it as __actor', () => {
     expect(read(mine, token, { ownerId: 'u2' })).toBe(false);
   });
 
-  test('with nobody acting, __actor is null and the rule runs as written', () => {
+  test('with nobody acting, __actor is null and a rule reading it does not pass', () => {
+    const mine = {
+      rule: { field: 'ownerId', operator: Operator.equals, path: '__actor.record.id' },
+    };
+    expect(read(mine, null, { ownerId: 'u1' })).toBe(false);
+    expect(read(mine, person, { ownerId: person.record.id })).toBe(true);
+  });
+
+  test('a negated schema rule is refused on every check, not only in a grant', () => {
     const notMine = {
       rule: { field: 'ownerId', operator: Operator.notEquals, path: '__actor.record.id' },
     };
-    expect(read(notMine, null, { ownerId: 'u1' })).toBe(true);
-    const notMineAndActing = {
-      rule: {
-        all: [
-          { field: '__actor', operator: Operator.notEmpty, value: true },
-          { field: 'ownerId', operator: Operator.notEquals, path: '__actor.record.id' },
-        ],
-      },
-    };
-    expect(read(notMineAndActing, null, { ownerId: 'u1' })).toBe(false);
-    expect(read(notMineAndActing, person, { ownerId: 'u2' })).toBe(true);
+    expect(() => read(notMine, person, { ownerId: 'u2' })).toThrow('is not a positive schema rule');
   });
 
   test('a superadmin passes', () => {
