@@ -1,4 +1,5 @@
 import { type BridgeDictionary, indexBridges } from '@inixiative/json-rules';
+import { type Admission, type Algebra, booleanAlgebra, pathsAlgebra } from './algebra';
 import { evaluate } from './evaluate';
 import { withExactStrings } from './exactStrings';
 import { indexMap, type SchemaMap } from './schemaMap';
@@ -22,12 +23,19 @@ export type RebacCheck<R extends string = string> = (
  * (rbac via permix or schema), `{ rule }` is an ABAC predicate over the record and the actor (read
  * by path at `__actor`), `any`/`all` compose. Cycles throw rather than loop.
  */
-export const createRebacCheck = <R extends string = string>(
+const createWalker = <R extends string, T>(
   map: SchemaMap<R>,
-  { absent = 'null' }: CheckOptions = {},
-): RebacCheck<R> => {
+  absent: CheckOptions['absent'] & {},
+  algebra: Algebra<T>,
+) => {
   indexMap(map as SchemaMap);
-  return (permix, schema, subject, actionOrRule, visited = new Set()) => {
+  return (
+    permix: PermixLike,
+    schema: RebacSchema<R>,
+    subject: Subject<R>,
+    actionOrRule: ActionRule,
+    visited: Set<string> = new Set(),
+  ): T => {
     // Built lazily on the first bridge hop: a check that never crosses a bridge must not pay for —
     // or be crashed by (indexBridges throws on malformed `data`) — a dictionary it never reads.
     let built = false;
@@ -43,7 +51,7 @@ export const createRebacCheck = <R extends string = string>(
     };
     return withExactStrings(() =>
       evaluate(
-        { map, absent, schema, getDict },
+        { map, absent, schema, getDict, algebra },
         permix,
         subject.resource,
         subject.record,
@@ -53,3 +61,34 @@ export const createRebacCheck = <R extends string = string>(
     );
   };
 };
+
+export const createRebacCheck = <R extends string = string>(
+  map: SchemaMap<R>,
+  { absent = 'null' }: CheckOptions = {},
+): RebacCheck<R> => createWalker(map, absent, booleanAlgebra);
+
+export type RebacPaths<R extends string = string> = (
+  permix: PermixLike,
+  schema: RebacSchema<R>,
+  subject: Subject<R>,
+  actionOrRule: ActionRule,
+) => Admission[];
+
+export type PathsOptions = CheckOptions & { limit?: number };
+
+/**
+ * Every way a check is admitted, on the same walk `check` runs: one {@link Admission} per way, each
+ * the chains of entitlement `ref`s it stands on, holder first. A grant held directly is `[[]]`;
+ * nothing admits is `[]`. The order is the walk's: the schema before entitlements, and
+ * entitlements in the order they were set up. A walk that finds more than `limit` (default 20)
+ * throws {@link PathLimitError}.
+ */
+export const createRebacPaths = <R extends string = string>(
+  map: SchemaMap<R>,
+  { absent = 'null', limit = 20 }: PathsOptions = {},
+): RebacPaths<R> => {
+  const walker = createWalker(map, absent, pathsAlgebra(limit));
+  return (permix, schema, subject, actionOrRule) => walker(permix, schema, subject, actionOrRule);
+};
+
+export { type Admission, type Chain, PathLimitError } from './algebra';

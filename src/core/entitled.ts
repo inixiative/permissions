@@ -9,7 +9,12 @@ import type { Anchor, PermixLike, Row } from './types';
 const holds = (where: Condition, record: Row, absent: Absent): boolean =>
   checkRule(where, record, { absent }) === true;
 
-const reaches = <R extends string>(walk: Walk<R>, resource: R, record: Row, anchor: Anchor) => {
+const reaches = <R extends string, T>(
+  walk: Walk<R, T>,
+  resource: R,
+  record: Row,
+  anchor: Anchor,
+) => {
   let currentResource: R = resource;
   let current: Row = record;
   for (const segment of anchor.path?.split('.') ?? []) {
@@ -31,23 +36,30 @@ const reaches = <R extends string>(walk: Walk<R>, resource: R, record: Row, anch
 // owner's own table, walked from here. A space moved to another org stops reaching its grantor.
 // An owner that is already on this walk for this node and action is a loop built from grant
 // data, not a schema bug: it denies instead of throwing, so it can never hide a sibling.
-export const entitled = <R extends string>(
-  walk: Walk<R>,
+export const entitled = <R extends string, T>(
+  walk: Walk<R, T>,
   permix: PermixLike,
   resource: R,
   record: Row,
   action: string,
   visited: Set<string>,
-): boolean => {
+): T => {
   const actor = permix.getActor();
   const held = [...reachableFrom(walk.schema, resource, action)].flatMap(
     (implying) => permix.entitlements?.(resource, implying) ?? [],
   );
-  return held.some(
-    ({ anchor, where, owner }) =>
-      !visited.has(`${permixId(owner)}:${nodeId(record)}:${resource}:${action}`) &&
-      (where === undefined || holds(where, record, walk.absent)) &&
-      reaches(walk, resource, record, anchor) &&
-      evaluate(walk, asOwner(owner, actor), resource, record, action, new Set(visited)),
+  return walk.algebra.any(
+    held.map(
+      ({ anchor, where, owner, ref }) =>
+        () =>
+          !visited.has(`${permixId(owner)}:${nodeId(record)}:${resource}:${action}`) &&
+          (where === undefined || holds(where, record, walk.absent)) &&
+          reaches(walk, resource, record, anchor)
+            ? walk.algebra.through(
+                ref,
+                evaluate(walk, asOwner(owner, actor), resource, record, action, new Set(visited)),
+              )
+            : walk.algebra.none,
+    ),
   );
 };

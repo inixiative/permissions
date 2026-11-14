@@ -63,6 +63,8 @@ export type CheckOptions = {
 export type Entitlement = {
   anchor: Anchor;
   where?: Condition;
+  /** The app's id for the row it came from, reported by `paths`. */
+  ref?: string;
   actions: Record<string, boolean | undefined>;
   owner: PermixLike;
 };

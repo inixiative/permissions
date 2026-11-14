@@ -29,6 +29,8 @@ export type EntitlementEntry<Action extends string = string> = {
   anchor: Anchor;
   where?: Condition;
   actions: Partial<Record<Action, boolean>>;
+  /** The app's id for the row this came from; `paths` reports it. Not part of what it grants. */
+  ref?: string;
 };
 
 export type PermissionEntry<Action extends string = string> =
@@ -108,13 +110,14 @@ export const createPermissions = <
       }
       for (const entry of entries) {
         if (isEntitlement(entry)) {
-          const { resource, anchor, where, actions } = entry;
+          const { resource, anchor, where, actions, ref } = entry;
           const owner = options?.owner as PermixLike;
-          const same = `${permixId(owner)}\0${resource}\0${JSON.stringify(anchor)}\0${JSON.stringify(where)}`;
+          // Two rows alike but for their ref are two rows: `paths` reports each.
+          const same = `${permixId(owner)}\0${resource}\0${JSON.stringify(anchor)}\0${JSON.stringify(where)}\0${ref ?? ''}`;
           const alike = granted.get(same) ?? [];
           if (alike.some((held) => coversEntitlement(held, entry))) continue;
           granted.set(same, [...alike, entry]);
-          const held = { anchor, where, actions, owner };
+          const held = { anchor, where, actions, owner, ...(ref === undefined ? {} : { ref }) };
           for (const [action, value] of Object.entries(actions)) {
             if (value !== true) continue;
             const key = `${resource}\0${action}`;
