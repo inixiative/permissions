@@ -368,6 +368,22 @@ const placed = placeEntitlement(map, entry, await hydrate('Space', space)); // n
 placed?.every((record) => canGrantEntitlement(writer, schema, entry, record)); // every Slack integration of s1?
 ```
 
+**Passing on a held entitlement narrowed.** A delegated grant is the held entitlement exactly, or
+the held `where` narrowed: `all` of the added conditions, then the held `where`'s own conjuncts,
+each kept whole and flat (a held `all` is spread, never nested). `delegatedWhere(held, ...added)`
+builds that shape, and it is the only shape the grant check reads as a narrowing:
+
+```ts
+delegatedWhere(slack, general); // { all: [general, slack] }
+delegatedWhere({ all: [slack, team] }, general); // { all: [general, slack, team] }
+```
+
+**A schema rule the grant walk reads must be positive.** The grant walk runs with every field the
+placed record lacks unknown (`absent: 'unknown'`), and a negated rule (`notEquals`, `notIn`, …) on
+an unknown field would pass, granting what the writer cannot do. The walk throws on any schema
+rule `validateActionRule` refuses; run `validateSchema` and write the rule positively
+(`role in ['member', 'guest']`, not `role notIn ['owner', 'admin']`).
+
 `placeEntitlement` first refuses a malformed entry (null), by the rules `setup` applies at install, so validity and the grant are one check before saving. It then builds the pseudo records of `entry.resource` from the anchor down the path (`placeUnder(map, resource, path, anchorResource, anchor, where?)`, also exported for placing a
 record you are about to create, narrowed by its `where` the same way): at
 each step the foreign keys whose values the parent knows, the parent attached under the

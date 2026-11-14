@@ -1,4 +1,5 @@
 export * from './src/core/check';
+export * from './src/core/delegatedWhere';
 export type { PermissionsEngineGlobals } from './src/core/engineGlobals';
 export * from './src/core/entitlementProblem';
 export * from './src/core/grant';

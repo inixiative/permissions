@@ -1,3 +1,15 @@
+## Unreleased — delegatedWhere; the grant walk refuses negated schema rules
+
+- **`delegatedWhere(held, ...added)`**: the `where` of a grant passed on from a held one: the held
+  `where` exactly when nothing is added, otherwise `all` of the added conditions, then the held
+  `where`'s conjuncts, flat and each kept whole. It is the one builder of that shape, which the
+  grant check already reads as a narrowing; a nested `all` is not one.
+- **Fix: the grant walk throws on a negated schema rule.** With unknown fields (`absent:
+  'unknown'`), a `notEquals` or `notIn` on a field the placed record lacks passed, so a writer could
+  grant an action on records it cannot act on. **Breaking** for a schema that gates a granted action
+  with a negated rule: write it positively.
+- `conjuncts` accepts `null`.
+
 ## Unreleased — every path a check is admitted along
 
 - **`createRebacPaths(map, { limit })`**: the walk `check` runs, without stopping at the first
