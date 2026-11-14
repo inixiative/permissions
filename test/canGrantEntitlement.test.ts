@@ -96,12 +96,6 @@ const writer = async (entries: PermissionEntry[], model = 'User') => {
 const holding = (resource: string, id: string, actions: string[]) =>
   writer([{ resource, id, actions: Object.fromEntries(actions.map((a) => [a, true])) }]);
 
-const delegateOf = async (writer: Permix, granted: EntitlementEntry) => {
-  const delegate = createPermissions();
-  await delegate.setup([granted], { owner: writer });
-  return delegate;
-};
-
 const may = (permix: Permix, granted: EntitlementEntry, anchor: Row) =>
   canGrantEntitlement(permix, schema, granted, anchor);
 
@@ -220,7 +214,7 @@ describe('canGrantEntitlement: never more than the writer could do from that anc
     expect(may(asToken, mint, o1)).toBe(false);
   });
 
-  test('a writer holding through its own owner passes on a copy; the live walk caps it at that owner', async () => {
+  test('a writer holding through its own owner grants no more than that owner reaches', async () => {
     const readOnlyOwner = await holding('db:organization', 'o1', ['read']);
     const token = createPermissions();
     await token.setup([entry('db:organization', at('db:organization', 'o1'), ['manage', 'read'])], {
@@ -228,10 +222,7 @@ describe('canGrantEntitlement: never more than the writer could do from that anc
     });
     token.setActor({ model: 'Token', record: { id: 't1' } });
     const manage = entry('db:organization', at('db:organization', 'o1'), ['manage']);
-    expect(may(token, manage, o1)).toBe(true);
-    const delegate = await delegateOf(token, manage);
-    expect(check(delegate, 'db:organization', o1, 'manage')).toBe(false);
-    expect(check(delegate, 'db:organization', o1, 'read')).toBe(true);
+    expect(may(token, manage, o1)).toBe(false);
     expect(may(token, entry('db:organization', at('db:organization', 'o1'), ['read']), o1)).toBe(
       true,
     );
@@ -311,15 +302,12 @@ describe('a held entitlement is passed on only as a copy or a narrowing of itsel
     );
   });
 
-  test('a copy is judged by its structure; copying never revives the rest, because the live walk asks its granter (R111)', async () => {
+  test('a held entitlement passes on only what its granter still backs: copying never revives the rest (R111)', async () => {
     const holder = createPermissions();
     await holder.setup([underS1(['manage'])], { owner: await holding('db:space', 's1', ['read']) });
     holder.setActor({ model: 'User', record: { id: 'h1' } });
-    expect(may(holder, underS1(['manage']), placed())).toBe(true);
+    expect(may(holder, underS1(['manage']), placed())).toBe(false);
     expect(may(holder, underS1(['read']), placed())).toBe(true);
-    const delegate = await delegateOf(holder, underS1(['manage']));
-    expect(check(delegate, 'db:integration', integrationUnder(s1), 'manage')).toBe(false);
-    expect(check(delegate, 'db:integration', integrationUnder(s1), 'read')).toBe(true);
   });
 
   test('two held entitlements never combine into one wider grant', async () => {
@@ -376,7 +364,7 @@ describe('a held entitlement passes on lower actions: each granted action reache
   });
 });
 
-describe('a copy is granted on its structure; at read time the walk asks the grantor about the action used (R111)', () => {
+describe('passing on a lower action asks the grantor about that action, not the held one (R111)', () => {
   const underS1 = (actions: string[]) =>
     entry('db:integration', at('db:space', 's1', 'space'), actions);
   const placed = integrationUnder(s1);
@@ -393,12 +381,8 @@ describe('a copy is granted on its structure; at read time the walk asks the gra
     expect(may(await heldWhileGrantorReads(), underS1(['read']), placed)).toBe(true);
   });
 
-  test('manage is granted as a copy, and the live walk lets it read, never manage', async () => {
-    const holder = await heldWhileGrantorReads();
-    expect(may(holder, underS1(['manage']), placed)).toBe(true);
-    const delegate = await delegateOf(holder, underS1(['manage']));
-    expect(check(delegate, 'db:integration', placed, 'manage')).toBe(false);
-    expect(check(delegate, 'db:integration', placed, 'read')).toBe(true);
+  test('and not manage, which the grantor no longer allows', async () => {
+    expect(may(await heldWhileGrantorReads(), underS1(['manage']), placed)).toBe(false);
   });
 
   test("the same when the grantor's read reaches the space through its organization", async () => {
@@ -408,19 +392,14 @@ describe('a copy is granted on its structure; at read time the walk asks the gra
     });
     holder.setActor({ model: 'User', record: { id: 'h1' } });
     expect(may(holder, underS1(['read']), placed)).toBe(true);
-    expect(may(holder, underS1(['manage']), placed)).toBe(true);
-    const delegate = await delegateOf(holder, underS1(['manage']));
-    expect(check(delegate, 'db:integration', placed, 'manage')).toBe(false);
-    expect(check(delegate, 'db:integration', placed, 'read')).toBe(true);
+    expect(may(holder, underS1(['manage']), placed)).toBe(false);
   });
 
-  test('a copy from a grantor that lost even read is stored and never admits', async () => {
+  test('a grantor that lost even read passes on nothing', async () => {
     const holder = createPermissions();
     await holder.setup([underS1(['manage'])], { owner: await holding('db:space', 's9', ['own']) });
     holder.setActor({ model: 'User', record: { id: 'h1' } });
-    expect(may(holder, underS1(['read']), placed)).toBe(true);
-    const delegate = await delegateOf(holder, underS1(['read']));
-    expect(check(delegate, 'db:integration', placed, 'read')).toBe(false);
+    expect(may(holder, underS1(['read']), placed)).toBe(false);
   });
 });
 

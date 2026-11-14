@@ -829,7 +829,7 @@ describe('the actor is data: a { rule } reads it as __actor', () => {
     expect(read(mine, token, { ownerId: 'u2' })).toBe(false);
   });
 
-  test('with nobody acting, __actor is null and a rule reading it does not pass', () => {
+  test('with nobody acting, __actor is null: a rule comparing a set field to it does not pass', () => {
     const mine = {
       rule: { field: 'ownerId', operator: Operator.equals, path: '__actor.record.id' },
     };
@@ -841,7 +841,9 @@ describe('the actor is data: a { rule } reads it as __actor', () => {
     const notMine = {
       rule: { field: 'ownerId', operator: Operator.notEquals, path: '__actor.record.id' },
     };
-    expect(() => read(notMine, person, { ownerId: 'u2' })).toThrow('is not a positive schema rule');
+    expect(() => read(notMine, person, { ownerId: 'u2' })).toThrow(
+      'is not a well-formed positive rule',
+    );
   });
 
   test('a superadmin passes', () => {

@@ -241,7 +241,7 @@ describe('a license: the org’s side and the distributor’s side both say yes'
     ]).toEqual([false, true, true]);
   });
 
-  test('revoked: the license and every share of it are dead; a copy passed on is stored and never admits', async () => {
+  test('revoked: the license, every share of it, and passing it on are dead', async () => {
     const revoked = await given(
       await organization('o1'),
       await organization('o1'),
@@ -249,9 +249,7 @@ describe('a license: the org’s side and the distributor’s side both say yes'
     );
     const member = await given(await organization('o1'), revoked, productsOf('d', WHOLESALE));
     expect([onProduct(revoked, 'read'), onProduct(member, 'read')]).toEqual([false, false]);
-    expect(grants(revoked, productsOf('d', RETAIL))).toBe(true);
-    const passedOn = await given(await organization('o2'), revoked, productsOf('d', RETAIL));
-    expect(onProduct(passedOn, 'read')).toBe(false);
+    expect(grants(revoked, productsOf('d', RETAIL))).toBe(false);
   });
 
   test('a line license: that line only; passed on narrower, never wider', async () => {
@@ -387,10 +385,11 @@ describe('cycles between orgs', () => {
     const b = await organization('b');
     await given(v, b, productsOf('d', WHOLESALE));
     await given(b, v, productsOf('d', WHOLESALE));
-    expect([onProduct(v, 'read'), onProduct(b, 'read')]).toEqual([false, false]);
-    expect(grants(b, productsOf('d', RETAIL))).toBe(true);
-    const passedOn = await given(await organization('x'), b, productsOf('d', RETAIL));
-    expect(onProduct(passedOn, 'read')).toBe(false);
+    expect([
+      onProduct(v, 'read'),
+      onProduct(b, 'read'),
+      grants(b, productsOf('d', RETAIL)),
+    ]).toEqual([false, false, false]);
     await given(v, await distributor(), productsOf('d', RETAIL));
     expect([ordering(b, 'b'), reselling(b, 'b')]).toEqual([true, false]);
   });

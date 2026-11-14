@@ -17,18 +17,8 @@ export type Walk<R extends string, T = boolean> = {
   schema: RebacSchema<R>;
   getDict: () => BridgeDictionary | undefined;
   algebra: Algebra<T>;
-};
-
-const judgedRules = new WeakMap<object, boolean>();
-
-// why: a negated rule passes on a field the record lacks, so no schema rule may be one
-const assertPositive = (rule: ActionRule, resource: string, action: string) => {
-  if (rule === null || typeof rule !== 'object') return;
-  if (!judgedRules.has(rule)) judgedRules.set(rule, validateActionRule(rule).ok);
-  if (!judgedRules.get(rule))
-    throw new Error(
-      `\`${resource}.${action}\` is not a positive schema rule: negated rules are refused on every check (run validateSchema)`,
-    );
+  /** The grant check's liveness walk: every entitlement `where` counts as holding. */
+  ignoreWheres?: boolean;
 };
 
 export const evaluate = <R extends string, T>(
@@ -71,7 +61,6 @@ const walkAction = <R extends string, T>(
   visited.add(key);
 
   const schemaRule = walk.schema.permissions[resource]?.actions[actionOrRule] ?? null;
-  assertPositive(schemaRule, resource, actionOrRule);
   const rowRules = record.permissionRules as Record<string, ActionRule> | null | undefined;
   const rowRule = rowRules?.[actionOrRule];
   const rowRuleHolds =

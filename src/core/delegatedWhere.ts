@@ -3,9 +3,9 @@ import { isEqual } from 'lodash-es';
 import { conjuncts } from './schemaMap';
 
 /**
- * The `where` of an entry granted under a held one: the held `where` exactly when nothing is added,
- * otherwise `all` of the added conditions followed by the held `where`'s own conjuncts, each kept
- * intact. This is the shape `createCanGrantEntitlement` reads as narrowing the held `where`.
+ * The `where` of an entry granted under a held one: `all` of the added conditions, then the held
+ * `where`'s conjuncts, flat and each kept whole (one conjunct comes back alone). A narrowing never
+ * rewrites a held condition: a narrower list sits beside it, `all[ in [A], in [A, B] ]`.
  */
 export const delegatedWhere = (
   held: Condition | null | undefined,

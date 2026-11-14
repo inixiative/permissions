@@ -226,8 +226,9 @@ permix.setActor({ model: 'Token', record: token }); // a token, with whatever ow
 ```
 
 It is just a rule. With nobody acting, `__actor` is null and the rule runs as written; a rule that
-needs someone acting says so (`{ field: '__actor', operator: 'notEmpty', value: true }` inside its
-`all`). A row's `permissionRules` read it the same way and still only widen. A superadmin skips
+needs someone acting names who (`__actor.model equals 'User'` inside its `all`), since rules are
+positive and `notEmpty` is refused. Beware a comparison against a field that may be null: with
+nobody acting, `ownerId equals __actor.record.id` holds when `ownerId` is null. A row's `permissionRules` read it the same way and still only widen. A superadmin skips
 the schema, so it skips these too.
 
 ## Bridges (cross-source `rel` walks)
@@ -380,8 +381,10 @@ delegatedWhere(slack, general); // { all: [general, slack] }
 delegatedWhere({ all: [slack, team] }, general); // { all: [general, slack, team] }
 ```
 
-**No negative rules.** Every check throws on a schema rule `validateActionRule` refuses, negated
-ones (`notEquals`, `notIn`, …) included. A negated rule passes on a field the record lacks, so in
+**No negative rules.** A check throws when any rule of the schema, or a rule passed to it, is one
+`validateActionRule` refuses, negated ones (`notEquals`, `notIn`, …) included; the schema is judged
+whole on first use, so it throws for every caller, a superadmin too. A record's own
+`permissionRules` that are not positive are ignored, as before. A negated rule passes on a field the record lacks, so in
 the grant walk, where every field the placed record lacks is unknown, it granted what the writer
 cannot do. Run `validateSchema` and write rules positively (`role in ['member', 'guest']`, not
 `role notIn ['owner', 'admin']`).
@@ -417,10 +420,11 @@ anchor is the anchor row itself.
    reaches by pure delegation (a bare action name, alone or an arm of a top-level `any`: holding
    `manage` grants `read` when `read` is `{ any: ['manage', …] }`); its `where` copied or narrowed
    (every condition of the held `where`, meaning itself or each child of its top `all`, among the
-   entry's). A copy is judged by this structure only. Whether its granter still backs it is not
-   re-proved on `placed`: the live walk asks every granter up the chain at each check, so a copy
-   never revives what its granter no longer backs. One from a granter who has since lost the
-   action is stored and never admits. Held entitlements never combine: to pass on two, grant two.
+   entry's); and whoever granted the held one still takes each granted action on `placed`, so
+   copying never revives an entitlement its granter no longer backs. That liveness walk counts
+   every entitlement `where` as holding: a `where` is judged by its structure alone, so a pin
+   `placed` leaves unknown (`id in [A, B]`) passes on at any depth. Held entitlements never
+   combine: to pass on two, grant two.
 
 `reachableFrom(schema, resource, action)` is that pure-delegation walk: the actions on `resource`
 whose holding grants `action` (itself included). `capAtRole` keeps a delegate's entries at its

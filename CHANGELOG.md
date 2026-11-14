@@ -1,16 +1,16 @@
-## Unreleased — delegatedWhere; no negative rules; copies judged by structure
+## Unreleased — delegatedWhere; no negative rules; a where never takes part in liveness
 
 - **`delegatedWhere(held, ...added)`**: the `where` of a grant passed on from a held one: `all` of
   the added conditions, then the held `where`'s conjuncts, flat and each kept whole (one conjunct
   comes back alone). A narrower list sits beside the held one: `all[ in [A], in [A, B] ]`.
-- **Breaking: negated schema rules are refused on every check.** `check`, and the grant walk with
-  it, throws on a schema rule `validateActionRule` refuses. A negated rule passes on a field the
-  record lacks, so in the grant walk it let a writer grant what it cannot do. Write rules
-  positively.
-- **Breaking: a copy is judged by its structure.** The grant check no longer re-proves on the
-  placed record that the held entitlement's granter still backs the action: the live walk asks
-  every granter at each check, so a copy from a granter who lost the action is stored and never
-  admits. This is what lets a list pin (`id in [A, B]`) pass on at any depth.
+- **Breaking: negated rules are refused on every check.** A schema is judged whole on first use
+  and a check throws when any of its rules, or a rule passed to the check, is one
+  `validateActionRule` refuses. A negated rule passes on a field the record lacks, so in the grant
+  walk it let a writer grant what it cannot do. Write rules positively.
+- **Fix: the grant check's liveness walk ignores every entitlement `where`.** Passing on a copy
+  still asks that the held entitlement's granter backs the action, but a `where` is judged by
+  structure alone. Before, a granter's `id in [A, B]` could not hold on a placed record whose id is
+  unknown, so a list pin was refused one hop down, even as an exact copy.
 - `conjuncts` accepts `null`.
 
 ## Unreleased — every path a check is admitted along

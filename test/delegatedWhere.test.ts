@@ -108,7 +108,7 @@ describe('a negated schema rule is refused in the grant walk too', () => {
     const [placed] = placeEntitlement(map, entry, { id: 's1' }) as Row[];
 
     expect(() => createCanGrantEntitlement(map)(writer, schema, entry, placed as Row)).toThrow(
-      'is not a positive schema rule',
+      'is not a well-formed positive rule',
     );
   });
 });
@@ -166,5 +166,29 @@ describe('a list pin passes on at any depth: copies are judged by structure, the
     expect([reads(c, 'tA'), reads(c, 'tB'), reads(c, 'tC')]).toEqual([true, true, false]);
     expect([reads(d, 'tA'), reads(d, 'tB')]).toEqual([true, false]);
     expect(grantable(c, threads(listed('tA', 'tC')))).toBe(false);
+  });
+});
+
+describe('a negated schema rule throws for every caller', () => {
+  test('a superadmin and a holder of a direct grant are refused the same as anyone', async () => {
+    const schema: RebacSchema = {
+      permissions: {
+        'db:space': {
+          actions: {
+            read: { rule: { field: 'hidden', operator: Operator.notEquals, value: true } },
+          },
+        },
+      },
+    };
+    const check = createRebacCheck(mapOf({ 'db:space': {} }));
+    const subject = { resource: 'db:space', record: { id: 's1' } };
+    const superadmin = createPermissions();
+    superadmin.setSuperadmin(true);
+    const granted = createPermissions();
+    await granted.setup({ resource: 'db:space', actions: { read: true } });
+    for (const permix of [superadmin, granted, createPermissions()])
+      expect(() => check(permix, schema, subject, 'read')).toThrow(
+        'not a well-formed positive rule',
+      );
   });
 });
