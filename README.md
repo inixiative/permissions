@@ -195,11 +195,20 @@ paths(permix, schema, { resource: 'db:space', record: space }, 'read');
 Each entry of the result is one way the check is admitted: the chains of entitlement `ref`s it
 stands on, holder first. A grant held directly is `[[]]` and nothing admitting is `[]`. An `all`
 that needs two delegated branches is one admission with two chains. Give an entitlement a `ref`
-(the app's id for its row) to see it in a chain; an entitlement without one is walked but not
-named. The order is the walk's: the schema before entitlements, entitlements in the order they
-were set up. `check` and `paths` share one walk, so they never disagree on what admits. A walk
-that finds more than `limit` admissions (default 20) throws `PathLimitError`; stacked diamonds
-double the count at each layer, so the limit is what bounds the work.
+(the app's id for its row) to see it in a chain; one without a `ref` is `null` in its chain, so a
+delegated link never reads as a grant held directly. Two rows alike but for their `ref` are both
+reported.
+
+- **One way in is reported once**, however many walks reach it (an entitlement holding `read`
+  and `own` where `read` delegates to `own` is one admission).
+- **The order is deterministic but not meaningful.** It is the walk's, not the setup order; sort
+  by what your routing needs (Kingdom sorts by the row's age).
+- **`paths` is non-empty exactly when `check` is true.** They share one walk. `paths` keeps
+  walking past an admission, so a loop it reaches that `check` never did adds nothing instead of
+  throwing; a schema loop still throws in `check`.
+- **The limit bounds the result, not the walk.** More than `limit` admissions (default 20) throws
+  `PathLimitError`; stacked diamonds double the count at each layer. A walk that finds few
+  admissions costs what a denying `check` costs today.
 
 ## The actor
 
@@ -438,7 +447,8 @@ permissions of whoever granted them. `installPermissions(permix, permissions)` s
 in order, building every owner's permix from its own permissions; `permixOf(permissions)` returns
 a fresh permix with the permissions installed. An owner reached more than once in one install is
 built once when it is the same `Permissions` object, so build each owner's permissions once and
-reuse the object: two delegates of one owner, or the two sides of a diamond, then share it.
+reuse the object: two delegates of one owner, or the two sides of a diamond, then share it. An
+owner reached again while it is still being built is a loop in the data; that edge backs nothing.
 
 ```ts
 const permissions = delegate(schema, ownerPermissions, {

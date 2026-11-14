@@ -112,7 +112,8 @@ export const createPermissions = <
         if (isEntitlement(entry)) {
           const { resource, anchor, where, actions, ref } = entry;
           const owner = options?.owner as PermixLike;
-          const same = `${permixId(owner)}\0${resource}\0${JSON.stringify(anchor)}\0${JSON.stringify(where)}`;
+          // Two rows alike but for their ref are two rows: `paths` reports each.
+          const same = `${permixId(owner)}\0${resource}\0${JSON.stringify(anchor)}\0${JSON.stringify(where)}\0${ref ?? ''}`;
           const alike = granted.get(same) ?? [];
           if (alike.some((held) => coversEntitlement(held, entry))) continue;
           granted.set(same, [...alike, entry]);

@@ -55,9 +55,7 @@ const walkAction = <R extends string, T>(
   // Key by resource too: the same record object reached as a different resource (a self-join) is
   // a distinct node, not a cycle. Key by table too: an owner walk legitimately revisits the node.
   const key = `${permixId(permix)}:${nodeId(record)}:${resource}:${actionOrRule}`;
-  if (visited.has(key)) {
-    throw new Error(`Cycle detected in permission graph: ${resource}.${actionOrRule}`);
-  }
+  if (visited.has(key)) return walk.algebra.loop(resource, actionOrRule);
   visited.add(key);
 
   const schemaRule = walk.schema.permissions[resource]?.actions[actionOrRule] ?? null;
