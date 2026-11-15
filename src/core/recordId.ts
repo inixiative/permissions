@@ -8,7 +8,7 @@ export const idField = (): string => engineGlobals.get('permissions.idField');
 
 // permix keys grants by string id; coerce so a numeric id matches (the bridge path already does
 // `String(farId)` — keep the direct path consistent). A record without the field has no id.
-export const recordId = (record: Row): string | undefined => {
-  const value = record[idField()];
-  return value == null ? undefined : String(value);
+export const recordId = (record: Row, field = idField()): string | undefined => {
+  const value = record[field];
+  return value == null || value === '' ? undefined : String(value);
 };

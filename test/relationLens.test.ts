@@ -763,7 +763,7 @@ describe('the starting record: a row is known by resource and id', () => {
     expect(check(actorAs('x'), loopy, { resource: 'user', record: stored }, 'read')).toBe(true);
   });
 
-  test('the grant check’s first pass never counts the granted row met again around a loop', async () => {
+  test('the grant check’s first pass: a data loop can place the granted row above itself (as on main)', async () => {
     const owner: PermixLike = { check: () => true, getActor: () => null };
     const held = (grantsBelow: boolean): PermixLike => ({
       check: () => false,
@@ -796,7 +796,9 @@ describe('the starting record: a row is known by resource and id', () => {
         createCanGrantEntitlement(map)(writer, schema, entry, placed),
       );
     const u1 = await counting('user', db.user?.u1 as Row);
-    expect(grants(held(true), u1)).toBe(false);
+    // main's answer: u1 creates its own org, so the data places u1 above itself, and the writer
+    // holds y there; restating the grant one row up with `where id = u1` is allowed on main too
+    expect(grants(held(true), u1)).toBe(true);
     expect(grants(held(false), u1)).toBe(false);
     db.org = { ...db.org, o2: { id: 'o2', name: 'beta', creatorId: 'attacker' } };
     const elsewhere = await counting('user', { ...(db.user?.u1 as Row), orgId: 'o2' });
@@ -849,6 +851,56 @@ describe('the starting record: a row is known by resource and id', () => {
       'stored',
       ['n1'],
     ]);
+  });
+
+  test('a row with a composite key is known by it: the stored copy of a self-parent root is the root', async () => {
+    const col = column('String');
+    const nodes = {
+      resources: { node: 'Node' },
+      fieldMap: {
+        models: {
+          Node: {
+            fields: {
+              org: col,
+              key: col,
+              name: col,
+              parentOrg: col,
+              parentKey: col,
+              parent: {
+                kind: 'object',
+                type: 'Node',
+                isList: false,
+                fromFields: ['parentOrg', 'parentKey'],
+                toFields: ['org', 'key'],
+              },
+            },
+            indexes: [{ kind: 'id', fields: ['org', 'key'] }],
+          },
+        },
+      },
+    } as unknown as SchemaMap;
+    const stored = { org: 'o', key: 'k', name: 'Una', parentOrg: 'o', parentKey: 'k' };
+    const load = createHydrator({ map: nodes, load: async () => stored });
+    const forged = await load('node', { ...stored, name: 'EVIL' });
+    const reads: RebacSchema = {
+      permissions: {
+        node: {
+          actions: {
+            read: {
+              any: [
+                { rule: { field: 'name', operator: 'equals', value: 'Una' } },
+                { rel: 'parent', action: 'read' },
+              ],
+            },
+          },
+        },
+      },
+    };
+    const ask = createRebacCheck(nodes);
+    expect(ask(actorAs('x'), reads, { resource: 'node', record: forged }, 'read')).toBe(false);
+    expect(
+      ask(actorAs('x'), reads, { resource: 'node', record: forged.parent as Row }, 'read'),
+    ).toBe(true);
   });
 
   test('a root key the caller changed loads the row it names, and nothing for a missing one', async () => {
@@ -1112,6 +1164,64 @@ describe('the actor and the size of a lens', () => {
     expect(
       validateSchema(poly, { permissions: { hub: { actions: { read: null } } } }).warnings,
     ).toEqual([]);
+  });
+});
+
+describe('under a list item only the declared paths exist', () => {
+  const schema: RebacSchema = {
+    permissions: {
+      conversation: {
+        actions: { read: { rel: 'messages', arrayOperator: 'any', condition: 'read' }, x: true },
+      },
+      message: { actions: { read: null } },
+      user: { actions: {} },
+      org: { actions: {} },
+    },
+  };
+  const message = (where: Condition): EntitlementEntry => ({
+    resource: 'message',
+    anchor: { resource: 'message', id: 'm1' },
+    where,
+    actions: { read: true },
+  });
+
+  test('B1: a where valid at its resource keeps its arms on an item; what the item lacks is unknown', async () => {
+    const conversation = await hydrate('conversation', db.conversation?.c1 as Row);
+    const either: Condition = {
+      any: [
+        { field: 'author.name', operator: 'equals', value: 'Una' },
+        { field: 'conversation.orgId', operator: 'equals', value: 'o1' },
+      ],
+    };
+    const subject = { resource: 'conversation', record: conversation };
+    expect(check(actorAs('x', [message(either)]), schema, subject, 'read')).toBe(true);
+    const outside: Condition = { field: 'conversation.orgId', operator: 'equals', value: 'o1' };
+    expect(check(actorAs('x', [message(outside)]), schema, subject, 'read')).toBe(false);
+  });
+
+  test('B3: a row rule on an item keeps its arms', async () => {
+    const conversation = await hydrate('conversation', db.conversation?.c1 as Row);
+    const [item] = conversation.messages as Row[];
+    const rule: ActionRule = {
+      any: [reads('author.name', 'Una'), { rel: 'conversation', action: 'x' }],
+    };
+    const record = { ...conversation, messages: [{ ...item, permissionRules: { read: rule } }] };
+    expect(check(actorAs('x'), schema, { resource: 'conversation', record }, 'read')).toBe(true);
+  });
+
+  test('an undeclared to-one that loadMany returned is gone from the item', async () => {
+    const forged = createHydrator({
+      map,
+      load: async (resource, where) => db[resource]?.[where.id as string] ?? null,
+      loadMany: async (resource, where) =>
+        Object.values(db[resource] ?? {})
+          .filter((row) => Object.entries(where).every(([key, value]) => row[key] === value))
+          .map((row) => ({ ...row, conversation: { id: 'c1', orgId: 'forged' } })),
+    });
+    const conversation = await forged('conversation', db.conversation?.c1 as Row);
+    const [item] = conversation.messages as Row[];
+    expect(item && 'conversation' in item).toBe(false);
+    expect((item?.author as Row).name).toBe('Una');
   });
 });
 

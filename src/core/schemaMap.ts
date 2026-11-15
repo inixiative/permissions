@@ -52,6 +52,8 @@ type MapIndex = {
   relations: Map<string, Relation | string>;
   lists: Map<string, ListRelation>;
   marks: Map<string, ReadonlySet<string>>;
+  toOnes: Map<string, [string, Relation][]>;
+  idColumns: Map<string, readonly string[]>;
   lenses: Map<string, LensNarrowing | null>;
   lensSizes: Map<string, number>;
 };
@@ -85,6 +87,8 @@ export const indexMap = (map: SchemaMap): MapIndex => {
     relations: new Map<string, Relation | string>(),
     lists: new Map(),
     marks: new Map(),
+    toOnes: new Map(),
+    idColumns: new Map(),
     lenses: new Map(),
     lensSizes: new Map(),
   };
@@ -195,7 +199,7 @@ const listFor = (map: SchemaMap, resource: string, name: string, down: unknown):
 };
 
 /** A column of its model (a scalar or an enum, Json and scalar lists included), not a relation. */
-export const isColumn = (field: { kind: string }): boolean =>
+const isColumn = (field: { kind: string }): boolean =>
   field.kind === 'scalar' || field.kind === 'enum';
 
 /** The declared list `segment` of `resource`, or null: an undeclared list is never crossed. */
@@ -349,8 +353,52 @@ export const keysFrom = (relation: Pick<Relation, 'from' | 'to'>, parent: Row): 
     }),
   );
 
-const relationNames = <R extends string>(map: SchemaMap<R>, resource: R): string[] =>
-  Object.keys(map.fieldMap.models[map.resources[resource]]?.fields ?? {});
+type Keyed = {
+  fields: Record<string, { isId?: boolean }>;
+  indexes?: { kind: string; fields: string[] }[];
+};
+
+/** A row's key: its model's id columns (`isId`, or a composite `@@id`), else the engine's id field; undefined when a column is unset. */
+export const rowKey = (
+  map: SchemaMap,
+  resource: string,
+  record: Row,
+  field = idField(),
+): string | undefined => {
+  const { idColumns } = indexMap(map);
+  if (!idColumns.has(resource)) {
+    const model = map.fieldMap.models[map.resources[resource] as string] as Keyed | undefined;
+    const single = Object.entries(model?.fields ?? {})
+      .filter(([, entry]) => entry.isId)
+      .map(([name]) => name);
+    idColumns.set(
+      resource,
+      single.length ? single : (model?.indexes?.find((index) => index.kind === 'id')?.fields ?? []),
+    );
+  }
+  const columns = idColumns.get(resource) as readonly string[];
+  if (!columns.length || (columns.length === 1 && columns[0] === field))
+    return recordId(record, columns[0] ?? field);
+  const values = columns.map((column) => recordId(record, column));
+  return values.some((value) => value === undefined) ? undefined : values.join('\u0000');
+};
+
+/** Every to-one relation of `resource` the hydrator follows, by field name. */
+export const toOnesOf = <R extends string>(
+  map: SchemaMap<R>,
+  resource: R,
+): [string, Relation<R>][] => {
+  const { toOnes } = indexMap(map as SchemaMap);
+  if (!toOnes.has(resource))
+    toOnes.set(
+      resource,
+      Object.keys(map.fieldMap.models[map.resources[resource]]?.fields ?? {}).flatMap((name) => {
+        const relation = relationOf(map, resource, name);
+        return relation ? [[name, relation] as [string, Relation]] : [];
+      }),
+    );
+  return toOnes.get(resource) as [string, Relation<R>][];
+};
 
 const ownerRelationOf = <R extends string>(
   map: SchemaMap<R>,
@@ -360,16 +408,12 @@ const ownerRelationOf = <R extends string>(
 ): string | undefined => {
   const axis = map.polymorphism?.[map.resources[resource]]?.axes.find((a) => a.field === field);
   const columns = [...(axis?.fkMap[value] ?? [])].sort().join(',');
-  return relationNames(map, resource).find(
-    (name) => [...(relationOf(map, resource, name)?.from ?? [])].sort().join(',') === columns,
-  );
+  return toOnesOf(map, resource).find(
+    ([, relation]) => [...relation.from].sort().join(',') === columns,
+  )?.[0];
 };
 
-/**
- * The rows `segments` reaches from `row`, start included, each by a to-one relation the hydrator
- * follows; it stops where one is missing, or with `kinds` where a polymorphic step's kind is not
- * one its relation admits.
- */
+/** The rows `segments` reaches from `row` by followed to-ones, start included; it stops at a missing one (with `kinds`, a kind its step does not admit). */
 export const rowsAlong = <R extends string>(
   map: SchemaMap<R>,
   resource: R,
@@ -411,9 +455,7 @@ const placeTowards = <R extends string>(
 ): Row | null => {
   const row: Row = {};
   let reached = false;
-  for (const name of relationNames(map, resource)) {
-    const relation = relationOf(map, resource, name);
-    if (!relation) continue;
+  for (const [name, relation] of toOnesOf(map, resource)) {
     const parent =
       chain.get(relation.resource) ??
       (depth > 1 && !seen.has(relation.resource)
@@ -426,16 +468,7 @@ const placeTowards = <R extends string>(
   return reached ? row : null;
 };
 
-/**
- * The records of `resource` that sit under the hydrated `anchor` (a record of `anchorResource`)
- * along `path` (dotted to-one relation names that own their foreign keys): at each step the foreign
- * keys whose values the parent knows, composite ones included, and the parent attached under the
- * relation. On a polymorphic step there is one record per kind the relation admits, each with its
- * owner placed under the anchor along every relation that leads there; a root leaf of `where` on
- * the first step's kind field (the `where` itself, or a leaf of its top `all`) drops the kinds it
- * fails. Ids below the anchor stay unknown. Empty when the path does not lead to the anchor's
- * resource.
- */
+/** The stand-in records of `resource` under the hydrated `anchor` along `path`, one per polymorphic kind the path admits (README, Granting one). */
 export const placeUnder = <R extends string>(
   map: SchemaMap<R>,
   resource: R,
@@ -515,16 +548,7 @@ export const placeEntitlement = <R extends string>(
   return placed.length ? placed : null;
 };
 
-/**
- * The hydrated rows above the records a granted entry reaches: its anchor row when the entry sits
- * under it by a path, and every row above the anchor. A self-anchored entry's anchor is the
- * granted record itself, so it is left out. The anchor is the object `placed` holds at the end of
- * the entry's path (each step a to-one relation that owns its foreign key), and it must be the
- * entry's anchor (resource and id); the rows above are the objects it holds under such relations,
- * followed up. Membership is object identity, so a row `placeUnder` built below the anchor, an
- * owner it placed beside one, and anything a `where` pins onto the placed record are never in it.
- * Empty when `placed` does not lead to the entry's anchor.
- */
+/** The hydrated rows above the records a granted entry reaches, by object; a self-anchored entry's own anchor left out. */
 export const rowsAbove = <R extends string>(
   map: SchemaMap<R>,
   entry: EntitlementEntry,
@@ -536,23 +560,16 @@ export const rowsAbove = <R extends string>(
   const end = steps[segments.length];
   if (!end || end.resource !== entry.anchor.resource || recordId(end.row) !== entry.anchor.id)
     return rows;
-  // why: around a loop the granted row comes back as another object; it is the same row, by resource and id
-  const granted = (resource: R, row: Row) =>
-    entry.anchor.path === undefined &&
-    resource === entry.resource &&
-    recordId(row) === entry.anchor.id;
-  const seen = new Set<Row>();
   const climb = (current: R, row: Row) => {
-    if (seen.has(row)) return;
-    seen.add(row);
-    if (!granted(current, row)) rows.add(row);
-    for (const name of relationNames(map, current)) {
-      const relation = relationOf(map, current, name);
+    if (rows.has(row)) return;
+    rows.add(row);
+    for (const [name, relation] of toOnesOf(map, current)) {
       const parent = row[name] as Row | null | undefined;
-      if (relation && parent && typeof parent === 'object' && !Array.isArray(parent))
+      if (parent && typeof parent === 'object' && !Array.isArray(parent))
         climb(relation.resource, parent);
     }
   };
   climb(end.resource, end.row);
+  if (entry.anchor.path === undefined) rows.delete(end.row);
   return rows;
 };

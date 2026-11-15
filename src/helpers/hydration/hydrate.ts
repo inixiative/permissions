@@ -7,6 +7,7 @@ import {
   relationOf,
   type SchemaMap,
   type Spelled,
+  toOnesOf,
 } from '../../core/schemaMap';
 import type { Row } from '../../core/types';
 /**
@@ -68,11 +69,6 @@ export const createHydrator = <R extends string>({ map, load, loadMany }: Hydrat
     }
     return loading;
   };
-  const fields = (resource: R) =>
-    Object.keys(map.fieldMap.models[map.resources[resource]]?.fields ?? {}).flatMap((name) => {
-      const relation = relationOf(map, resource, name);
-      return relation ? [[name, relation] as const] : [];
-    });
   // why: a row stored once is one object wherever it is reached, so a loop is the real cyclic graph
   const linked = (run: Run, relation: Relation<R>, where: Row): Promise<Row | null> => {
     const key = keyOf(relation.resource, where);
@@ -108,7 +104,7 @@ export const createHydrator = <R extends string>({ map, load, loadMany }: Hydrat
     });
     await Promise.all([
       ...lists,
-      ...fields(resource).map(async ([name, relation]) => {
+      ...toOnesOf(map, resource).map(async ([name, relation]) => {
         delete result[name];
         const where = whereOf(relation, record);
         const row = where && (await linked(run, relation, where));
@@ -116,9 +112,10 @@ export const createHydrator = <R extends string>({ map, load, loadMany }: Hydrat
       }),
     ]);
   };
-  // why: a declared path is finite and loaded as written, never linked to a row met elsewhere
+  // why: under an item only the declared paths exist, loaded as written and never linked
   const declared = async (run: Run, resource: R, record: Row, tree: Spelled): Promise<Row> => {
     const result: Row = { ...record };
+    for (const [name] of toOnesOf(map, resource)) delete result[name];
     await Promise.all(
       Object.entries(tree).map(async ([name, below]) => {
         delete result[name];

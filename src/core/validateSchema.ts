@@ -140,17 +140,10 @@ export const actionRuleLensIssues = (
   rule: ActionRule,
   at = '$',
   computed = false,
-  under?: Under,
 ): ValidationIssue[] =>
-  relIssues(
-    map,
-    schema,
-    lensAt(map, resource, under),
-    rule,
-    at,
-    under && new Set(),
-    computed,
-  ).filter((issue) => issue.code !== 'action');
+  relIssues(map, schema, lensAt(map, resource), rule, at, undefined, computed).filter(
+    (issue) => issue.code !== 'action',
+  );
 
 // why: a resource with no model in the map has no lens, so nothing it reads could be refused
 const unmapped = (map: SchemaMap, schema: RebacSchema): ValidationIssue[] => {

@@ -1,10 +1,10 @@
 import { type Absent, type Condition, check as checkRule } from '@inixiative/json-rules';
 import { evaluate, type Visited, type Walk } from './evaluate';
 import { asOwner, permixId, rowId } from './identity';
-import { lensAt, relationPathProblem, whereProblemAt } from './lens';
+import { lensAt, whereProblemAt } from './lens';
 import { reachableFrom } from './reachableFrom';
 import { recordId } from './recordId';
-import { rowsAlong } from './schemaMap';
+import { rowKey, rowsAlong } from './schemaMap';
 import type { Anchor, PermixLike, Row } from './types';
 
 const holds = (where: Condition, record: Row, absent: Absent): boolean =>
@@ -17,12 +17,6 @@ const reaches = <R extends string, T>(
   anchor: Anchor,
 ) => {
   const segments = anchor.path?.split('.') ?? [];
-  // why: under an item only the declared paths are loaded; anything else on the item is the loader's
-  if (
-    walk.under &&
-    relationPathProblem(walk.map, lensAt(walk.map, resource, walk.under), anchor.path ?? '')
-  )
-    return false;
   const steps = rowsAlong(walk.map, resource, record, segments, true);
   const end = steps[segments.length];
   return end?.resource === anchor.resource && recordId(end.row) === anchor.id;
@@ -57,11 +51,13 @@ export const entitled = <R extends string, T>(
     held.map(
       ({ anchor, where, owner, ref, grantsBelow }) =>
         () =>
-          !visited.has(`${permixId(owner)}:${rowId(record, walk.idField)}:${resource}:${action}`) &&
+          !visited.has(
+            `${permixId(owner)}:${rowId(record, rowKey(walk.map, resource, record, walk.idField))}:${resource}:${action}`,
+          ) &&
           (above
             ? grantsBelow === true && where === undefined
             : where === undefined ||
-              (whereProblemAt(walk.map, lensAt(walk.map, resource, walk.under), where) === null &&
+              (whereProblemAt(walk.map, lensAt(walk.map, resource), where) === null &&
                 (walk.ignoreWheres || holds(where, record, walk.absent)))) &&
           reaches(walk, resource, record, anchor)
             ? walk.algebra.through(

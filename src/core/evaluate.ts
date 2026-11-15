@@ -6,7 +6,7 @@ import { entitled } from './entitled';
 import { permixId, rowId } from './identity';
 import type { Under } from './lens';
 import { recordId } from './recordId';
-import { listOf, relationOf, type SchemaMap } from './schemaMap';
+import { listOf, relationOf, rowKey, type SchemaMap } from './schemaMap';
 import type { ActionRule, PermixLike, RebacSchema, Row } from './types';
 import { validateActionRule } from './validateActionRule';
 import { actionRuleLensIssues } from './validateSchema';
@@ -74,7 +74,7 @@ const walkAction = <R extends string, T>(
 ): T => {
   // Key by resource too: the same record object reached as a different resource (a self-join) is
   // a distinct node, not a cycle. Key by table too: an owner walk legitimately revisits the node.
-  const key = `${permixId(permix)}:${rowId(record, walk.idField)}:${resource}:${actionOrRule}`;
+  const key = `${permixId(permix)}:${rowId(record, rowKey(walk.map, resource, record, walk.idField))}:${resource}:${actionOrRule}`;
   const hops = walk.hops ?? 0;
   // why: a loop with no hop is a schema naming itself (a bug, it throws); one through a hop is data, and denies
   if (visited.has(key))
@@ -94,8 +94,7 @@ const walkAction = <R extends string, T>(
       action: actionOrRule,
       rowRules,
     }).ok &&
-    actionRuleLensIssues(walk.map, walk.schema, resource, rowRule, '$', false, walk.under)
-      .length === 0;
+    actionRuleLensIssues(walk.map, walk.schema, resource, rowRule).length === 0;
   // Row-level override is additive (OR) with the schema rule — a per-record grant can only widen.
   const merged: ActionRule = rowRuleHolds ? { any: [schemaRule, rowRule] } : schemaRule;
   return walk.algebra.any([

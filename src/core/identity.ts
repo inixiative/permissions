@@ -35,8 +35,6 @@ export const asOwner = (owner: PermixLike, actor: Actor | null): PermixLike => {
   return slice;
 };
 
-/** A row's identity on a walk: its id (`field`, the engine's id field) when it has one, so a row loaded twice is one row; else the object. */
-export const rowId = (record: Row, field: string): string => {
-  const id = record[field];
-  return id == null || id === '' ? `#${nodeId(record)}` : `=${String(id)}`;
-};
+/** A row's identity on a walk: its key (`rowKey`) when it has one, so a row loaded twice is one row; else the object. */
+export const rowId = (record: Row, key: string | undefined): string =>
+  key === undefined ? `#${nodeId(record)}` : `=${key}`;
