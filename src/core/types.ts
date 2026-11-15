@@ -3,6 +3,12 @@ import type { Absent, Bridge, Condition, Row } from '@inixiative/json-rules';
 export type { Row };
 
 export type RelationCheck = { rel: string; action: string }; // walk a relation, then check `action`
+/**
+ * Cross a declared list relation: passes when `condition` passes on some item, judged on the item
+ * as its own resource. Named after json-rules' array condition (`{ field, arrayOperator, condition }`);
+ * `any` is the only operator, since every other one holds on a list with no rows.
+ */
+export type ListCheck = { rel: string; arrayOperator: 'any'; condition: ActionRule };
 /** ABAC (json-rules) over the record, with who is acting under the reserved key `__actor`. */
 export type RuleCheck = { rule: Condition };
 
@@ -13,6 +19,7 @@ export type Actor = { model: string; record: Row };
 export type ActionRule =
   | string // delegate to another action on the same resource
   | RelationCheck
+  | ListCheck
   | RuleCheck
   | { any: ActionRule[] } // OR
   | { all: ActionRule[] } // AND

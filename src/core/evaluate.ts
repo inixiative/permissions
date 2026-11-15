@@ -1,11 +1,11 @@
 import { type Absent, type BridgeDictionary, check as checkRule } from '@inixiative/json-rules';
-import { isNil } from 'lodash-es';
+import { isNil, isPlainObject } from 'lodash-es';
 import type { Algebra } from './algebra';
 import { bridgeHop, lookupFar } from './bridgeHop';
 import { entitled } from './entitled';
 import { nodeId, permixId } from './identity';
 import { recordId } from './recordId';
-import { resolveField, type SchemaMap } from './schemaMap';
+import { listOf, resolveField, type SchemaMap } from './schemaMap';
 import type { ActionRule, PermixLike, RebacSchema, Row } from './types';
 import { validateActionRule } from './validateActionRule';
 
@@ -93,6 +93,22 @@ const walkRule = <R extends string, T>(
   visited: Set<string>,
 ): T => {
   const { algebra } = walk;
+  // Some item of a declared list passes `condition`, judged as the item's own resource. A list
+  // that is undeclared, absent (a stand-in record never has one) or empty denies. `visited` is
+  // forked per item: two items reaching one row are parallel paths, not a cycle.
+  if ('arrayOperator' in rule) {
+    const list = rule.arrayOperator === 'any' ? listOf(walk.map, resource, rule.rel) : null;
+    const items = record[rule.rel];
+    if (!list || !Array.isArray(items)) return algebra.none;
+    return algebra.any(
+      items
+        .filter((item): item is Row => isPlainObject(item))
+        .map(
+          (item) => () =>
+            evaluate(walk, permix, list.resource, item, rule.condition, new Set(visited)),
+        ),
+    );
+  }
   if ('rel' in rule && 'action' in rule) {
     const segments = rule.rel.split('.');
     let currentResource = resource;
