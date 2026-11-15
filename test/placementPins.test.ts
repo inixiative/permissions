@@ -17,7 +17,10 @@ const relations = {
   'db:space': { organization: 'db:organization' },
   'db:integration': { space: 'db:space' },
 };
-const flat = mapOf(relations);
+const flat = mapOf(relations, {
+  'db:space': ['name', 'label'],
+  'db:integration': ['label', 'priority'],
+});
 const schema: RebacSchema = {
   permissions: {
     'db:organization': { actions: { own: null, manage: 'own' } },

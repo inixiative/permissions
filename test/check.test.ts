@@ -52,7 +52,7 @@ const schema: RebacSchema = {
 const relations: Record<string, Record<string, string>> = {
   membership: { organization: 'organization', user: 'user' },
 };
-const check = createRebacCheck(mapOf(relations));
+const check = createRebacCheck(mapOf(relations, { organization: ['role'] }));
 
 describe('rebac check', () => {
   test('ABAC { rule } leaf', () => {
@@ -170,16 +170,16 @@ describe('rebac check', () => {
     ).toBe(false);
   });
 
-  test('a relation the map does not know aborts the walk', () => {
+  test('a relation the map does not know is refused on first use', () => {
     const noRels = createRebacCheck(mapOf({}));
-    expect(
+    expect(() =>
       noRels(
         stub(),
         schema,
         { resource: 'membership', record: { organization: { role: 'admin' } } },
         'manage',
       ),
-    ).toBe(false);
+    ).toThrow('`membership` has no relation `user`');
   });
 
   test('null is a terminal deny; superadmin bypasses everything', () => {
@@ -316,7 +316,7 @@ describe('to-one constraint on bridge walks (adversarial: must not walk onto the
         ],
       },
     };
-    expect(c(stub(), s, subject, 'read')).toBe(false);
+    expect(() => c(stub(), s, subject, 'read')).toThrow('`crm:Account` has no relation `db:User`');
   });
 
   test('the "one" side is still reachable from the "many" side (unaffected)', () => {
@@ -778,7 +778,7 @@ describe('cycle detection (regressions for the adversarial findings)', () => {
         },
       },
     };
-    const c = createRebacCheck(mapOf({ node: { parent: 'node' } })); // parent → node
+    const c = createRebacCheck(mapOf({ node: { parent: 'node' } }, { node: ['isOwner'] })); // parent → node
     const top = { isOwner: true };
     const mid = { isOwner: false, parent: top };
     const leaf = { isOwner: false, parent: mid };

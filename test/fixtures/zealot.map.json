@@ -20,6 +20,12 @@
         "isRequired": true,
         "isList": false,
         "isId": true
+      },
+      "deletedAt": {
+        "kind": "scalar",
+        "type": "DateTime",
+        "isRequired": false,
+        "isList": false
       }
     }
   },

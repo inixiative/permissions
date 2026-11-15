@@ -238,10 +238,7 @@ describe('what fills a stand-in, and what never does', () => {
   });
 
   test('a leaf through a relation that is not the entry’s path fills nothing', () => {
-    const [placed] = placedOn(
-      marked,
-      withWhere(equals('projectIntegrationResource.kind', 'channel')),
-    );
+    const [placed] = placedOn(marked, withWhere(equals('projectIntegrationResource.id', 'pir1')));
     expect(placed).toEqual({ integrationResource: { integrationId: 'i1', integration: i1 } });
   });
 

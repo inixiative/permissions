@@ -114,16 +114,23 @@ describe('the member case: operate on M, anchored at M, no where, backed by the 
       },
     },
   };
-  const map = mapOf({
-    'db:organizationUser': { user: 'db:user', organization: 'db:organization' },
-    'db:integration': {
-      user: 'db:user',
-      organization: 'db:organization',
-      organizationUser: 'db:organizationUser',
+  const map = mapOf(
+    {
+      'db:organizationUser': { user: 'db:user', organization: 'db:organization' },
+      'db:integration': {
+        user: 'db:user',
+        organization: 'db:organization',
+        organizationUser: 'db:organizationUser',
+      },
+      'db:integrationResource': { integration: 'db:integration' },
+      'kcp:thread': { integrationResource: 'db:integrationResource' },
     },
-    'db:integrationResource': { integration: 'db:integration' },
-    'kcp:thread': { integrationResource: 'db:integrationResource' },
-  });
+    {
+      'db:organizationUser': ['role'],
+      'db:integration': ['ownerModel'],
+      'db:integrationResource': ['enabled'],
+    },
+  );
   const rebac = createRebacCheck(map);
   const canGrant = createCanGrantEntitlement(map);
 
@@ -343,11 +350,14 @@ const schema: RebacSchema = {
     },
   },
 };
-const map = mapOf({
-  'db:space': { organization: 'db:organization' },
-  'db:integration': { space: 'db:space' },
-  'kcp:thread': { integration: 'db:integration' },
-});
+const map = mapOf(
+  {
+    'db:space': { organization: 'db:organization' },
+    'db:integration': { space: 'db:space' },
+    'kcp:thread': { integration: 'db:integration' },
+  },
+  { 'db:space': ['label'], 'db:integration': ['provider'] },
+);
 const rebac = createRebacCheck(map);
 const paths = createRebacPaths(map);
 const canGrant = createCanGrantEntitlement(map);
@@ -838,7 +848,12 @@ describe('what counts as above: rows the anchor holds under a to-one relation th
       fieldMap: {
         models: {
           ...owning.fieldMap.models,
-          'db:space': { fields: { profile: { ...profile, fromFields: [], toFields: [] } } },
+          'db:space': {
+            fields: {
+              ...owning.fieldMap.models['db:space']?.fields,
+              profile: { ...profile, fromFields: [], toFields: [] },
+            },
+          },
         },
       } as SchemaMap['fieldMap'],
     };
@@ -856,8 +871,10 @@ describe('what counts as above: rows the anchor holds under a to-one relation th
       return placed?.every((record) => check(permix, profiled, row, record)) === true;
     };
     expect(on(owning, byEntitlement)).toBe(true);
-    expect(on(inverse, byEntitlement)).toBe(false);
-    expect(on(inverse, byRole)).toBe(true);
+    expect(on(owning, byRole)).toBe(true);
+    // keyed on the other side, nothing hydrates it: no walk reads it, from above or by role
+    expect(() => on(inverse, byEntitlement)).toThrow('keeps its foreign key on `db:profile`');
+    expect(() => on(inverse, byRole)).toThrow('keeps its foreign key on `db:profile`');
   });
 
   test('a row reached across a bridge is not above: the first pass crosses no bridge', async () => {
@@ -877,7 +894,7 @@ describe('what counts as above: rows the anchor holds under a to-one relation th
         'db:integration': { actions: { manage: { rel: 'space', action: 'manage' } } },
       },
     };
-    const lib = mapOf({ 'db:integration': { space: 'db:space' } });
+    const lib = mapOf({ 'db:integration': { space: 'db:space' } }, { 'db:space': ['accountId'] });
     const space = { id: 's1', accountId: 'a1' };
     const subject = { resource: 'db:integration', record: { id: 'i1', spaceId: 's1', space } };
     const data = { 'crm:Account': [{ id: 'a1' }] };
@@ -895,6 +912,7 @@ describe('what counts as above: rows the anchor holds under a to-one relation th
 
   // The held entitlement's own path is tested on the real row, kinds included (`reaches`).
   test('a held entitlement whose path crosses a polymorphic step counts only for a row of that kind', async () => {
+    const column = { kind: 'scalar' as const, type: 'String' };
     const toOne = (type: string, from: string) => ({
       kind: 'object' as const,
       type,
@@ -911,15 +929,25 @@ describe('what counts as above: rows the anchor holds under a to-one relation th
       },
       fieldMap: {
         models: {
-          Organization: { fields: {} },
-          User: { fields: {} },
+          Organization: { fields: { id: column } },
+          User: { fields: { id: column } },
           Integration: {
             fields: {
+              id: column,
+              ownerModel: column,
+              organizationId: column,
+              userId: column,
               organization: toOne('Organization', 'organizationId'),
               user: toOne('User', 'userId'),
             },
           },
-          Thread: { fields: { integration: toOne('Integration', 'integrationId') } },
+          Thread: {
+            fields: {
+              id: column,
+              integrationId: column,
+              integration: toOne('Integration', 'integrationId'),
+            },
+          },
         },
       },
       polymorphism: {

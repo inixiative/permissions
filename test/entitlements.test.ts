@@ -63,7 +63,13 @@ const relations: Record<string, Record<string, string>> = {
   'db:integration': { space: 'db:space', replacedBy: 'db:integration' },
   'db:contact': { space: 'db:space' },
 };
-const check = createRebacCheck(mapOf(relations));
+const check = createRebacCheck(
+  mapOf(relations, {
+    'db:space': ['name', 'defaultProvider', 'archivedAt'],
+    'db:integration': ['provider'],
+    'db:contact': ['protected', 'name', 'userId', 'valueKey'],
+  }),
+);
 
 const o1 = { id: 'o1' };
 const o2 = { id: 'o2' };

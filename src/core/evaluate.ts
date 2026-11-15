@@ -5,9 +5,10 @@ import { bridgeHop, lookupFar } from './bridgeHop';
 import { entitled } from './entitled';
 import { nodeId, permixId } from './identity';
 import { recordId } from './recordId';
-import { listOf, resolveField, type SchemaMap } from './schemaMap';
+import { listOf, relationOf, type SchemaMap } from './schemaMap';
 import type { ActionRule, PermixLike, RebacSchema, Row } from './types';
 import { validateActionRule } from './validateActionRule';
+import { actionRuleLensIssues } from './validateSchema';
 
 // One walk: the app's schema map, the schema, the bridge dictionary built on first use, and how
 // what it finds combines (a boolean for `check`, every admission for `paths`).
@@ -25,9 +26,9 @@ export type Walk<R extends string, T = boolean> = {
    */
   above?: ReadonlySet<Row>;
   /**
-   * Set once the walk has crossed a list. Under an item only the declared paths are loaded, so a
-   * field that is not there is unknown, a second list and a bridge deny, and nothing counts in the
-   * grant check's first pass.
+   * Set once the walk has crossed a list. Under an item only the declared paths are loaded (the
+   * view holds nothing else, no list either), so a column the item came back without is unknown,
+   * a bridge denies, and nothing counts in the grant check's first pass.
    */
   underItem?: true;
 };
@@ -83,7 +84,8 @@ const walkAction = <R extends string, T>(
       resource,
       action: actionOrRule,
       rowRules,
-    }).ok;
+    }).ok &&
+    actionRuleLensIssues(walk.map, walk.schema, resource, rowRule).length === 0;
   // Row-level override is additive (OR) with the schema rule — a per-record grant can only widen.
   const merged: ActionRule = rowRuleHolds ? { any: [schemaRule, rowRule] } : schemaRule;
   return walk.algebra.any([
@@ -103,9 +105,7 @@ const walkRule = <R extends string, T>(
   const { algebra } = walk;
   // why: `visited` is forked per item, since two items reaching one row are parallel paths, not a cycle
   if ('arrayOperator' in rule) {
-    if (walk.underItem) return algebra.none;
-    // why: a schema is validated once per object; one edited afterwards must still deny here
-    const list = rule.arrayOperator === 'any' ? listOf(walk.map, resource, rule.rel) : null;
+    const list = listOf(walk.map, resource, rule.rel);
     const items = record[rule.rel];
     if (!list || !Array.isArray(items)) return algebra.none;
     const under: Walk<R, T> = {
@@ -140,10 +140,10 @@ const walkRule = <R extends string, T>(
       } else {
         const related = current[segment] as Row | null | undefined;
         if (!related || Array.isArray(related)) return algebra.none;
-        const next = resolveField(walk.map, currentResource, segment);
+        const next = relationOf(walk.map, currentResource, segment);
         if (!next) return algebra.none;
         current = related;
-        currentResource = next;
+        currentResource = next.resource;
       }
     }
     return evaluate(walk, permix, currentResource, current, rule.action, visited);

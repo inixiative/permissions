@@ -3,11 +3,14 @@ import { Operator } from '@inixiative/json-rules';
 import { type RebacSchema, validateSchema } from '../index';
 import { mapOf } from './schemaMaps';
 
-const map = mapOf({
-  document: { organization: 'organization', author: 'user', folder: 'folder' },
-  folder: { organization: 'organization', archive: 'archive' },
-  organization: { billing: 'billing' },
-});
+const map = mapOf(
+  {
+    document: { organization: 'organization', author: 'user', folder: 'folder' },
+    folder: { organization: 'organization', archive: 'archive' },
+    organization: { billing: 'billing' },
+  },
+  { user: ['name'] },
+);
 
 const schema: RebacSchema = {
   permissions: {

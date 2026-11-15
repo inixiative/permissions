@@ -2,10 +2,10 @@ import { type BridgeDictionary, indexBridges } from '@inixiative/json-rules';
 import type { Algebra } from './algebra';
 import { evaluate } from './evaluate';
 import { withExactStrings } from './exactStrings';
-import { indexMap, type SchemaMap } from './schemaMap';
+import { indexMap, projectRecord, type SchemaMap } from './schemaMap';
 import type { ActionRule, CheckOptions, PermixLike, RebacSchema, Row, Subject } from './types';
 import { validateActionRule } from './validateActionRule';
-import { declarationIssues, schemaRuleIssues } from './validateSchema';
+import { actionRuleLensIssues, lensIssues, schemaRuleIssues } from './validateSchema';
 
 const refuse = (what: string) => {
   throw new Error(
@@ -13,17 +13,27 @@ const refuse = (what: string) => {
   );
 };
 
+const outsideLens = ({ path, message }: { path: string; message: string }) => {
+  throw new Error(`\`${path}\`: ${message} (run validateSchema)`);
+};
+
 const judged = new WeakMap<object, WeakSet<object>>();
 
-// why: a negated rule, or a walk under a list item outside its declaration, answers on what nothing loaded
+const freeze = (value: unknown): void => {
+  if (typeof value !== 'object' || value === null || Object.isFrozen(value)) return;
+  Object.freeze(value);
+  for (const child of Object.values(value)) freeze(child);
+};
+
+// why: a negated rule, or a read outside the lens, answers on what nothing loaded
 const assertSchema = (map: SchemaMap, schema: RebacSchema) => {
   const known = judged.get(map) ?? new WeakSet();
   if (known.has(schema)) return;
+  freeze(schema);
   const [negated] = schemaRuleIssues(schema);
   if (negated) refuse(`\`${negated.path}\``);
-  const [undeclared] = declarationIssues(map, schema);
-  if (undeclared)
-    throw new Error(`\`${undeclared.path}\`: ${undeclared.message} (run validateSchema)`);
+  const [outside] = lensIssues(map, schema);
+  if (outside) outsideLens(outside);
   judged.set(map, known.add(schema));
 };
 
@@ -40,15 +50,20 @@ export const createWalker = <R extends string, T>(
     subject: Subject<R>,
     actionOrRule: ActionRule,
     visited: Set<string> = new Set(),
-    above?: ReadonlySet<Row>,
+    above?: (record: Row) => ReadonlySet<Row>,
   ): T => {
     assertSchema(map as SchemaMap, schema);
-    if (
-      typeof actionOrRule === 'object' &&
-      actionOrRule !== null &&
-      !validateActionRule(actionOrRule).ok
-    )
-      refuse('the rule asked');
+    if (typeof actionOrRule === 'object' && actionOrRule !== null) {
+      if (!validateActionRule(actionOrRule).ok) refuse('the rule asked');
+      const [outside] = actionRuleLensIssues(
+        map as SchemaMap,
+        schema as RebacSchema,
+        subject.resource,
+        actionOrRule,
+      );
+      if (outside) outsideLens(outside);
+    }
+    const record = projectRecord(map, subject.resource, subject.record);
     // Built lazily on the first bridge hop: a check that never crosses a bridge must not pay for —
     // or be crashed by (indexBridges throws on malformed `data`) — a dictionary it never reads.
     let built = false;
@@ -64,10 +79,18 @@ export const createWalker = <R extends string, T>(
     };
     return withExactStrings(() =>
       evaluate(
-        { map, absent, schema, getDict, algebra, ignoreWheres, ...(above ? { above } : {}) },
+        {
+          map,
+          absent,
+          schema,
+          getDict,
+          algebra,
+          ignoreWheres,
+          ...(above ? { above: above(record) } : {}),
+        },
         permix,
         subject.resource,
-        subject.record,
+        record,
         actionOrRule,
         visited,
       ),

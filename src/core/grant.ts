@@ -54,13 +54,13 @@ export const createCanGrantEntitlement = <R extends string = string>(
   const backs = createWalker(map, 'unknown', booleanAlgebra, true);
 
   return (permix, schema, entry, placed) => {
-    if (entitlementProblem(entry) !== null) return false;
+    if (entitlementProblem(entry, map) !== null) return false;
     const resource = entry.resource as R;
     const actions = Object.entries(entry.actions)
       .filter(([, held]) => held === true)
       .map(([action]) => action);
     const table = asOwner(permix, null);
-    const above = rowsAbove(map, entry, placed);
+    const above = (view: Row) => rowsAbove(map, entry, view);
     const subject = { resource, record: placed };
     if (actions.every((action) => check(table, schema, subject, action, new Set(), above)))
       return true;

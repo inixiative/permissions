@@ -1,6 +1,7 @@
 import { type Absent, type Condition, check as checkRule } from '@inixiative/json-rules';
 import { evaluate, type Walk } from './evaluate';
 import { asOwner, nodeId, permixId } from './identity';
+import { whereInLens } from './lens';
 import { reachableFrom } from './reachableFrom';
 import { recordId } from './recordId';
 import { relationOf } from './schemaMap';
@@ -34,6 +35,7 @@ const reaches = <R extends string, T>(
 // polymorphic step one of the kinds its relation admits), its
 // `where` holds, and whoever granted it can still do the action on this record: the
 // owner's own table, walked from here. A space moved to another org stops reaching its grantor.
+// A `where` that reads outside the lens never holds, even in the liveness walk.
 // An owner that is already on this walk for this node and action is a loop built from grant
 // data, not a schema bug: it denies instead of throwing, so it can never hide a sibling.
 // In the grant check's first pass (`walk.above`) one counts only at a hydrated row above the
@@ -60,7 +62,9 @@ export const entitled = <R extends string, T>(
           !visited.has(`${permixId(owner)}:${nodeId(record)}:${resource}:${action}`) &&
           (above
             ? grantsBelow === true && where === undefined
-            : where === undefined || walk.ignoreWheres || holds(where, record, walk.absent)) &&
+            : where === undefined ||
+              (whereInLens(walk.map, resource, where) &&
+                (walk.ignoreWheres || holds(where, record, walk.absent)))) &&
           reaches(walk, resource, record, anchor)
             ? walk.algebra.through(
                 ref,

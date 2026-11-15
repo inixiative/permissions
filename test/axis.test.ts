@@ -19,7 +19,7 @@ const toOne = (type: string, fromFields: string[], toFields: string[]) =>
 
 const fieldMap: FieldMap = {
   models: {
-    Organization: { fields: { id: scalar } },
+    Organization: { fields: { id: scalar, name: scalar } },
     Space: {
       fields: {
         id: scalar,
