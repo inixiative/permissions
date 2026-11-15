@@ -465,6 +465,18 @@ describe('validateActionRule: the arm’s shape', () => {
     expect(validateActionRule(arm({ arrayOperator: 'some' })).ok).toBe(false);
   });
 
+  test('an operator edited onto a schema after its first check still denies', async () => {
+    const edited = schemaWith(structuredClone(isParticipant));
+    const arm = edited.permissions['db:conversation']?.actions.isParticipant as {
+      arrayOperator: string;
+    };
+    const fay = await person('u-fay', 'advocate');
+    const c1 = await conversation('c1');
+    expect(check(fay, edited, on(c1), 'isParticipant')).toBe(true);
+    arm.arrayOperator = 'none';
+    expect(check(fay, edited, on(c1), 'isParticipant')).toBe(false);
+  });
+
   test('one list, a condition, nothing else', () => {
     expect(validateActionRule(arm({ rel: 'conversation.participants' })).ok).toBe(false);
     expect(validateActionRule(arm({ count: 2 })).ok).toBe(false);

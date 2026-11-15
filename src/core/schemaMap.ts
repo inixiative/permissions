@@ -327,7 +327,7 @@ const admits = (leaves: Leaf[], field: string, value: string) =>
 export const keysFrom = (relation: Pick<Relation, 'from' | 'to'>, parent: Row): Row =>
   Object.fromEntries(
     relation.from.flatMap((column, index) => {
-      const value = parent[relation.to[index] ?? idField()];
+      const value = parent[relation.to[index] as string];
       return value == null || value === '' ? [] : [[column, value]];
     }),
   );
