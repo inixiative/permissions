@@ -275,9 +275,9 @@ describe('the member case: operate on M, anchored at M, no where, backed by the 
     expect(await outcome(dead)).toEqual(none);
   });
 
-  // The "above" marker is the anchor row's own object and what it holds, never a value a `where`
-  // pins onto the placed record. Here the `where` pins a look-alike member row under the relation.
-  test('a where that pins a look-alike of M onto the placed record does not make it a row above', async () => {
+  // The "above" marker is the anchor row's own object and what it holds. A `where` never puts a
+  // row on the placed record: only scalar values on fields that are not relations are pinned.
+  test('a where cannot pin a look-alike of M onto the placed record', async () => {
     const forged = entry(
       'db:integration',
       { resource: 'db:organization', id: 'o1', path: 'organization' },
@@ -285,9 +285,9 @@ describe('the member case: operate on M, anchored at M, no where, backed by the 
       { all: [eq('ownerModel', 'OrganizationUser'), eq('organizationUser', { id: 'm1' })] },
     );
     const placed = placeEntitlement(map, forged, o1);
-    expect(placed?.[0]?.organizationUser).toEqual({ id: 'm1' });
+    expect(placed?.[0]).not.toHaveProperty('organizationUser');
     expect(grants(await permixOf(memberP), forged, o1)).toBe(false);
-    // the stored form of the same pin under M itself, where the user is a row above: still a look-alike
+    // the same pin under M itself, where the user is a row above
     const underM1 = entry(
       'db:integration',
       { resource: 'db:organizationUser', id: 'm1', path: 'organizationUser' },
@@ -297,15 +297,14 @@ describe('the member case: operate on M, anchored at M, no where, backed by the 
     const manageU1 = below(entry('db:user', { resource: 'db:user', id: 'u1' }, ['manage']));
     const userManager = await permixOf([{ entries: [manageU1], owner: userOwn }]);
     expect(grants(userManager, underM1, m1)).toBe(false);
-    // "above" is object identity: built in process with the live row as the value, the pin is the
-    // row above. It admits only that user's integrations, which the writer manages.
+    // not even the live row as the value: `equals` on an object admits no hydrated record at read
     const live = { ...underM1, where: { all: [eq('ownerModel', 'User'), eq('user', u1)] } };
-    expect(grants(userManager, live, m1)).toBe(true);
-    // control: the walk does reach the look-alike. A table grant keyed by its id passes, as on main.
+    expect(grants(userManager, live, m1)).toBe(false);
+    // nor for a writer whose table is keyed on the look-alike's id
     const keyed: Permissions = [
       { entries: [memberRole, grant('db:organizationUser', 'm1', ['operate'])] },
     ];
-    expect(grants(await permixOf(keyed), forged, o1)).toBe(true);
+    expect(grants(await permixOf(keyed), forged, o1)).toBe(false);
   });
 });
 

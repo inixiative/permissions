@@ -5,7 +5,7 @@ import { withExactStrings } from './exactStrings';
 import { indexMap, type SchemaMap } from './schemaMap';
 import type { ActionRule, CheckOptions, PermixLike, RebacSchema, Row, Subject } from './types';
 import { validateActionRule } from './validateActionRule';
-import { schemaRuleIssues } from './validateSchema';
+import { declarationIssues, schemaRuleIssues } from './validateSchema';
 
 const refuse = (what: string) => {
   throw new Error(
@@ -13,14 +13,18 @@ const refuse = (what: string) => {
   );
 };
 
-const judged = new WeakSet<object>();
+const judged = new WeakMap<object, WeakSet<object>>();
 
-// why: a negated rule passes on a field the record lacks, so no schema may hold one
-const assertPositiveSchema = (schema: RebacSchema) => {
-  if (judged.has(schema)) return;
-  const [issue] = schemaRuleIssues(schema);
-  if (issue) refuse(`\`${issue.path}\``);
-  judged.add(schema);
+// why: a negated rule, or a walk under a list item outside its declaration, answers on what nothing loaded
+const assertSchema = (map: SchemaMap, schema: RebacSchema) => {
+  const known = judged.get(map) ?? new WeakSet();
+  if (known.has(schema)) return;
+  const [negated] = schemaRuleIssues(schema);
+  if (negated) refuse(`\`${negated.path}\``);
+  const [undeclared] = declarationIssues(map, schema);
+  if (undeclared)
+    throw new Error(`\`${undeclared.path}\`: ${undeclared.message} (run validateSchema)`);
+  judged.set(map, known.add(schema));
 };
 
 export const createWalker = <R extends string, T>(
@@ -38,7 +42,7 @@ export const createWalker = <R extends string, T>(
     visited: Set<string> = new Set(),
     above?: ReadonlySet<Row>,
   ): T => {
-    assertPositiveSchema(schema);
+    assertSchema(map as SchemaMap, schema);
     if (
       typeof actionOrRule === 'object' &&
       actionOrRule !== null &&

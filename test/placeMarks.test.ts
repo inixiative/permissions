@@ -385,38 +385,38 @@ describe('a polymorphic stand-in: the mark joins it, the path still sets its kin
   });
 });
 
-describe('Kingdom’s project scope: a grant anchored at the project-resource join row', () => {
-  const p1 = { id: 'p1', organizationId: 'o1', organization: o1 };
-  const p2 = { id: 'p2', organizationId: 'o1', organization: o1 };
-  const r1 = resource('r1', i1);
-  const r2 = resource('r2', i1);
-  const link = (id: string, project: Row, of: Row): Row => ({
-    id,
-    projectId: project.id,
-    integrationResourceId: of.id,
-    project,
-    integrationResource: of,
-  });
-  const pir1 = link('pir1', p1, r1);
-  // The entry: no `where`, no part A, no part B. The surface record of a call made in a project
-  // carries the join row it acts through as a to-one, `projectIntegrationResource`.
-  const atJoinRow: EntitlementEntry = {
-    resource: 'slack:channel',
-    anchor: {
-      resource: 'db:projectIntegrationResource',
-      id: 'pir1',
-      path: 'projectIntegrationResource',
-    },
-    actions: { '*': true },
-  };
-  // The surface rule with a second arm that reaches the resource through the link.
-  const linked = schemaWith({
-    any: [
-      operates('integrationResource'),
-      operates('projectIntegrationResource.integrationResource'),
-    ],
-  });
+const p1 = { id: 'p1', organizationId: 'o1', organization: o1 };
+const p2 = { id: 'p2', organizationId: 'o1', organization: o1 };
+const r1 = resource('r1', i1);
+const r2 = resource('r2', i1);
+const link = (id: string, project: Row, of: Row): Row => ({
+  id,
+  projectId: project.id,
+  integrationResourceId: of.id,
+  project,
+  integrationResource: of,
+});
+const pir1 = link('pir1', p1, r1);
+// The entry: no `where`, no part A, no part B. The surface record of a call made in a project
+// carries the join row it acts through as a to-one, `projectIntegrationResource`.
+const atJoinRow: EntitlementEntry = {
+  resource: 'slack:channel',
+  anchor: {
+    resource: 'db:projectIntegrationResource',
+    id: 'pir1',
+    path: 'projectIntegrationResource',
+  },
+  actions: { '*': true },
+};
+// The surface rule with a second arm that reaches the resource through the link.
+const linked = schemaWith({
+  any: [
+    operates('integrationResource'),
+    operates('projectIntegrationResource.integrationResource'),
+  ],
+});
 
+describe('Kingdom’s project scope: a grant anchored at the project-resource join row', () => {
   test('the stand-in is a call through that link; everything the rule reads is a real row', () => {
     expect(placedOn(marked, atJoinRow, pir1)).toEqual([
       { projectIntegrationResourceId: 'pir1', projectIntegrationResource: pir1 },
@@ -481,5 +481,127 @@ describe('Kingdom’s project scope: a grant anchored at the project-resource jo
     expect(sends(call(r1, pir1))).toBe(true);
     expect(sends(call(r2, link('pir3', p1, r2)))).toBe(true);
     expect(sends(call(r1, link('pir2', p2, r1)))).toBe(false);
+  });
+});
+
+// The adversarial review's reproductions for part B and the project scope.
+describe('review: a marked field stated twice (B-1)', () => {
+  const kinds = (...stated: string[]): EntitlementEntry => ({
+    ...everyChannel,
+    where: {
+      all: [
+        ...stated.map((kind) => equals('integrationResource.kind', kind)),
+        equals('integrationResource.enabled', true),
+      ],
+    } as Condition,
+  });
+  const standIn = (entry: EntitlementEntry) =>
+    (placedOn(marked, entry)[0] as Row).integrationResource as Row;
+
+  test('two different values leave the field unknown, in either order: refused', async () => {
+    for (const entry of [kinds('user', 'channel'), kinds('channel', 'user')]) {
+      expect(standIn(entry)).not.toHaveProperty('kind');
+      expect(standIn(entry).enabled).toBe(true);
+      expect(await granted(marked, schema, entry)).toBe(false);
+    }
+  });
+
+  test('the same value twice is one statement: a narrowed copy still pins it', async () => {
+    expect(standIn(kinds('channel', 'channel')).kind).toBe('channel');
+    expect(await granted(marked, schema, kinds('channel', 'channel'))).toBe(true);
+  });
+
+  test('the root follows the same rule', () => {
+    const root = (...channels: string[]): Row =>
+      placedOn(marked, {
+        ...everyChannel,
+        where: { all: channels.map((channel) => equals('channel', channel)) } as Condition,
+      })[0] as Row;
+    expect(root('C1', 'C2')).not.toHaveProperty('channel');
+    expect(root('C2', 'C1')).not.toHaveProperty('channel');
+    expect(root('C1', 'C1').channel).toBe('C1');
+  });
+
+  test('a mark takes a scalar value only', () => {
+    for (const value of [['channel'], { is: 'channel' }])
+      expect(
+        standIn({ ...everyChannel, where: equals('integrationResource.kind', value) }),
+      ).not.toHaveProperty('kind');
+  });
+});
+
+describe('review: Kingdom’s project scope, as the review corrected it (B-2, B-3)', () => {
+  const viaLink = 'projectIntegrationResource.integrationResource';
+  const foreign = resource('r9', {
+    ...integration('i9'),
+    organizationId: 'o2',
+    organization: { id: 'o2' },
+  });
+  const through = (via: Row): Row => ({
+    operation: 'message.send',
+    projectIntegrationResourceId: via.id,
+    projectIntegrationResource: via,
+  });
+  const sendsAs = async (entry: EntitlementEntry) => {
+    const check = createRebacCheck(marked);
+    const holder = createPermissions();
+    await holder.setup([entry], { owner: await orgOwner() });
+    return (record: Row) =>
+      check(holder, linked, { resource: 'slack:channel', record }, 'message.send');
+  };
+
+  // B-2: the rule cannot tie the two carriers together on a stand-in, so the surface record must
+  // derive its direct resource from the link it carries. This pins what a record that does not
+  // do so is admitted as.
+  test('B-2 a join-row entry judges the link: a record carrying another direct resource passes', async () => {
+    const sends = await sendsAs(atJoinRow);
+    expect(sends(call(r1, pir1))).toBe(true);
+    expect(sends(call(r2, pir1))).toBe(true);
+    expect(sends(call(foreign, pir1))).toBe(true);
+    expect(sends(through(pir1))).toBe(true);
+  });
+
+  const inProject: EntitlementEntry = {
+    resource: 'slack:channel',
+    anchor: { resource: 'db:integration', id: 'i1', path: `${viaLink}.integration` },
+    where: {
+      all: [
+        equals(`${viaLink}.kind`, 'channel'),
+        equals(`${viaLink}.enabled`, true),
+        equals('projectIntegrationResource.projectId', 'p1'),
+      ],
+    } as Condition,
+    actions: { '*': true },
+  };
+
+  test('B-3 a project scope anchors at the integration, through the link: the marks fill two levels down', async () => {
+    expect(placedOn(marked, inProject)).toEqual([
+      {
+        projectIntegrationResource: {
+          integrationResource: {
+            kind: 'channel',
+            enabled: true,
+            integrationId: 'i1',
+            integration: i1,
+          },
+        },
+      },
+    ]);
+    expect(await granted(marked, linked, inProject)).toBe(true);
+    expect(await granted(unmarked, linked, inProject)).toBe(false);
+    const canGrant = createCanGrantEntitlement(marked);
+    const projectOnly = await holding(['db:project', 'p1', 'manage']);
+    for (const placed of placedOn(marked, inProject))
+      expect(canGrant(projectOnly, linked, inProject, placed)).toBe(false);
+  });
+
+  test('B-3 at read it follows the project’s links live, and nothing outside the project or the kind', async () => {
+    const sends = await sendsAs(inProject);
+    expect(sends(through(link('a', p1, r1)))).toBe(true);
+    expect(sends(through(link('b', p1, r2)))).toBe(true);
+    expect(sends(through(link('c', p2, r1)))).toBe(false);
+    expect(sends(call(r1))).toBe(false);
+    expect(sends(through(link('d', p1, resource('r3', i1, 'user'))))).toBe(false);
+    expect(sends(through(link('e', p1, foreign)))).toBe(false);
   });
 });

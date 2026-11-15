@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { check as checkRule, engineGlobals } from '@inixiative/json-rules';
+import { type Bridge, check as checkRule, engineGlobals } from '@inixiative/json-rules';
 import {
   type ActionRule,
   capAtRole,
@@ -532,11 +532,11 @@ describe('validateSchema: what a list arm may cross and read', () => {
 
   test('a list arm over a list that is not declared is invalid', () => {
     const rule: ActionRule = { rel: 'messages', arrayOperator: 'any', condition: true };
-    expect(codes(map, withConversation({ a: rule }))).toEqual(['db:conversation.a relation']);
+    expect(codes(map, withConversation({ a: rule }))).toEqual(['db:conversation.a down']);
     expect(codes(mapOver(annotate(models, 'Conversation', 'participants')), schema)).toEqual([
-      'db:conversation.chat.all[1] relation',
-      'db:conversation.chatRead.all[1] relation',
-      'db:conversation.isParticipant relation',
+      'db:conversation.chat.all[1] down',
+      'db:conversation.chatRead.all[1] down',
+      'db:conversation.isParticipant down',
     ]);
   });
 
@@ -678,5 +678,406 @@ describe('createHydrator: one jump down', () => {
 
   test('a map that declares a list needs `loadMany`', () => {
     expect(() => createHydrator({ map, load: async () => null })).toThrow(/pass `loadMany`/);
+  });
+});
+
+// The adversarial review's reproductions (A-1 to A-6), each asserting the fixed behaviour.
+describe('review: what a record may carry into a check', () => {
+  const forged = [
+    { leftAt: null, forumUser: { fanUser: { uuid: 'f-otto', user: { uuid: 'u-otto' } } } },
+  ];
+  const inConversation = async (record: Row) =>
+    check(
+      await person('u-otto', 'advocate'),
+      schema,
+      on(record, 'db:chatMessage'),
+      'inConversation',
+    );
+
+  test('A-1 the hydrator keeps no relation value it did not load, to-one or list', async () => {
+    const hydrate = hydratorOver(store());
+    const claimed = { uuid: 'c1', participants: forged };
+    const noKey = await hydrate('db:chatMessage', { conversation: claimed });
+    const deadKey = await hydrate('db:chatMessage', {
+      conversationUuid: 'c-nope',
+      conversation: claimed,
+    });
+    const realKey = await hydrate('db:chatMessage', {
+      conversationUuid: 'c1',
+      conversation: claimed,
+    });
+    expect(noKey).not.toHaveProperty('conversation');
+    expect(deadKey).not.toHaveProperty('conversation');
+    expect(((realKey.conversation as Row).participants as Row[]).map((item) => item.uuid)).toEqual([
+      'p-fay',
+      'p-rex',
+      'p-lee',
+    ]);
+    for (const record of [noKey, deadKey, realKey])
+      expect(await inConversation(record)).toBe(false);
+  });
+
+  test('A-1 under an item too: a declared relation holds the loaded row or nothing', async () => {
+    const data = store();
+    const hydrate = createHydrator({
+      map,
+      load: async (resource, where) => data[resource]?.find(matches(where)) ?? null,
+      loadMany: async () =>
+        [
+          { uuid: 'p-x', forumUserUuid: null },
+          { uuid: 'p-y', forumUserUuid: 'fu-nope' },
+        ].map((item) => ({ ...forged[0], conversationUuid: 'c1', ...item })),
+    });
+    const c1 = await hydrate('db:conversation', { uuid: 'c1', brandUuid: 'b1' });
+    for (const item of c1.participants as Row[]) expect(item).not.toHaveProperty('forumUser');
+    expect(check(await person('u-otto'), schema, on(c1), 'isParticipant')).toBe(false);
+  });
+
+  test('A-2 a field an item does not carry is unknown: it never passes `equals null`', async () => {
+    const lee = await person('u-lee');
+    // a left member whose row came back without `leftAt` (a select, a projection)
+    const member = { forumUser: { fanUser: { uuid: 'f-lee', user: { uuid: 'u-lee' } } } };
+    expect(check(lee, schema, on({ uuid: 'c1', participants: [member] }), 'isParticipant')).toBe(
+      false,
+    );
+    const present = { uuid: 'c1', participants: [{ ...member, leftAt: null }] };
+    expect(check(lee, schema, on(present), 'isParticipant')).toBe(true);
+  });
+
+  test('A-2 a read under an item of a path nothing loaded denies, in an inline or a row rule', async () => {
+    const otto = await person('u-otto');
+    const c1 = await conversation('c1');
+    const reads: ActionRule = {
+      rel: 'participants',
+      arrayOperator: 'any',
+      condition: { rule: { field: 'forumUser.brand.deletedAt', operator: 'equals', value: null } },
+    };
+    expect(check(otto, schema, on(c1), reads)).toBe(false);
+    const rowRule = { ...c1, permissionRules: { isParticipant: reads } };
+    expect(check(otto, schema, on(rowRule), 'isParticipant')).toBe(false);
+    // off an item the same read keeps the check's own `absent`
+    const offItem: ActionRule = {
+      rule: { field: 'brand.deletedAt', operator: 'equals', value: null },
+    };
+    expect(check(otto, schema, on(c1), offItem)).toBe(true);
+  });
+
+  test('A-2 the same read written in the schema is refused on first use', async () => {
+    const reads: ActionRule = {
+      rel: 'participants',
+      arrayOperator: 'any',
+      condition: { rule: { field: 'forumUser.brand.deletedAt', operator: 'equals', value: null } },
+    };
+    const undeclared = schemaWith(reads);
+    expect(validateSchema(map, undeclared).ok).toBe(false);
+    const c1 = await conversation('c1');
+    const otto = await person('u-otto');
+    expect(() => check(otto, undeclared, on(c1), 'manage')).toThrow(
+      /loads no `forumUser.brand` under an item/,
+    );
+  });
+});
+
+describe('review: one jump', () => {
+  const scalar = { kind: 'scalar', type: 'String', isList: false } as const;
+  const list = (type: string, down: string[]) => ({
+    kind: 'object' as const,
+    type,
+    isList: true,
+    fromFields: [],
+    toFields: [],
+    annotations: { permissions: { down } },
+  });
+  const toOne = (type: string, key: string) => ({
+    kind: 'object' as const,
+    type,
+    isList: false,
+    fromFields: [key],
+    toFields: ['uuid'],
+  });
+  const twoLists: SchemaMap = {
+    resources: { a: 'A', b: 'B', c: 'C', 'db:user': 'User' },
+    fieldMap: {
+      models: {
+        A: { fields: { uuid: scalar, bs: list('B', []) } },
+        B: {
+          fields: { uuid: scalar, aUuid: scalar, a: toOne('A', 'aUuid'), cs: list('C', ['user']) },
+        },
+        C: {
+          fields: {
+            uuid: scalar,
+            bUuid: scalar,
+            userUuid: scalar,
+            b: toOne('B', 'bUuid'),
+            user: toOne('User', 'userUuid'),
+          },
+        },
+        User: { fields: { uuid: scalar } },
+      },
+    } as SchemaMap['fieldMap'],
+  };
+  const inner: ActionRule = {
+    rel: 'cs',
+    arrayOperator: 'any',
+    condition: { rel: 'user', action: 'own' },
+  };
+  const rules = (a: Record<string, ActionRule>): RebacSchema => ({
+    permissions: {
+      a: { actions: a },
+      b: { actions: { inner } },
+      c: { actions: {} },
+      'db:user': { actions: { own: null } },
+    },
+  });
+  const b1 = { uuid: 'b1', cs: [{ uuid: 'c1', user: { uuid: 'u-fay' } }] };
+  const record = { uuid: 'a1', bs: [b1] };
+
+  test('A-3 the engine does not cross a second list, though the data is there', async () => {
+    const fay = await person('u-fay');
+    const ask = createRebacCheck(twoLists);
+    const nested: ActionRule = { rel: 'bs', arrayOperator: 'any', condition: inner };
+    const delegated: ActionRule = { rel: 'bs', arrayOperator: 'any', condition: 'inner' };
+    // the one list crossed from its own row passes: the data and the rule are sound
+    expect(ask(fay, rules({}), { resource: 'b', record: b1 }, 'inner')).toBe(true);
+    expect(ask(fay, rules({}), { resource: 'a', record }, nested)).toBe(false);
+    expect(ask(fay, rules({}), { resource: 'a', record }, delegated)).toBe(false);
+    for (const second of [nested, delegated]) {
+      const schemaWithSecond = rules({ in: second });
+      expect(validateSchema(twoLists, schemaWithSecond).errors.map((issue) => issue.code)).toEqual([
+        'down',
+      ]);
+      expect(() => ask(fay, schemaWithSecond, { resource: 'a', record }, 'in')).toThrow(
+        /second list under an item/,
+      );
+    }
+  });
+
+  test('A-4 nothing under an item counts in the grant check’s first pass, whatever object it is', async () => {
+    const rex = await person('u-rex');
+    const c1 = await conversation('c1');
+    const entry: EntitlementEntry = {
+      resource: 'db:conversation',
+      anchor: { resource: 'db:conversation', id: 'c1' },
+      actions: { isParticipant: true },
+    };
+    const hal = await person('u-hal');
+    await hal.setup(
+      [
+        {
+          resource: 'db:brandUsers',
+          anchor: { resource: 'db:brandUsers', id: 'bu-rex' },
+          actions: { isSelf: true },
+          grantsBelow: true,
+        },
+      ],
+      { owner: rex },
+    );
+    // bu-rex is above c1 (createdBy -> brandUser) and also under the item p-rex
+    expect(canGrant(hal, schema, entry, c1)).toBe(false);
+    const createdBy = c1.createdBy as Row;
+    const rexItem = (c1.participants as Row[]).find((item) => item.uuid === 'p-rex') as Row;
+    // what a memoising loader hands out: the item holds the very object that sits above
+    const shared = {
+      ...c1,
+      participants: [
+        {
+          ...rexItem,
+          forumUser: { ...(rexItem.forumUser as Row), brandUser: createdBy.brandUser },
+        },
+      ],
+    };
+    expect(canGrant(hal, schema, entry, shared)).toBe(false);
+    // at read the same entitlement still makes its holder a participant
+    expect(check(hal, schema, on(c1), 'isParticipant')).toBe(true);
+    // the writer's own table under an item is its role, and counts
+    const keyed = createPermissions();
+    await keyed.setup([{ resource: 'db:brandUsers', id: 'bu-rex', actions: { isSelf: true } }]);
+    expect(canGrant(keyed, schema, entry, c1)).toBe(true);
+  });
+
+  test('A-5 a `where` pins scalar values only: no relation, and so no list, lands on a stand-in', async () => {
+    const copy = structuredClone(models);
+    const message = copy.ChatMessage?.fields as Record<string, unknown>;
+    message.senderUuid = { kind: 'scalar', type: 'String', isList: false };
+    message.sender = {
+      kind: 'object',
+      type: 'ForumUser',
+      isList: false,
+      fromFields: ['senderUuid'],
+      toFields: ['uuid'],
+    };
+    const withSender = mapOver(copy);
+    const claimed = {
+      participants: [
+        { leftAt: null, forumUser: { fanUser: { uuid: 'f-otto', user: { uuid: 'u-otto' } } } },
+      ],
+    };
+    const entry = (where: EntitlementEntry['where']): EntitlementEntry => ({
+      resource: 'db:chatMessage',
+      anchor: { resource: 'db:brands', id: 'b1', path: 'sender.brand' },
+      where,
+      actions: { inConversation: true },
+    });
+    const forged = entry({ field: 'conversation', operator: 'equals', value: claimed });
+    const placed = placeEntitlement(withSender, forged, { uuid: 'b1' }) as Row[];
+    expect(placed.length).toBe(1);
+    for (const stand of placed) {
+      expect(stand).not.toHaveProperty('conversation');
+      expect(
+        createCanGrantEntitlement(withSender)(await person('u-otto'), schema, forged, stand),
+      ).toBe(false);
+    }
+    const pins = (field: string, value: unknown) =>
+      (
+        placeEntitlement(
+          withSender,
+          entry({ field, operator: 'equals', value } as EntitlementEntry['where']),
+          { uuid: 'b1' },
+        ) as Row[]
+      )[0];
+    expect(pins('uuid', ['m1'])).not.toHaveProperty('uuid');
+    expect(pins('uuid', { in: 'm1' })).not.toHaveProperty('uuid');
+    expect(pins('uuid', 'm1')).toHaveProperty('uuid', 'm1');
+    expect(pins('conversationUuid', null)).toHaveProperty('conversationUuid', null);
+  });
+});
+
+describe('review: the declaration carries what the rule walks (A-6)', () => {
+  const twoSegments = mapOver(
+    annotate(models, 'Conversation', 'participants', {
+      down: ['forumUser.fanUser', 'forumUser.brandUser'],
+    }),
+  );
+  const participantBy = (action: string): ActionRule => ({
+    rel: 'participants',
+    arrayOperator: 'any',
+    condition: {
+      all: [
+        { rule: { field: 'leftAt', operator: 'equals', value: null } },
+        {
+          any: [
+            { rel: 'forumUser.fanUser', action },
+            { rel: 'forumUser.brandUser', action },
+          ],
+        },
+      ],
+    },
+  });
+  // Zealot's own grants: an id-keyed table grant on the person's membership row.
+  const fayWith = async (action: string) => {
+    const fay = await person('u-fay');
+    await fay.setup([{ resource: 'db:fanUsers', id: 'f-fay', actions: { [action]: true } }]);
+    return fay;
+  };
+  const c1Over = (over: SchemaMap, loads: string[] = []) => {
+    const data = store();
+    return hydratorOver(data, over, loads)('db:conversation', data['db:conversation']?.[0] as Row);
+  };
+
+  test('an action whose rule walks on to the person needs the person declared: both refuse', async () => {
+    const rules = schemaWith(participantBy('operate'));
+    expect(validateSchema(twoSegments, rules).errors.map((issue) => issue.message)).toEqual([
+      '`db:conversation.participants` loads no `forumUser.fanUser.user` under an item: name it in `/// @permissions(down: [...])`',
+      '`db:conversation.participants` loads no `forumUser.brandUser.user` under an item: name it in `/// @permissions(down: [...])`',
+      '`db:conversation.participants` loads no `forumUser.fanUser.user` under an item: name it in `/// @permissions(down: [...])`',
+      '`db:conversation.participants` loads no `forumUser.brandUser.user` under an item: name it in `/// @permissions(down: [...])`',
+      '`db:conversation.participants` loads no `forumUser.fanUser.user` under an item: name it in `/// @permissions(down: [...])`',
+      '`db:conversation.participants` loads no `forumUser.brandUser.user` under an item: name it in `/// @permissions(down: [...])`',
+    ]);
+    const ask = createRebacCheck(twoSegments);
+    const c1 = await c1Over(twoSegments);
+    const fay = await fayWith('operate');
+    expect(() => ask(fay, rules, on(c1), 'isParticipant')).toThrow(
+      /loads no `forumUser.fanUser.user` under an item/,
+    );
+    // with the person declared the same rule validates, and needs no grant on the membership
+    expect(validateSchema(map, rules).ok).toBe(true);
+    expect(check(await person('u-fay'), rules, on(await c1Over(map)), 'isParticipant')).toBe(true);
+    expect(check(await person('u-otto'), rules, on(await c1Over(map)), 'isParticipant')).toBe(
+      false,
+    );
+  });
+
+  test('an action answered by the table on the membership row needs only the membership', async () => {
+    const tableOnly: RebacSchema = {
+      permissions: {
+        ...schemaWith(participantBy('self')).permissions,
+        'db:fanUsers': { actions: { self: null } },
+        'db:brandUsers': { actions: { self: null } },
+      },
+    };
+    expect(validateSchema(twoSegments, tableOnly)).toEqual({ ok: true, errors: [] });
+    const loads: string[] = [];
+    const c1 = await c1Over(twoSegments, loads);
+    // the only user row loaded is the creator's, by the ordinary upward walk; none under an item
+    expect(loads.filter((line) => line.startsWith('load db:user'))).toEqual([
+      'load db:user {"uuid":"u-rex"}',
+    ]);
+    const ask = createRebacCheck(twoSegments);
+    expect(ask(await fayWith('self'), tableOnly, on(c1), 'isParticipant')).toBe(true);
+    expect(ask(await person('u-fay'), tableOnly, on(c1), 'isParticipant')).toBe(false);
+    expect(ask(await person('u-otto'), tableOnly, on(c1), 'isParticipant')).toBe(false);
+  });
+});
+
+describe('review: validation edges', () => {
+  test('`down` beside `hydrate: false` is refused', () => {
+    const both = annotate(models, 'Conversation', 'participants', { down: [], hydrate: false });
+    expect(() => createRebacCheck(mapOver(both))).toThrow(/`hydrate: false` says not to/);
+  });
+
+  test('a `{ rule }` under an item that reads through a relation outside the map is reported', () => {
+    const copy = structuredClone(models);
+    (copy.ConversationParticipant?.fields as Record<string, unknown>).note = {
+      kind: 'object',
+      type: 'Note',
+      isList: false,
+      fromFields: ['noteUuid'],
+      toFields: ['uuid'],
+    };
+    const reads: ActionRule = {
+      rel: 'participants',
+      arrayOperator: 'any',
+      condition: { rule: { field: 'note.text', operator: 'equals', value: 'x' } },
+    };
+    expect(
+      validateSchema(mapOver(copy), schemaWith(reads)).errors.map((issue) => issue.code),
+    ).toEqual(['down', 'down', 'down']);
+  });
+
+  test('a bridge under an item is refused by validateSchema and denies in the engine', async () => {
+    const bridges: Bridge[] = [
+      {
+        endpoints: [
+          { fieldMap: 'crm', model: 'Account', on: 'id' },
+          { fieldMap: 'db', model: 'conversationParticipant', on: 'accountId' },
+        ],
+        cardinality: 'oneToMany',
+      },
+    ];
+    const viaBridge: ActionRule = {
+      rel: 'participants',
+      arrayOperator: 'any',
+      condition: { rel: 'crm:Account', action: 'open' },
+    };
+    const bridged = (over: Record<string, ActionRule>): RebacSchema => ({
+      bridges,
+      permissions: {
+        ...schema.permissions,
+        'db:conversation': { actions: { isParticipant, ...over } },
+        'crm:Account': { actions: { open: true } },
+      },
+    });
+    const [issue] = validateSchema(map, bridged({ a: viaBridge })).errors;
+    expect(issue).toMatchObject({ code: 'down' });
+    expect(issue?.message).toMatch(/stays on the declared relations/);
+    const record = { uuid: 'c1', participants: [{ uuid: 'p1', accountId: 'acc1' }] };
+    const subject = { ...on(record), data: { 'crm:Account': [{ id: 'acc1' }] } };
+    const otto = await person('u-otto');
+    expect(check(otto, bridged({}), subject, viaBridge)).toBe(false);
+    // control: off an item the same hop reaches the far row
+    const item = { resource: 'db:conversationParticipant', record: record.participants[0] as Row };
+    const hop: ActionRule = { rel: 'crm:Account', action: 'open' };
+    expect(check(otto, bridged({}), { ...item, data: subject.data }, hop)).toBe(true);
   });
 });

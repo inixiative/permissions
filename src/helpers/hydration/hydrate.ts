@@ -62,13 +62,19 @@ const keyOf = (resource: string, where: Row): string =>
  * deny), not a loading artifact. Composite keys and non-id targets load by every column the target
  * names. A polymorphic record gets every relation whose columns are set, whatever its kind.
  *
- * A relation tagged `/// @permissions(hydrate: false)` (a prisma-map annotation) is not followed.
+ * The hydrator owns every relation it follows: the result holds the row it loaded there, or
+ * nothing. A value the record already carried under one (a request body's `conversation: {...}`)
+ * is dropped when the key is missing, loads nothing, or leads back to an ancestor.
+ *
+ * A relation tagged `/// @permissions(hydrate: false)` (a prisma-map annotation) is not followed
+ * and is left as given.
  *
  * A list relation tagged `/// @permissions(down: [forumUser.fanUser, forumUser.brandUser])` is
  * loaded one jump down wherever its model is hydrated above an item: one `loadMany` by the items'
  * foreign key, replacing whatever the record held under that field (`[]` when the record has no
- * key), then under each item only the declared to-one paths, through `load`. Nothing else loads
- * from an item or from the rows on those paths: no upward hydration, no second list.
+ * key), then under each item only the declared to-one paths, through `load`, each owned the same
+ * way. Nothing else loads from an item or from the rows on those paths: no upward hydration, no
+ * second list.
  *
  * `ancestors`, the records on the path from the root, cuts an edge back to one of them, so
  * hydration terminates on a self-referential key or an A to B to A loop. It is forked per branch, so
@@ -101,6 +107,7 @@ export const createHydrator = <R extends string>({ map, load, loadMany }: Hydrat
     const result: Row = { ...row };
     await Promise.all(
       [...tree].map(async ([name, below]) => {
+        delete result[name];
         const relation = relationOf(map, resource, name);
         const where = relation && whereOf(relation, row);
         if (!relation || !where) return;
@@ -140,6 +147,8 @@ export const createHydrator = <R extends string>({ map, load, loadMany }: Hydrat
         if (skipsHydration(field)) return;
         const relation = relationOf(map, resource, name);
         if (!relation) return;
+        // why: a value already under a followed relation is the caller's claim, not a loaded row
+        delete result[name];
         const where = whereOf(relation, record);
         if (!where) return;
         const key = keyOf(relation.resource, where);

@@ -24,7 +24,15 @@ export type Walk<R extends string, T = boolean> = {
    * entitlement counts only at one of these rows, marked `grantsBelow`, without a `where`.
    */
   above?: ReadonlySet<Row>;
+  /**
+   * Set once the walk has crossed a list. Under an item only the declared paths are loaded, so a
+   * field that is not there is unknown, a second list and a bridge deny, and nothing counts in the
+   * grant check's first pass.
+   */
+  underItem?: true;
 };
+
+const noRows: ReadonlySet<Row> = new Set();
 
 export const evaluate = <R extends string, T>(
   walk: Walk<R, T>,
@@ -94,18 +102,26 @@ const walkRule = <R extends string, T>(
 ): T => {
   const { algebra } = walk;
   // Some item of a declared list passes `condition`, judged as the item's own resource. A list
-  // that is undeclared, absent (a stand-in record never has one) or empty denies. `visited` is
-  // forked per item: two items reaching one row are parallel paths, not a cycle.
+  // that is undeclared, absent (a stand-in record never has one) or empty denies, and so does a
+  // list met under an item: one jump. `visited` is forked per item: two items reaching one row are
+  // parallel paths, not a cycle.
   if ('arrayOperator' in rule) {
+    if (walk.underItem) return algebra.none;
     const list = rule.arrayOperator === 'any' ? listOf(walk.map, resource, rule.rel) : null;
     const items = record[rule.rel];
     if (!list || !Array.isArray(items)) return algebra.none;
+    const under: Walk<R, T> = {
+      ...walk,
+      absent: 'unknown',
+      underItem: true,
+      ...(walk.above ? { above: noRows } : {}),
+    };
     return algebra.any(
       items
         .filter((item): item is Row => isPlainObject(item))
         .map(
           (item) => () =>
-            evaluate(walk, permix, list.resource, item, rule.condition, new Set(visited)),
+            evaluate(under, permix, list.resource, item, rule.condition, new Set(visited)),
         ),
     );
   }
@@ -116,6 +132,7 @@ const walkRule = <R extends string, T>(
     for (const segment of segments) {
       const hop = bridgeHop(walk.schema.bridges, currentResource, segment);
       if (hop) {
+        if (walk.underItem) return algebra.none;
         const farId = current[hop.localOn];
         if (isNil(farId)) return algebra.none;
         const far = lookupFar(walk.getDict(), hop, String(farId));

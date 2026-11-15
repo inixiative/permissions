@@ -103,6 +103,8 @@ const indexAnnotations = (map: SchemaMap, index: MapIndex) => {
       if (unknown) throw new Error(`${at}: unknown key \`${unknown}\``);
       if ('hydrate' in annotation && typeof annotation.hydrate !== 'boolean')
         throw new Error(`${at}: \`hydrate\` is true or false`);
+      if ('down' in annotation && annotation.hydrate === false)
+        throw new Error(`${at}: \`down\` loads the list, \`hydrate: false\` says not to`);
       if ('down' in annotation)
         index.lists.set(`${resource}\u0000${name}`, listFor(map, resource, name, annotation.down));
       if ('place' in annotation) {
@@ -289,17 +291,35 @@ export const conjuncts = (where: Condition | null | undefined): unknown[] => {
 
 const rootLeaves = (where: Condition | undefined): Leaf[] => conjuncts(where).filter(isLiteralLeaf);
 
-// why: a pinned list would be a list on a stand-in, which the list arm must never find
+const isScalar = (value: unknown) => value === null || typeof value !== 'object';
+
+// The values the leaves state, by field. A field stated twice with different values is left
+// unknown: no record holds both, and which one is written last must not decide a grant.
+const stated = (pairs: (readonly [string, unknown])[]): Row => {
+  const values = new Map<string, unknown>();
+  const clashing = new Set<string>();
+  for (const [field, value] of pairs) {
+    if (values.has(field) && values.get(field) !== value) clashing.add(field);
+    values.set(field, value);
+  }
+  return Object.fromEntries([...values].filter(([field]) => !clashing.has(field)));
+};
+
+// why: an object or a list pinned onto a stand-in would be a relation or a list the walk then reads
 const pinned = <R extends string>(map: SchemaMap<R>, resource: R, leaves: Leaf[]): Row =>
-  Object.fromEntries(
+  stated(
     leaves
-      .filter(
-        (leaf) =>
+      .filter((leaf) => {
+        const field = fieldOf(map, resource, leaf.field);
+        return (
           leaf.operator === 'equals' &&
           !leaf.field.includes('.') &&
-          !fieldOf(map, resource, leaf.field)?.isList,
-      )
-      .map((leaf) => [leaf.field, leaf.value]),
+          isScalar(leaf.value) &&
+          field?.kind !== 'object' &&
+          !field?.isList
+        );
+      })
+      .map((leaf) => [leaf.field, leaf.value] as const),
   );
 
 // The marked fields (`/// @permissions(place: true)`) of the stand-in at `prefix` that a root leaf
@@ -312,11 +332,14 @@ const placedMarks = <R extends string>(
 ): Row => {
   const marks = marksOf(map, resource);
   if (!marks.size) return {};
-  return Object.fromEntries(
+  return stated(
     leaves.flatMap((leaf) => {
       const field = leaf.field.slice(prefix.length + 1);
-      return leaf.operator === 'equals' && leaf.field.startsWith(`${prefix}.`) && marks.has(field)
-        ? [[field, leaf.value]]
+      return leaf.operator === 'equals' &&
+        leaf.field.startsWith(`${prefix}.`) &&
+        marks.has(field) &&
+        isScalar(leaf.value)
+        ? [[field, leaf.value] as const]
         : [];
     }),
   );

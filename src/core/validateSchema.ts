@@ -26,10 +26,9 @@ const relationsRead = (map: SchemaMap, resource: string, field: string): string[
   const read: string[] = [];
   let current: string | null = resource;
   for (const segment of field.split('.')) {
-    const next: string | null = current ? resolveField(map, current, segment) : null;
-    if (!next) break;
+    if (!current || fieldOf(map, current, segment)?.kind !== 'object') break;
     read.push(segment);
-    current = next;
+    current = resolveField(map, current, segment);
   }
   return read;
 };
@@ -92,7 +91,7 @@ const relIssues = (
       return [
         {
           path,
-          code: 'relation',
+          code: 'down',
           message: `\`${resource}.${rule.rel}\` is not a declared list: mark the list field \`/// @permissions(down: [...])\``,
         },
       ];
@@ -112,7 +111,7 @@ const relIssues = (
         {
           path,
           code: 'down',
-          message: `\`${segment}\` is a bridge under an item of \`${under.list}\`: only declared relations load there`,
+          message: `\`${segment}\` is a bridge under an item of \`${under.list}\`: a walk under an item stays on the declared relations`,
         },
       ];
     if (!hop && fieldOf(map, current, segment)?.isList)
@@ -143,6 +142,23 @@ export const schemaRuleIssues = (schema: RebacSchema): ValidationIssue[] =>
         ...issue,
         path: `${resource}.${action}${issue.path.slice(1)}`,
       })),
+    ),
+  );
+
+/**
+ * Every list arm of a schema that the map's declarations do not carry (code `down`), by
+ * `resource.action`: an arm over an undeclared list, a relation walked or read under an item
+ * outside the declared paths (followed through the actions the walk lands on), a second list or a
+ * bridge under an item. A check refuses a schema that has one, on first use.
+ */
+export const declarationIssues = (map: SchemaMap, schema: RebacSchema): ValidationIssue[] =>
+  Object.entries(schema.permissions).flatMap(([resource, permission]) =>
+    Object.entries(permission?.actions ?? {}).flatMap(([action, rule]) =>
+      validateActionRule(rule).ok
+        ? relIssues(map, schema, resource, rule, `${resource}.${action}`).filter(
+            (issue) => issue.code === 'down',
+          )
+        : [],
     ),
   );
 
