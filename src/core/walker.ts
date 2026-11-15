@@ -19,10 +19,11 @@ const outsideLens = ({ path, message }: { path: string; message: string }) => {
 
 const judged = new WeakMap<object, WeakSet<object>>();
 
-const freeze = (value: unknown): void => {
-  if (typeof value !== 'object' || value === null || Object.isFrozen(value)) return;
+const freeze = (value: unknown, seen = new WeakSet<object>()): void => {
+  if (typeof value !== 'object' || value === null || seen.has(value)) return;
+  seen.add(value);
   Object.freeze(value);
-  for (const child of Object.values(value)) freeze(child);
+  for (const child of Object.values(value)) freeze(child, seen);
 };
 
 // why: a negated rule, or a read outside the lens, answers on what nothing loaded
