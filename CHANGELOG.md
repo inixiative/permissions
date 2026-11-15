@@ -108,9 +108,10 @@ applied. Each is off until an app uses it; the breaking changes are listed last.
   annotation, a malformed `down` or `place`, or `down` beside `hydrate: false` throws. prisma-map
   keeps a malformed value without complaint, so a typo was a silently missing list or mark.
   Annotations on models that are not resources are not read.
-- **`createHydrator` drops a value it did not load** from every relation field of the model,
-  followed or not (A-1): a `rel` through a relation nothing loads denies.
-  Hydrate rows; attach hand-made relations after hydrating. A map that declares a list needs
+- **`createHydrator` drops a value it did not load** from every to-one relation of the model,
+  followed or not, and from every declared list (A-1): a `rel` through a relation nothing loads
+  denies. Hydrate rows; attach a hand-made to-one relation after hydrating. A list that is not
+  declared is left as given, since no `rel` crosses it. A map that declares a list needs
   `loadMany`.
 - **A `where` no longer pins an object or an array** onto the placed record (A-5), nor a field
   stated with two different values (B-1). A pin on a relation admitted nothing at read, so

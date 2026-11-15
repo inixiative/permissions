@@ -808,12 +808,14 @@ check(permix, schema, { resource: 'document', record: doc }, 'manage');
   leads to a resource in the map, and every declared list, one jump down (see
   [Crossing a list](#crossing-a-list-some-item-passes)). Other lists, back-relations and models
   outside the map are not followed.
-- **It owns what it follows.** After hydration a followed relation holds the row the hydrator
-  loaded, or nothing, and a declared list holds the items it loaded (`[]` when the record has no
-  key yet). A value the record already carried there is dropped when the key is missing, loads
-  nothing, or leads back to an ancestor. A request body spread into a record
+- **It owns every to-one relation and every declared list.** After hydration a to-one relation
+  holds the row the hydrator loaded, or nothing, and a declared list holds the items it loaded
+  (`[]` when the record has no key yet). A value the record already carried there is dropped,
+  also under a relation the hydrator does not follow (`hydrate: false`, or a to-one whose key is
+  on the other side): a `rel` walks those too. A request body spread into a record
   (`hydrate('message', { ...body })`) can therefore not bring its own `conversation` with a
-  participant list in it. Fields the hydrator does not follow are left as given.
+  participant list in it. A list that is not declared is left as given (a holder's
+  `targetEntitlements` the app loaded): no `rel` crosses it. Scalars are left as given.
 - **Check the schema against the map:** `validateSchema(map, schema)` returns every `{ rel }` that
   names a missing relation or goes through a list, every list arm the declarations do not carry,
   and every action named where it isn't defined, which would otherwise deny forever. Run it in a

@@ -1082,7 +1082,7 @@ describe('review: validation edges', () => {
   });
 });
 
-describe('review: the hydrator owns every relation field, followed or not (F1)', () => {
+describe('review: the hydrator owns every to-one relation, followed or not (F1)', () => {
   test('a value under a relation tagged hydrate: false does not survive hydration', async () => {
     const fieldMap = {
       models: {
@@ -1098,6 +1098,7 @@ describe('review: the hydrator owns every relation field, followed or not (F1)',
               toFields: ['id'],
               annotations: { permissions: { hydrate: false } },
             },
+            attachments: { kind: 'object', type: 'Attachment', isList: true },
           },
         },
         Conversation: { fields: { id: { kind: 'scalar', type: 'String', isId: true } } },
@@ -1114,7 +1115,9 @@ describe('review: the hydrator owns every relation field, followed or not (F1)',
       id: 'm1',
       conversationId: 'c1',
       conversation: { id: 'c1', participants: [{ forged: true }] },
+      attachments: [{ id: 'a1' }],
     });
     expect('conversation' in hydrated).toBe(false);
+    expect(hydrated.attachments).toEqual([{ id: 'a1' }]);
   });
 });

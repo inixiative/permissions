@@ -62,12 +62,11 @@ const keyOf = (resource: string, where: Row): string =>
  * deny), not a loading artifact. Composite keys and non-id targets load by every column the target
  * names. A polymorphic record gets every relation whose columns are set, whatever its kind.
  *
- * The hydrator owns every relation it follows: the result holds the row it loaded there, or
- * nothing. A value the record already carried under one (a request body's `conversation: {...}`)
- * is dropped when the key is missing, loads nothing, or leads back to an ancestor.
- *
- * A relation tagged `/// @permissions(hydrate: false)` (a prisma-map annotation) is not followed
- * and is left as given.
+ * The hydrator owns every to-one relation of the model, followed or not: the result holds the row
+ * it loaded there, or nothing. A value the record already carried under one (a request body's
+ * `conversation: {...}`) is dropped. A relation tagged `/// @permissions(hydrate: false)` (a
+ * prisma-map annotation) or one whose key is on the other side is not followed, so it ends empty.
+ * A list that is not declared is never crossed by a `rel`, and is left as given.
  *
  * A list relation tagged `/// @permissions(down: [forumUser.fanUser, forumUser.brandUser])` is
  * loaded one jump down wherever its model is hydrated above an item: one `loadMany` by the items'
@@ -141,12 +140,11 @@ export const createHydrator = <R extends string>({ map, load, loadMany }: Hydrat
         items.map((item) => down(list.resource, item, tree, pending)),
       );
     });
-    const declared = new Set(listsOf(map, resource).map(([name]) => name));
     await Promise.all([
       ...lists,
       ...Object.entries(fields).map(async ([name, field]) => {
-        // why: a value under any relation field is the caller's claim until the hydrator loads it
-        if (field.kind === 'object' && !declared.has(name)) delete result[name];
+        // why: a value under a to-one relation is the caller's claim until the hydrator loads it
+        if (field.kind === 'object' && !field.isList) delete result[name];
         if (skipsHydration(field)) return;
         const relation = relationOf(map, resource, name);
         if (!relation) return;
