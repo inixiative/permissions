@@ -4,8 +4,7 @@ import { fieldOf, listOf, resolveField, type SchemaMap } from './schemaMap';
 import type { ActionRule, RebacSchema } from './types';
 import { validateActionRule } from './validateActionRule';
 
-// Inside a list arm's `condition`: the list's declared paths, and the relations walked from the
-// item so far. Only what the declaration loads is on an item, so every walk must stay inside it.
+// why: only what the declaration loads is on an item, so every walk under one must stay inside it
 type Under = {
   list: string;
   declared: readonly (readonly string[])[];

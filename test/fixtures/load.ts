@@ -5,7 +5,7 @@ import type { FieldMap } from '@inixiative/json-rules';
 type Models = FieldMap['models'];
 type Annotations = { permissions?: Record<string, unknown> };
 
-/** A map prisma-map (origin/main, v6 parser) built from `schemas/<name>.prisma`; see `annotations.ts`. */
+/** A slice of the app's Prisma schema as prisma-map emits it, annotations included. */
 export const loadModels = (name: 'zealot' | 'kingdom'): Models =>
   JSON.parse(readFileSync(join(import.meta.dir, `${name}.map.json`), 'utf8')) as Models;
 

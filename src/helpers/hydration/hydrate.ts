@@ -1,11 +1,12 @@
 import { idField } from '../../core/recordId';
 import {
   indexMap,
+  keysFrom,
   listsOf,
-  permissionsAnnotation,
   type Relation,
   relationOf,
   type SchemaMap,
+  skipsHydration,
 } from '../../core/schemaMap';
 import type { Row } from '../../core/types';
 
@@ -24,8 +25,6 @@ export type HydrateDeps<R extends string = string> = {
    */
   loadMany?: (resource: R, where: Row) => Promise<Row[]>;
 };
-
-const skipsHydration = (field: unknown): boolean => permissionsAnnotation(field)?.hydrate === false;
 
 type Tree = Map<string, Tree>;
 
@@ -73,7 +72,7 @@ const keyOf = (resource: string, where: Row): string =>
  * foreign key, replacing whatever the record held under that field (`[]` when the record has no
  * key), then under each item only the declared to-one paths, through `load`, each owned the same
  * way. Nothing else loads from an item or from the rows on those paths: no upward hydration, no
- * second list.
+ * second list, and their other to-one relations end empty.
  *
  * `ancestors`, the records on the path from the root, cuts an edge back to one of them, so
  * hydration terminates on a self-referential key or an A to B to A loop. It is forked per branch, so
@@ -95,49 +94,24 @@ export const createHydrator = <R extends string>({ map, load, loadMany }: Hydrat
     }
     return loading;
   };
-  // Batching would go here: hand `tree` to `loadMany` so an app loads the items and their
-  // declared paths in one query, at the price of the per-row cache keys `load` keeps.
-  const down = async (
-    resource: R,
-    row: Row,
-    tree: Tree,
-    pending: Map<string, Promise<Row | null>>,
-  ): Promise<Row> => {
-    const result: Row = { ...row };
-    await Promise.all(
-      [...tree].map(async ([name, below]) => {
-        delete result[name];
-        const relation = relationOf(map, resource, name);
-        const where = relation && whereOf(relation, row);
-        if (!relation || !where) return;
-        const related = await once(relation.resource, where, pending);
-        if (related) result[name] = await down(relation.resource, related, below, pending);
-      }),
-    );
-    return result;
-  };
   const hydrate = async (
     resource: R,
     record: Row,
     pending: Map<string, Promise<Row | null>> = new Map(),
     ancestors: ReadonlySet<string> = new Set(),
+    tree?: Tree,
   ): Promise<Row> => {
     const result: Row = { ...record };
     const fields = map.fieldMap.models[map.resources[resource]]?.fields ?? {};
-    const lists = listsOf(map, resource).map(async ([name, list]) => {
-      const where: Row = {};
-      for (const [index, column] of list.from.entries()) {
-        const value = record[list.to[index] ?? idField()];
-        if (value == null || value === '') {
-          result[name] = [];
-          return;
-        }
-        where[column] = value;
-      }
-      const items = await (loadMany as NonNullable<typeof loadMany>)(list.resource, where);
-      const tree = treeOf(list.paths);
+    const lists = (tree ? [] : listsOf(map, resource)).map(async ([name, list]) => {
+      const where = keysFrom(list, record);
+      const complete = Object.keys(where).length === list.from.length;
+      const items = complete
+        ? await (loadMany as NonNullable<typeof loadMany>)(list.resource, where)
+        : [];
+      const below = treeOf(list.paths);
       result[name] = await Promise.all(
-        items.map((item) => down(list.resource, item, tree, pending)),
+        items.map((item) => hydrate(list.resource, item, pending, ancestors, below)),
       );
     });
     await Promise.all([
@@ -145,13 +119,14 @@ export const createHydrator = <R extends string>({ map, load, loadMany }: Hydrat
       ...Object.entries(fields).map(async ([name, field]) => {
         // why: a value under a to-one relation is the caller's claim until the hydrator loads it
         if (field.kind === 'object' && !field.isList) delete result[name];
-        if (skipsHydration(field)) return;
+        const below = tree?.get(name);
+        if (tree ? !below : skipsHydration(field)) return;
         const relation = relationOf(map, resource, name);
-        if (!relation) return;
-        const where = whereOf(relation, record);
-        if (!where) return;
+        const where = relation && whereOf(relation, record);
+        if (!relation || !where) return;
         const key = keyOf(relation.resource, where);
-        if (ancestors.has(key)) return;
+        // why: a declared path is finite; only upward hydration can loop
+        if (!tree && ancestors.has(key)) return;
         const related = await once(relation.resource, where, pending);
         if (related)
           result[name] = await hydrate(
@@ -159,6 +134,7 @@ export const createHydrator = <R extends string>({ map, load, loadMany }: Hydrat
             related,
             pending,
             new Set(ancestors).add(key),
+            below,
           );
       }),
     ]);

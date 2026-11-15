@@ -245,18 +245,6 @@ Rules outside the schema (a record's `permissionRules`, a rule passed to `check`
 anchor path) are not judged against the declaration. They are bounded by the run time: only the
 declaration is loaded, and a read of what is not there is unknown.
 
-**Rejected on the way** (Aron, 2026-11-14):
-
-- *A plain `rel` through a list.* `{ rel: 'participants', action }` reads as to-one everywhere
-  else; a walk that silently fans out would make "some item" and "the parent" one spelling. A
-  `rel` segment that is a list is now a `validateSchema` error, declared or not.
-- *A json-rules array condition inside `{ rule }`.* It compares each item to whoever is asking, so
-  an entitlement's grantor is never judged on the list, and it holds with nobody acting on an item
-  with no person. As a nested rule it is also refused by "no negative rules".
-- *Deriving what to load from the rules.* Rules also live on rows and in entitlements, and "which
-  relations might some rule read" has no stable answer; a written declaration is explicit, and
-  nothing else loads.
-
 ## The check engine
 
 ```ts
@@ -571,10 +559,6 @@ surface model needs no copied `resourceKind` column.
   (so dates, Json, Float, Decimal, BigInt, Bytes). Enums are allowed. The value is `true` or the
   key is absent. The value's type is not checked against the field: a mistyped pin gives a
   refused or a dead row.
-- **Rejected on the way** (Aron, 2026-11-14): *inferring the fields from the rules* ("too hard to
-  work out which things should be there"; rules also live on rows and entitlements), and *filling
-  every nested `equals`* (a key, an id or a date stated in a `where` would be believed on a record
-  nobody loaded; the mark is the schema author saying which fields are safe to state).
 
 **`@permissions(...)` is read strictly.** Three keys: `hydrate: false` on a relation, `down:
 [...]` on a list relation, `place: true` on a scalar. On first use of a map every annotation on a
@@ -637,15 +621,9 @@ could pass on only a copy of `manage` on s1).
   composes along the chain at read. A copy may carry the mark even when the row it copies does
   not: it still grants nothing below, because the owner behind it is unmarked and the mark is
   asked at every depth. Write `grantsBelow: true` or leave the key out; any other value makes
-  the row malformed, and `wellFormedEntitlements` drops a malformed row. The mark is no part of what the entry grants: no check or
-  `paths` reads it, and the second pass ignores it. `setup` keeps it, a marked row and its
+  the row malformed, and `wellFormedEntitlements` drops a malformed row. The mark is no part of what the entry grants: only the
+  grant check's first pass reads it. `setup` keeps it, a marked row and its
   unmarked twin are two rows, and neither makes the other redundant.
-- **Rejected on the way** (Aron, 2026-11-14), for the member case this was built for:
-  a plain id-keyed grant in the member's table (a token capped at the member's role would keep
-  it); the user's own grant in the member's table (it reaches the personal account and the
-  user's other memberships); a `where id equals <the member's id>` rule (true for every holder);
-  a rule on the actor (the grant check has no actor); and the first pass counting every
-  entitlement the writer holds, `where` included (it reproduced the unsound class above).
 
 `reachableFrom(schema, resource, action)` is that pure-delegation walk: the actions on `resource`
 whose holding grants `action` (itself included). `capAtRole` keeps a delegate's entries at its
@@ -816,6 +794,10 @@ check(permix, schema, { resource: 'document', record: doc }, 'manage');
   (`hydrate('message', { ...body })`) can therefore not bring its own `conversation` with a
   participant list in it. A list that is not declared is left as given (a holder's
   `targetEntitlements` the app loaded): no `rel` crosses it. Scalars are left as given.
+- **Hydration protects relations, nothing else.** A `{ rule }` or a `where` reads the record's
+  own fields as given: its scalars, a row's `permissionRules`, and a field path into an
+  undeclared list (`messages.0.id`, or `notEmpty` on the list). Build the record from the stored
+  row, and take from a request body only the fields the caller may set.
 - **Check the schema against the map:** `validateSchema(map, schema)` returns every `{ rel }` that
   names a missing relation or goes through a list, every list arm the declarations do not carry,
   and every action named where it isn't defined, which would otherwise deny forever, along with

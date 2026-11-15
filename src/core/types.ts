@@ -72,7 +72,7 @@ export type Entitlement = {
   where?: Condition;
   /** The app's id for the row it came from, reported by `paths`. */
   ref?: string;
-  /** The grant check's first pass may count it on a record above the granted one. Never read by a check. */
+  /** The grant check's first pass may count it on a record above the granted one. */
   grantsBelow?: true;
   actions: Record<string, boolean | undefined>;
   owner: PermixLike;

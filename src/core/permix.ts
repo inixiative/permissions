@@ -36,7 +36,7 @@ export type EntitlementEntry<Action extends string = string> = {
    * counts it as a role on that record would count. The app sets it only on a row nothing narrows
    * (no `where`, and no lens or other limit the library cannot see); absent, the row is handed on
    * only as a copy. A marked copy of an unmarked row grants nothing below: the mark is asked of
-   * every owner up the chain. Not part of what it grants: no check reads it.
+   * every owner up the chain. Only the grant check reads it.
    */
   grantsBelow?: true;
 };

@@ -7,7 +7,6 @@ export * from './src/core/permix';
 export { reachableFrom } from './src/core/reachableFrom';
 export * from './src/core/redundantEntitlements';
 export {
-  type ListRelation,
   type PolymorphicAxis,
   type Polymorphism,
   placeEntitlement,

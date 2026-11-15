@@ -101,13 +101,10 @@ const walkRule = <R extends string, T>(
   visited: Set<string>,
 ): T => {
   const { algebra } = walk;
-  // Some item of a declared list passes `condition`, judged as the item's own resource. A list
-  // that is undeclared, absent (a stand-in record never has one) or empty denies, and so does a
-  // list met under an item: one jump. `visited` is forked per item: two items reaching one row are
-  // parallel paths, not a cycle.
+  // why: `visited` is forked per item, since two items reaching one row are parallel paths, not a cycle
   if ('arrayOperator' in rule) {
     if (walk.underItem) return algebra.none;
-    const list = rule.arrayOperator === 'any' ? listOf(walk.map, resource, rule.rel) : null;
+    const list = listOf(walk.map, resource, rule.rel);
     const items = record[rule.rel];
     if (!list || !Array.isArray(items)) return algebra.none;
     const under: Walk<R, T> = {

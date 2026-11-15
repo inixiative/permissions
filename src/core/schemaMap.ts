@@ -58,6 +58,9 @@ type Annotated = { annotations?: { permissions?: Record<string, unknown> } };
 export const permissionsAnnotation = (field: unknown): Record<string, unknown> | undefined =>
   (field as Annotated | undefined)?.annotations?.permissions;
 
+export const skipsHydration = (field: unknown): boolean =>
+  permissionsAnnotation(field)?.hydrate === false;
+
 const annotationKeys = ['hydrate', 'down', 'place'];
 const placeableTypes = ['String', 'Int', 'Boolean'];
 const dottedPath = /^[A-Za-z_]\w*(\.[A-Za-z_]\w*)*$/;
@@ -173,7 +176,7 @@ const listFor = (map: SchemaMap, resource: string, name: string, down: unknown):
         );
       if (depth === 0 && segment === inverse[0])
         throw new Error(`${at}: \`${path.join('.')}\` goes back up the list it came down`);
-      if (permissionsAnnotation(entry)?.hydrate === false)
+      if (skipsHydration(entry))
         throw new Error(`${at}: \`${path.join('.')}\`: \`${segment}\` is \`hydrate: false\``);
       current = relation.resource;
     }
@@ -293,67 +296,38 @@ const rootLeaves = (where: Condition | undefined): Leaf[] => conjuncts(where).fi
 
 const isScalar = (value: unknown) => value === null || typeof value !== 'object';
 
-// The values the leaves state, by field. A field stated twice with different values is left
-// unknown: no record holds both, and which one is written last must not decide a grant.
-const stated = (pairs: (readonly [string, unknown])[]): Row => {
+// why: a field stated twice with different values is unknown, so conjunct order never decides a grant
+const statedAt = (leaves: Leaf[], prefix: string, accepts: (field: string) => boolean): Row => {
   const values = new Map<string, unknown>();
   const clashing = new Set<string>();
-  for (const [field, value] of pairs) {
-    if (values.has(field) && values.get(field) !== value) clashing.add(field);
-    values.set(field, value);
+  for (const leaf of leaves) {
+    if (leaf.operator !== 'equals' || !isScalar(leaf.value) || !leaf.field.startsWith(prefix))
+      continue;
+    const field = leaf.field.slice(prefix.length);
+    if (!accepts(field)) continue;
+    if (values.has(field) && values.get(field) !== leaf.value) clashing.add(field);
+    values.set(field, leaf.value);
   }
   return Object.fromEntries([...values].filter(([field]) => !clashing.has(field)));
 };
 
 // why: an object or a list pinned onto a stand-in would be a relation or a list the walk then reads
 const pinned = <R extends string>(map: SchemaMap<R>, resource: R, leaves: Leaf[]): Row =>
-  stated(
-    leaves
-      .filter((leaf) => {
-        const field = fieldOf(map, resource, leaf.field);
-        return (
-          leaf.operator === 'equals' &&
-          !leaf.field.includes('.') &&
-          isScalar(leaf.value) &&
-          field?.kind !== 'object' &&
-          !field?.isList
-        );
-      })
-      .map((leaf) => [leaf.field, leaf.value] as const),
-  );
-
-// The marked fields (`/// @permissions(place: true)`) of the stand-in at `prefix` that a root leaf
-// states exactly: `prefix.field equals value`.
-const placedMarks = <R extends string>(
-  map: SchemaMap<R>,
-  resource: R,
-  prefix: string,
-  leaves: Leaf[],
-): Row => {
-  const marks = marksOf(map, resource);
-  if (!marks.size) return {};
-  return stated(
-    leaves.flatMap((leaf) => {
-      const field = leaf.field.slice(prefix.length + 1);
-      return leaf.operator === 'equals' &&
-        leaf.field.startsWith(`${prefix}.`) &&
-        marks.has(field) &&
-        isScalar(leaf.value)
-        ? [[field, leaf.value] as const]
-        : [];
-    }),
-  );
-};
+  statedAt(leaves, '', (name) => {
+    const field = fieldOf(map, resource, name);
+    return !name.includes('.') && field?.kind !== 'object' && !field?.isList;
+  });
 
 const admits = (leaves: Leaf[], field: string, value: string) =>
   leaves.every(
     (leaf) => leaf.field !== field || checkRule(leaf as Condition, { [field]: value }) === true,
   );
 
-const keysFrom = (relation: Relation, parent: Row): Row =>
+/** The foreign-key columns a child holds for `parent`, leaving out any the parent has no value for. */
+export const keysFrom = (relation: Pick<Relation, 'from' | 'to'>, parent: Row): Row =>
   Object.fromEntries(
     relation.from.flatMap((column, index) => {
-      const value = parent[relation.to[index] as string];
+      const value = parent[relation.to[index] ?? idField()];
       return value == null || value === '' ? [] : [[column, value]];
     }),
   );
@@ -471,7 +445,8 @@ export const placeUnder = <R extends string>(
     if (segment === undefined) return current === anchorResource ? [anchor] : [];
     const relation = relationOf(map, current, segment);
     if (!relation) return [];
-    const marks = prefix === '' ? {} : placedMarks(map, current, prefix, leaves);
+    const marked = marksOf(map, current);
+    const marks = prefix === '' ? {} : statedAt(leaves, `${prefix}.`, (name) => marked.has(name));
     return place(relation.resource, rest, prefix === '' ? segment : `${prefix}.${segment}`)
       .flatMap((parent) => step(current, segment, rest, relation, parent, prefix === ''))
       .map((row) => (Object.keys(marks).length ? { ...marks, ...row } : row));

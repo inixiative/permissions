@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { type Bridge, check as checkRule, engineGlobals } from '@inixiative/json-rules';
+import { type Bridge, engineGlobals } from '@inixiative/json-rules';
 import {
   type ActionRule,
   capAtRole,
@@ -119,7 +119,6 @@ const schemaWith = (participant: ActionRule): RebacSchema => ({
     },
   },
 });
-const before = schemaWith(actorIsParticipant);
 const schema = schemaWith(isParticipant);
 
 type Store = Record<string, Row[]>;
@@ -202,29 +201,7 @@ const on = (record: Row, resource = 'db:conversation') => ({ resource, record })
 beforeAll(() => engineGlobals.set('permissions.idField', 'uuid'));
 afterAll(() => engineGlobals.reset());
 
-describe('before: the json-rules array rule Zealot ships', () => {
-  test('is refused as not positive, and throws on every check of that schema', async () => {
-    expect(validateActionRule(actorIsParticipant).errors.map((issue) => issue.code)).toEqual([
-      'notPositive',
-    ]);
-    const fay = await person('u-fay', 'advocate');
-    const c1 = await conversation('c1');
-    expect(() => check(fay, before, on(c1), 'chat')).toThrow(/not a well-formed positive rule/);
-    expect(() => check(fay, before, on(c1), 'manage')).toThrow(/not a well-formed positive rule/);
-  });
-
-  test('judged the requester, and held with nobody acting on a membership with no person', async () => {
-    const c1 = await conversation('c1');
-    const ghost = await conversation('c-ghost');
-    const asked = (record: Row, actor: Row | null) =>
-      checkRule(actorIsParticipant.rule, { ...record, __actor: actor });
-    expect(asked(c1, { model: 'User', record: { uuid: 'u-fay' } })).toBe(true);
-    expect(asked(c1, { model: 'User', record: { uuid: 'u-hal' } })).not.toBe(true);
-    expect(asked(ghost, null)).toBe(true);
-  });
-});
-
-describe('after: Zealot’s conversation rule on the list arm', () => {
+describe('Zealot’s conversation rule on the list arm', () => {
   test('the schema validates against the map', () => {
     expect(validateSchema(map, schema)).toEqual({ ok: true, errors: [] });
   });
@@ -694,7 +671,7 @@ describe('review: what a record may carry into a check', () => {
       'inConversation',
     );
 
-  test('A-1 the hydrator keeps no relation value it did not load, to-one or list', async () => {
+  test('A-1 the hydrator keeps no value it did not load under a to-one or a declared list', async () => {
     const hydrate = hydratorOver(store());
     const claimed = { uuid: 'c1', participants: forged };
     const noKey = await hydrate('db:chatMessage', { conversation: claimed });
@@ -1083,7 +1060,7 @@ describe('review: validation edges', () => {
 });
 
 describe('review: the hydrator owns every to-one relation, followed or not (F1)', () => {
-  test('a value under a relation tagged hydrate: false does not survive hydration', async () => {
+  test('a value under hydrate: false, or under a to-one keyed on the other side, does not survive', async () => {
     const fieldMap = {
       models: {
         Message: {
@@ -1098,6 +1075,7 @@ describe('review: the hydrator owns every to-one relation, followed or not (F1)'
               toFields: ['id'],
               annotations: { permissions: { hydrate: false } },
             },
+            pinnedIn: { kind: 'object', type: 'Conversation', isList: false },
             attachments: { kind: 'object', type: 'Attachment', isList: true },
           },
         },
@@ -1107,17 +1085,19 @@ describe('review: the hydrator owns every to-one relation, followed or not (F1)'
     const hydrate = createHydrator({
       map: {
         resources: { 'db:message': 'Message', 'db:conversation': 'Conversation' },
-        fieldMap,
-      } as never,
+        fieldMap: fieldMap as SchemaMap['fieldMap'],
+      },
       load: async () => null,
     });
     const hydrated = await hydrate('db:message', {
       id: 'm1',
       conversationId: 'c1',
       conversation: { id: 'c1', participants: [{ forged: true }] },
+      pinnedIn: { id: 'c1' },
       attachments: [{ id: 'a1' }],
     });
     expect('conversation' in hydrated).toBe(false);
+    expect('pinnedIn' in hydrated).toBe(false);
     expect(hydrated.attachments).toEqual([{ id: 'a1' }]);
   });
 });

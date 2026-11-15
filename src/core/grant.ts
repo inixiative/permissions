@@ -5,7 +5,7 @@ import { asOwner } from './identity';
 import type { EntitlementEntry } from './permix';
 import { reachableFrom } from './reachableFrom';
 import { conjuncts, rowsAbove, type SchemaMap } from './schemaMap';
-import type { Anchor, CheckOptions, Entitlement, PermixLike, RebacSchema, Row } from './types';
+import type { Anchor, Entitlement, PermixLike, RebacSchema, Row } from './types';
 import { createWalker } from './walker';
 
 export type CanGrantEntitlement<R extends string = string> = (
@@ -49,7 +49,6 @@ const narrows = (held: Entitlement, entry: EntitlementEntry) => {
  */
 export const createCanGrantEntitlement = <R extends string = string>(
   map: SchemaMap<R>,
-  _options: CheckOptions = {},
 ): CanGrantEntitlement<R> => {
   const check = createWalker(map, 'unknown', booleanAlgebra);
   const backs = createWalker(map, 'unknown', booleanAlgebra, true);

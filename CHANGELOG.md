@@ -34,8 +34,6 @@ applied. Each is off until an app uses it; the breaking changes are listed last.
   memberships); an `id equals id` rule (true for every holder); an actor rule (the grant check
   has no actor); the first pass counting every held entitlement, the wide walk of #28 (unsound
   with a `where`, above).
-- `createCanGrantEntitlement`'s `options` argument is unused: the first pass always read absent
-  fields as unknown.
 
 ### A list the walk may cross: `{ rel, arrayOperator: 'any', condition }`
 
@@ -63,7 +61,7 @@ applied. Each is off until an app uses it; the breaking changes are listed last.
   the table alone answers needs only the row it is granted on. `declarationIssues(map, schema)`
   is exported.
 - **From the review** (each with a test that fails without it):
-  - *A-1.* The hydrator owns every relation it follows: the result holds the row it loaded, or
+  - *A-1.* The hydrator owns every to-one relation and declared list: the result holds the row it loaded, or
     nothing. Before, a value already on the record survived when the key was missing or loaded
     nothing, so a request body's `conversation: { participants: [...] }` was walked as a
     membership claim.
@@ -111,13 +109,18 @@ applied. Each is off until an app uses it; the breaking changes are listed last.
 - **`createHydrator` drops a value it did not load** from every to-one relation of the model,
   followed or not, and from every declared list (A-1): a `rel` through a relation nothing loads
   denies. Hydrate rows; attach a hand-made to-one relation after hydrating. A list that is not
-  declared is left as given, since no `rel` crosses it. A map that declares a list needs
-  `loadMany`.
+  declared is left as given, since no `rel` crosses it. A `{ rule }` or a `where` can still read
+  into one by field path (`messages.0.id`, `notEmpty`), and reads scalars and `permissionRules`
+  as given: hydration protects relations only. A map that declares a list needs `loadMany`.
 - **A `where` no longer pins an object or an array** onto the placed record (A-5), nor a field
   stated with two different values (B-1). A pin on a relation admitted nothing at read, so
   only a dead grant is lost there. **A pin on a Json column or a scalar list (`String[]`) was a
   live row and is now refused at grant time.**
 - **`validateSchema` reports a `{ rel }` through a list.**
+- **`createCanGrantEntitlement(map)` takes the map alone.** Its `options` argument is removed:
+  the first pass always read absent fields as unknown.
+- **Under a list item, a to-one relation outside the declared paths ends empty**, as under any
+  hydrated row.
 
 ## Unreleased — delegatedWhere; no negative rules; a where never takes part in liveness
 
