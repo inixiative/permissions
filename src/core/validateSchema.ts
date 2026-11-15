@@ -14,6 +14,7 @@ const relIssues = (
   rule: ActionRule,
   path: string,
   under?: Walking,
+  computed = false,
 ): ValidationIssue[] => {
   const resource = node.resource;
   const follow = (landed: LensNode, action: string, at: Walking): ValidationIssue[] => {
@@ -37,13 +38,18 @@ const relIssues = (
   }
   if ('any' in rule)
     return rule.any.flatMap((child, i) =>
-      relIssues(map, schema, node, child, `${path}.any[${i}]`, under),
+      relIssues(map, schema, node, child, `${path}.any[${i}]`, under, computed),
     );
   if ('all' in rule)
     return rule.all.flatMap((child, i) =>
-      relIssues(map, schema, node, child, `${path}.all[${i}]`, under),
+      relIssues(map, schema, node, child, `${path}.all[${i}]`, under, computed),
     );
-  if ('rule' in rule) return conditionMisses(map, node, rule.rule, path, true, under);
+  if ('rule' in rule)
+    return conditionMisses(map, node, rule.rule, path, {
+      actor: true,
+      computed,
+      ...(under ? { under } : {}),
+    });
   if ('arrayOperator' in rule) {
     if (under)
       return [
@@ -120,15 +126,16 @@ export const schemaRuleIssues = (schema: RebacSchema): ValidationIssue[] =>
     ),
   );
 
-/** Every read of a well-formed action rule at `resource` outside the lens; a missing action is not one. */
+/** Every read of a well-formed action rule at `resource` outside the lens (`computed`: the caller built the root). */
 export const actionRuleLensIssues = (
   map: SchemaMap,
   schema: RebacSchema,
   resource: string,
   rule: ActionRule,
   at = '$',
+  computed = false,
 ): ValidationIssue[] =>
-  relIssues(map, schema, lensOf(map, resource), rule, at).filter(
+  relIssues(map, schema, lensOf(map, resource), rule, at, undefined, computed).filter(
     (issue) => issue.code !== 'action',
   );
 

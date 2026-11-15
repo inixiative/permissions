@@ -129,12 +129,14 @@ export const stepLens = <R extends string>(
   return { miss: notLoaded(at, [...at.prefix, segment]) };
 };
 
+/** How a condition is read: `actor` when `__actor` is injected (a `{ rule }`), `computed` when the caller built the root (an inline rule at the subject). */
+export type Reading = { actor: boolean; computed?: boolean; under?: Under };
+
 const pathMiss = (
   map: SchemaMap,
   start: LensNode,
   path: string,
-  actor: boolean,
-  under?: Under,
+  { actor, computed = false, under }: Reading,
 ): LensMiss | null => {
   const segments = pathSegments(path);
   if (segments[0] === '__actor')
@@ -150,7 +152,8 @@ const pathMiss = (
     if ('column' in step) return null;
     if ('miss' in step) return step.miss;
     if ('absent' in step) {
-      if (index === 0) return null;
+      // why: a resource without a model in the map has no fields to hold a path to
+      if ((index === 0 && computed) || !map.resources[node.resource]) return null;
       return lens(
         /^\d+$/.test(segment)
           ? `\`${path}\`: \`${walked.join('.')}\` is one row and is never indexed; read its fields`
@@ -168,17 +171,16 @@ const pathMiss = (
   return null;
 };
 
-/** Every path a `{ rule }` (`actor`: `__actor` is injected) or a `where` reads at `node` that leaves the lens. */
+/** Every path a condition reads at `node` that leaves the lens. */
 export const conditionMisses = (
   map: SchemaMap,
   node: LensNode,
   condition: Condition,
   at: string,
-  actor: boolean,
-  under?: Under,
+  reading: Reading,
 ): ValidationIssue[] =>
   listFields(condition).flatMap((field) => {
-    const miss = pathMiss(map, node, field, actor, under);
+    const miss = pathMiss(map, node, field, reading);
     return miss ? [{ path: at, ...miss }] : [];
   });
 
@@ -198,7 +200,7 @@ export const whereLensProblem = (
   const known = byResource.get(resource);
   if (known !== undefined) return known;
   freeze(where);
-  const misses = conditionMisses(map, lensOf(map, resource), where, '$', false);
+  const misses = conditionMisses(map, lensOf(map, resource), where, '$', { actor: false });
   const problem = misses.length
     ? `entitlement \`where\` reads outside the lens: ${misses.map((miss) => miss.message).join('; ')}`
     : null;

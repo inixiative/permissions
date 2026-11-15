@@ -3,7 +3,9 @@ import { Operator } from '@inixiative/json-rules';
 import { createPermissions, createRebacCheck, type RebacSchema } from '../index';
 import { mapOf } from './schemaMaps';
 
-const check = createRebacCheck(mapOf({ document: { teams: 'team' } }));
+const check = createRebacCheck(
+  mapOf({ document: { teams: 'team' } }, { team: ['public'], document: ['public'] }),
+);
 
 describe('intra-map relation checks accept single records only', () => {
   const schema: RebacSchema = {

@@ -69,7 +69,7 @@ const map = mapOf(
     'db:integration': { space: 'db:space' },
     'kcp:thread': { integration: 'db:integration' },
   },
-  { 'db:space': ['label'] },
+  { 'db:space': ['label'], 'db:integration': ['provider'] },
 );
 const rebac = createRebacCheck(map);
 const canGrant = createCanGrantEntitlement(map);

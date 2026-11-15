@@ -277,6 +277,19 @@ describe('the review probes: each returned true on 0.22.0', () => {
 });
 
 describe('the second review: each returned true on the first build', () => {
+  test('a computed key on a row reached by { rel } is refused, so a set plan never reads as null', () => {
+    const schema: RebacSchema = {
+      permissions: {
+        conversation: { actions: { act: { rel: 'org', action: 'a' } } },
+        org: { actions: { a: reads('plan', null) } },
+      },
+    };
+    const record = { id: 'c1', orgId: 'o1', org: { id: 'o1', name: 'acme', plan: 'pro' } };
+    expect(() => check(actorAs('x'), schema, { resource: 'conversation', record }, 'act')).toThrow(
+      '`org` has no field `plan` (`plan`)',
+    );
+  });
+
   test('A: a relation held as a class instance is read, not dropped', () => {
     class OrgRow {
       id = 'o1';
@@ -341,7 +354,8 @@ describe('what the lens keeps', () => {
         conversation: { ...(message.conversation as Row), meta: { flags: ['x'] } },
       }),
     ).toBe(true);
-    expect(passes(reads('score', 7), { ...message, score: 7 })).toBe(true);
+    const scored = { resource: 'message', record: { ...message, score: 7 } };
+    expect(check(actorAs('x'), ruled('message', null), scored, reads('score', 7))).toBe(true);
     expect(codes(ruled('message', reads('conversation.meta.a.b')))).toEqual([]);
   });
 
@@ -398,14 +412,32 @@ describe('what the lens keeps', () => {
     expect(codes(ruled('message', reads('author.org.creator.name')))).toEqual(['lens']);
   });
 
-  test('a key the model does not have and an index are refused below the root only', () => {
+  test('a key the model does not have and an index are refused; a computed key only inline, at the subject', () => {
     expect(validateSchema(map, ruled('user', reads('org.plann'))).errors[0]?.message).toBe(
       '`org` has no field `plann` (`org.plann`)',
     );
     expect(validateSchema(map, ruled('user', reads('org.0.name'))).errors[0]?.message).toMatch(
       /`org` is one row and is never indexed/,
     );
-    expect(codes(ruled('user', reads('plann')))).toEqual([]);
+    expect(validateSchema(map, ruled('user', reads('plann'))).errors[0]?.message).toBe(
+      '`user` has no field `plann` (`plann`)',
+    );
+    const inline = (rule: ActionRule) =>
+      check(
+        actorAs('x'),
+        ruled('user', null),
+        { resource: 'user', record: { id: 'u1', plann: 1 } },
+        rule,
+      );
+    expect(inline(reads('plann', 1))).toBe(true);
+    expect(inline({ any: [reads('plann', 1)] })).toBe(true);
+    const rowRule = { id: 'u1', plann: 1, permissionRules: { act: reads('plann', 1) } };
+    expect(
+      check(actorAs('x'), ruled('user', null), { resource: 'user', record: rowRule }, 'act'),
+    ).toBe(false);
+    expect(whereLensProblem(map, 'user', { field: 'plann', operator: 'equals', value: 1 })).toMatch(
+      /`user` has no field `plann`/,
+    );
     expect(codes(ruled('user', reads('__actor.record.org.creator.org')))).toEqual([]);
   });
 });

@@ -72,12 +72,15 @@ const schema: RebacSchema = {
     },
   },
 };
-const map = mapOf({
-  'db:product': { distributor: 'db:distributor' },
-  'db:order': { buyer: 'db:organization', product: 'db:product' },
-  'db:license': { distributor: 'db:distributor', licensee: 'db:organization' },
-  'db:customer': { vendor: 'db:organization', buyer: 'db:organization' },
-});
+const map = mapOf(
+  {
+    'db:product': { distributor: 'db:distributor' },
+    'db:order': { buyer: 'db:organization', product: 'db:product' },
+    'db:license': { distributor: 'db:distributor', licensee: 'db:organization' },
+    'db:customer': { vendor: 'db:organization', buyer: 'db:organization' },
+  },
+  { 'db:product': ['line', 'color'] },
+);
 const check = createRebacCheck(map);
 const canGrant = createCanGrantEntitlement(map);
 
