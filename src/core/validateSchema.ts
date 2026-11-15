@@ -38,6 +38,17 @@ const relIssues = (
     : [{ path, code: 'action', message: `\`${current}\` has no action \`${rule.action}\`` }];
 };
 
+/** Every action rule of a schema that is not well formed and positive, by `resource.action`. */
+export const schemaRuleIssues = (schema: RebacSchema): ValidationIssue[] =>
+  Object.entries(schema.permissions).flatMap(([resource, permission]) =>
+    Object.entries(permission?.actions ?? {}).flatMap(([action, rule]) =>
+      validateActionRule(rule).errors.map((issue) => ({
+        ...issue,
+        path: `${resource}.${action}${issue.path.slice(1)}`,
+      })),
+    ),
+  );
+
 /**
  * A whole schema checked against the map, for a test or boot: every action rule well formed and
  * positive (`validateActionRule`), every `{ rel }` segment a relation

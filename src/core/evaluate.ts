@@ -17,6 +17,8 @@ export type Walk<R extends string, T = boolean> = {
   schema: RebacSchema<R>;
   getDict: () => BridgeDictionary | undefined;
   algebra: Algebra<T>;
+  /** The grant check's liveness walk: every entitlement `where` counts as holding. */
+  ignoreWheres?: boolean;
 };
 
 export const evaluate = <R extends string, T>(

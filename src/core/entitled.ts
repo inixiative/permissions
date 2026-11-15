@@ -53,7 +53,7 @@ export const entitled = <R extends string, T>(
       ({ anchor, where, owner, ref }) =>
         () =>
           !visited.has(`${permixId(owner)}:${nodeId(record)}:${resource}:${action}`) &&
-          (where === undefined || holds(where, record, walk.absent)) &&
+          (where === undefined || walk.ignoreWheres || holds(where, record, walk.absent)) &&
           reaches(walk, resource, record, anchor)
             ? walk.algebra.through(
                 ref,

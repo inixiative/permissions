@@ -1,4 +1,5 @@
 import { isEqual } from 'lodash-es';
+import { booleanAlgebra } from './algebra';
 import { createRebacCheck } from './check';
 import { entitlementProblem } from './entitlementProblem';
 import { asOwner } from './identity';
@@ -6,6 +7,7 @@ import type { EntitlementEntry } from './permix';
 import { reachableFrom } from './reachableFrom';
 import { conjuncts, type SchemaMap } from './schemaMap';
 import type { Anchor, CheckOptions, Entitlement, PermixLike, RebacSchema, Row } from './types';
+import { createWalker } from './walker';
 
 export type CanGrantEntitlement<R extends string = string> = (
   permix: PermixLike,
@@ -36,13 +38,17 @@ const narrows = (held: Entitlement, entry: EntitlementEntry) => {
  * resource and anchor, each of its actions one the held entitlement holds or reaches by pure
  * delegation (a bare action name, alone or an arm of a top-level `any`), and every condition of the held `where`
  * among the entry's (the held `where` itself, or each child of its top `all`) — and for each granted
- * action, whoever granted the held one still takes that granted action on `placed`.
+ * action, whoever granted the held one still takes that action on `placed`, in a walk that counts
+ * every entitlement `where` as holding. The `where` is judged by structure alone and never by
+ * that liveness walk, so a pin the placed record leaves unknown (`id in [A, B]`) passes on at any
+ * depth. A granter limited only by a `where` counts as live; reads apply every `where` live.
  */
 export const createCanGrantEntitlement = <R extends string = string>(
   map: SchemaMap<R>,
   options: CheckOptions = {},
 ): CanGrantEntitlement<R> => {
   const check = createRebacCheck(map, { ...options, absent: 'unknown' });
+  const backs = createWalker(map, 'unknown', booleanAlgebra, true);
 
   return (permix, schema, entry, placed) => {
     if (entitlementProblem(entry) !== null) return false;
@@ -62,9 +68,9 @@ export const createCanGrantEntitlement = <R extends string = string>(
       (action) => permix.entitlements?.(resource, action) ?? [],
     );
     return candidates.some((held) => {
-      const owner = asOwner(held.owner, null);
       const lowers = (up: Set<string>) => [...up].some((action) => held.actions[action] === true);
-      const backed = (action: string) => check(owner, schema, { resource, record: placed }, action);
+      const owner = asOwner(held.owner, null);
+      const backed = (action: string) => backs(owner, schema, { resource, record: placed }, action);
       return (
         narrows(held, entry) && actions.every((action, i) => lowers(reached[i]!) && backed(action))
       );

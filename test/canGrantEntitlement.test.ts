@@ -18,6 +18,7 @@ import { mapOf } from './schemaMaps';
 
 const person = { rule: { field: '__actor.model', operator: Operator.equals, value: 'User' } };
 const highRoles = ['owner', 'admin'];
+const lowRoles = ['member', 'guest'];
 
 const schema: RebacSchema = {
   permissions: {
@@ -30,10 +31,7 @@ const schema: RebacSchema = {
           any: [
             { all: [{ rule: { field: 'role', operator: Operator.in, value: highRoles } }, 'own'] },
             {
-              all: [
-                { rule: { field: 'role', operator: Operator.notIn, value: highRoles } },
-                'manage',
-              ],
+              all: [{ rule: { field: 'role', operator: Operator.in, value: lowRoles } }, 'manage'],
             },
           ],
         },
@@ -45,7 +43,7 @@ const schema: RebacSchema = {
         own: { rel: 'organization', action: 'own' },
         manage: { any: ['own', { rel: 'organization', action: 'manage' }] },
         read: { any: ['manage', { rel: 'organization', action: 'read' }] },
-        assign: { rule: { field: 'role', operator: Operator.notIn, value: highRoles } },
+        assign: { rule: { field: 'role', operator: Operator.in, value: lowRoles } },
         rename: {
           all: [{ rule: { field: 'label', operator: Operator.equals, value: null } }, 'read'],
         },
@@ -122,9 +120,14 @@ describe('canGrantEntitlement: never more than the writer could do from that anc
 
   test('a rule-gated action is granted by whoever could take it at the anchor', async () => {
     const assign = entry('db:organization', at('db:organization', 'o1'), ['assign']);
-    expect(may(await holding('db:organization', 'o1', ['read']), assign, o1)).toBe(false);
-    expect(may(await holding('db:organization', 'o1', ['manage']), assign, o1)).toBe(true);
-    expect(may(await holding('db:organization', 'o1', ['own']), assign, o1)).toBe(true);
+    const member = { ...o1, role: 'member' };
+    const owner = { ...o1, role: 'owner' };
+    expect(may(await holding('db:organization', 'o1', ['read']), assign, member)).toBe(false);
+    expect(may(await holding('db:organization', 'o1', ['manage']), assign, member)).toBe(true);
+    expect(may(await holding('db:organization', 'o1', ['manage']), assign, owner)).toBe(false);
+    expect(may(await holding('db:organization', 'o1', ['manage']), assign, o1)).toBe(false);
+    expect(may(await holding('db:organization', 'o1', ['own']), assign, member)).toBe(true);
+    expect(may(await holding('db:organization', 'o1', ['own']), assign, owner)).toBe(true);
   });
 
   test('a granted rule-gated action reaches exactly as far as its writer: the owner walk runs the rule', async () => {
@@ -145,7 +148,8 @@ describe('canGrantEntitlement: never more than the writer could do from that anc
   test('a rule-only action is granted by anyone who could take it, and its holder still meets the rule', async () => {
     const assign = entry('db:space', at('db:space', 's1'), ['assign']);
     const nobody = await writer([]);
-    expect(may(nobody, assign, s1)).toBe(true);
+    expect(may(nobody, assign, { ...s1, role: 'member' })).toBe(true);
+    expect(may(nobody, assign, s1)).toBe(false);
     const holder = createPermissions();
     await holder.setup([assign], { owner: nobody });
     expect(check(holder, 'db:space', { ...s1, role: 'member' }, 'assign')).toBe(true);

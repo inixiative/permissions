@@ -1,9 +1,7 @@
-import { type BridgeDictionary, indexBridges } from '@inixiative/json-rules';
-import { type Admission, type Algebra, booleanAlgebra, pathsAlgebra } from './algebra';
-import { evaluate } from './evaluate';
-import { withExactStrings } from './exactStrings';
-import { indexMap, type SchemaMap } from './schemaMap';
+import { type Admission, booleanAlgebra, pathsAlgebra } from './algebra';
+import type { SchemaMap } from './schemaMap';
 import type { ActionRule, CheckOptions, PermixLike, RebacSchema, Subject } from './types';
+import { createWalker } from './walker';
 
 export type RebacCheck<R extends string = string> = (
   permix: PermixLike,
@@ -23,45 +21,6 @@ export type RebacCheck<R extends string = string> = (
  * (rbac via permix or schema), `{ rule }` is an ABAC predicate over the record and the actor (read
  * by path at `__actor`), `any`/`all` compose. Cycles throw rather than loop.
  */
-const createWalker = <R extends string, T>(
-  map: SchemaMap<R>,
-  absent: CheckOptions['absent'] & {},
-  algebra: Algebra<T>,
-) => {
-  indexMap(map as SchemaMap);
-  return (
-    permix: PermixLike,
-    schema: RebacSchema<R>,
-    subject: Subject<R>,
-    actionOrRule: ActionRule,
-    visited: Set<string> = new Set(),
-  ): T => {
-    // Built lazily on the first bridge hop: a check that never crosses a bridge must not pay for —
-    // or be crashed by (indexBridges throws on malformed `data`) — a dictionary it never reads.
-    let built = false;
-    let dict: BridgeDictionary | undefined;
-    const getDict = (): BridgeDictionary | undefined => {
-      if (!built) {
-        built = true;
-        dict = schema.bridges?.length
-          ? indexBridges({ maps: {}, bridges: schema.bridges }, subject.data ?? {})
-          : undefined;
-      }
-      return dict;
-    };
-    return withExactStrings(() =>
-      evaluate(
-        { map, absent, schema, getDict, algebra },
-        permix,
-        subject.resource,
-        subject.record,
-        actionOrRule,
-        visited,
-      ),
-    );
-  };
-};
-
 export const createRebacCheck = <R extends string = string>(
   map: SchemaMap<R>,
   { absent = 'null' }: CheckOptions = {},

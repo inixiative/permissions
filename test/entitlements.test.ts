@@ -49,13 +49,7 @@ const schema: RebacSchema = {
         own: { rel: 'space', action: 'own' },
         manage: {
           all: [
-            {
-              rule: {
-                field: 'valueKey',
-                operator: Operator.notEquals,
-                path: '__actor.record.email',
-              },
-            },
+            { rule: { field: 'protected', operator: Operator.equals, value: false } },
             { any: ['own', { rel: 'space', action: 'manage' }] },
           ],
         },
@@ -90,6 +84,7 @@ const contact = (id: string, s: Row, fields: Row = {}) => ({
   id,
   spaceId: s.id,
   space: s,
+  protected: false,
   ...fields,
 });
 
@@ -281,12 +276,8 @@ describe('entitlements: an action on a model from an anchor, owner on the row', 
       ],
       await o1Table(),
     );
-    expect(manage(holder, 'db:contact', contact('c1', s1, { valueKey: 'me@example.com' }))).toBe(
-      false,
-    );
-    expect(manage(holder, 'db:contact', contact('c2', s1, { valueKey: 'other@example.com' }))).toBe(
-      true,
-    );
+    expect(manage(holder, 'db:contact', contact('c1', s1, { protected: true }))).toBe(false);
+    expect(manage(holder, 'db:contact', contact('c2', s1))).toBe(true);
   });
 
   test('9. `from` off the record’s path: no longer valid', async () => {
