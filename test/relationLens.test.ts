@@ -468,7 +468,7 @@ describe('the second review: each returned true on the first build', () => {
 });
 
 describe('what the lens keeps', () => {
-  test('a column of a relation, a Json sub-path, a scalar list (never indexed), a computed root key', async () => {
+  test('a column of a relation, a Json sub-path, a scalar list (never indexed); never a computed key', async () => {
     const message = await hydrate('message', db.message?.m1 as Row);
     const passes = (rule: ActionRule, record: Row = message) =>
       check(actorAs('attacker'), ruled('message', rule), { resource: 'message', record }, 'act');
@@ -482,7 +482,9 @@ describe('what the lens keeps', () => {
       }),
     ).toBe(true);
     const scored = { resource: 'message', record: { ...message, score: 7 } };
-    expect(check(actorAs('x'), ruled('message', null), scored, reads('score', 7))).toBe(true);
+    expect(() => check(actorAs('x'), ruled('message', null), scored, reads('score', 7))).toThrow(
+      '`message` has no field `score`',
+    );
     expect(codes(ruled('message', reads('conversation.meta.a.b')))).toEqual([]);
   });
 
@@ -538,7 +540,7 @@ describe('what the lens keeps', () => {
     expect(codes(ruled('message', reads('author.org.creator.name')))).toEqual(['lens']);
   });
 
-  test('a key the model does not have and an index are refused; a computed key only inline, at the subject', () => {
+  test('a key the model does not have and an index are refused, wherever the rule came from', () => {
     expect(validateSchema(map, ruled('user', reads('org.plann'))).errors[0]?.message).toBe(
       '`org` has no field `plann` (`org.plann`)',
     );
@@ -555,8 +557,8 @@ describe('what the lens keeps', () => {
         { resource: 'user', record: { id: 'u1', plann: 1 } },
         rule,
       );
-    expect(inline(reads('plann', 1))).toBe(true);
-    expect(inline({ any: [reads('plann', 1)] })).toBe(true);
+    expect(() => inline(reads('plann', 1))).toThrow('`user` has no field `plann`');
+    expect(() => inline({ any: [reads('plann', 1)] })).toThrow('`user` has no field `plann`');
     const rowRule = { id: 'u1', plann: 1, permissionRules: { act: reads('plann', 1) } };
     expect(
       check(actorAs('x'), ruled('user', null), { resource: 'user', record: rowRule }, 'act'),

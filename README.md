@@ -788,8 +788,8 @@ lists included) are always readable, so ABAC is untouched; bridges are their own
   json-rules reads) is judged with `validateRuleInLens`; a `{ rel }` path with `walkLensPath`.
   Refused, each with its fix: a list (use the list arm), a relation outside the lens (keyed on the
   other side, `hydrate: false`, not a resource), an index into a relation or past a column, and a
-  key the model does not have, at the root too. Only a rule you pass to `check` reads a computed
-  key, in its own leaves at the subject. Codes: `lens`, `relation` (a `{ rel }` hop), `down`.
+  key the model does not have, at the root too, wherever the rule came from (a rule passed to
+  `check` included): a value a rule reads is a field in the map. Codes: `lens`, `relation` (a `{ rel }` hop), `down`.
 - **From the row a hop lands on.** A rule is judged from the row it is read on: a schema rule at
   its own resource, so `org.read` reading `creator.name` is judged at the org, however the walk
   got there. One `{ rel }` hop lands on any row the hydrator loads, a self-relation too
@@ -887,7 +887,7 @@ check(permix, schema, { resource: 'document', record: doc }, 'manage');
 
 Records are plain data: `check` reads the record it is given and cannot tell a loaded row from
 one written by hand under a relation the lens holds. Hydrate what came from a request,
-and read computed fields only in a rule you pass to `check`.
+and declare in the map any computed value a rule reads.
 
 ## Also exported
 

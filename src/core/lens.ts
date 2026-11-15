@@ -236,7 +236,7 @@ export const conditionMisses = (
   at: LensAt,
   condition: Condition,
   path: string,
-  { actor, computed = false }: { actor: boolean; computed?: boolean },
+  { actor }: { actor: boolean },
 ): ValidationIssue[] => {
   const lens = actor ? at.rule : at.lens;
   if (!lens) return [];
@@ -244,7 +244,6 @@ export const conditionMisses = (
     if (fitCodes.has(issue.code)) return [{ path, code: issue.code, message: issue.message }];
     if (!pathCodes.has(issue.code)) return [];
     const resolution = walkLensPath(lens, issue.path);
-    if (computed && resolution.outcome === 'missing' && resolution.index === 0) return [];
     if (pathSegments(issue.path)[0] === '__actor')
       return [
         {

@@ -62,8 +62,6 @@ export const createWalker = <R extends string, T>(
           schema as RebacSchema,
           subject.resource,
           actionOrRule,
-          '$',
-          true,
         );
         if (outside) outsideLens(outside);
         return true;

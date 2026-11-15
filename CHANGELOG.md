@@ -51,7 +51,9 @@ fits Kingdom's 313 rule reads and 368 rel hops.
 
 - A schema that reads outside the lens is refused on first use, `{ rel }` hops included. Kingdom,
   template and Tribe carry one such arm, `integration.integration` in `db:token.create`.
-- A stored rule reads only columns the model has; computed keys only in a rule passed to `check`.
+- A rule reads only fields the model has, wherever it came from, a rule passed to `check`
+  included (the owner: "we should be using real models and real maps"); declare a computed value
+  in the map to read it.
 - A path back to a model is refused (`org.creator.org.name`, `rel: 'org.creator'` from a user):
   read it in two hops. An index into a scalar list (`mentions.0`) is refused; use `contains`.
 - A schema resource missing from `resources`, and not a bridge's far end, is refused.
@@ -70,7 +72,7 @@ fits Kingdom's 313 rule reads and 368 rel hops.
 - **A by-model mode in json-rules** (a model's relations at every visit): not needed; spelling the
   tree in the root does it with json-rules as it is.
 - **A projection of the record** (json-rules `projectRows`): with every read judged, no admitted
-  read changes under it; it drops the computed root keys an inline rule may read, turns Decimals
+  read changes under it; it turns Decimals
   into numbers, and costs about 22 ms on Kingdom's largest tree against 0.014 ms for `check`.
 - **The actor in a lens field of every model**: it admits `org.__actor.record.id`, which reads
   nothing and passes `equals null`; it is a field of the rule's own row only.
