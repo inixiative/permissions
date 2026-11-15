@@ -298,3 +298,44 @@ export const placeEntitlement = <R extends string>(
   ).map((record) => ({ ...pins, ...record }));
   return placed.length ? placed : null;
 };
+
+/**
+ * The hydrated rows above the records a granted entry reaches: its anchor row when the entry sits
+ * under it by a path, and every row above the anchor. A self-anchored entry's anchor is the
+ * granted record itself, so it is left out. The anchor is the object `placed` holds at the end of
+ * the entry's path (each step a to-one relation that owns its foreign key), and it must be the
+ * entry's anchor (resource and id); the rows above are the objects it holds under such relations,
+ * followed up. Membership is object identity, so a row `placeUnder` built below the anchor, an
+ * owner it placed beside one, and anything a `where` pins onto the placed record are never in it.
+ * Empty when `placed` does not lead to the entry's anchor.
+ */
+export const rowsAbove = <R extends string>(
+  map: SchemaMap<R>,
+  entry: EntitlementEntry,
+  placed: Row,
+): ReadonlySet<Row> => {
+  const rows = new Set<Row>();
+  let resource = entry.resource as R;
+  let anchor = placed;
+  for (const segment of entry.anchor.path?.split('.') ?? []) {
+    const relation = relationOf(map, resource, segment);
+    const parent = anchor[segment] as Row | null | undefined;
+    if (!relation || !parent || typeof parent !== 'object' || Array.isArray(parent)) return rows;
+    resource = relation.resource;
+    anchor = parent;
+  }
+  if (resource !== entry.anchor.resource || recordId(anchor) !== entry.anchor.id) return rows;
+  const climb = (current: R, row: Row) => {
+    if (rows.has(row)) return;
+    rows.add(row);
+    for (const name of relationNames(map, current)) {
+      const relation = relationOf(map, current, name);
+      const parent = row[name] as Row | null | undefined;
+      if (relation && parent && typeof parent === 'object' && !Array.isArray(parent))
+        climb(relation.resource, parent);
+    }
+  };
+  climb(resource, anchor);
+  if (entry.anchor.path === undefined) rows.delete(anchor);
+  return rows;
+};

@@ -345,9 +345,9 @@ where `read` delegates up to `manage`. One applies when all three hold:
 
 `setup` refuses an entitlement without an `owner`, a `where` without a `anchor`, an `anchor` on
 another resource without a `path` or on its own resource with one, an `id` beside a
-`anchor` (a single row is `where: { field: 'id', … }`), a non-boolean action, `where: null`, or a
-malformed or non-positive rule, before touching any state; `entitlementProblem(entry)` names the
-problem (or returns `null`), so stored entries can be filtered before they are installed. An entitlement the holder already holds from the same owner (identical, or the same with fewer actions) is a no-op; `coversEntitlement(held, entry)` and `withoutRedundantEntitlements(entries)` apply the same rule to a list before it is stored. `replace: true` clears entitlements with the table. `getJSON`
+`anchor` (a single row is `where: { field: 'id', … }`), a non-boolean action, `where: null`, a
+malformed or non-positive rule, or a `grantsBelow` that is not `true` or sits beside a `where`, before touching any state; `entitlementProblem(entry)` names the
+problem (or returns `null`), so stored entries can be filtered before they are installed. An entitlement the holder already holds from the same owner (identical, or the same with fewer actions) is a no-op; two alike but for their `ref` or their `grantsBelow` are two rows; `coversEntitlement(held, entry)` and `withoutRedundantEntitlements(entries)` apply the same rule to a list before it is stored. `replace: true` clears entitlements with the table. `getJSON`
 carries grants only. Tenancy is as live as the owner's grants are id-keyed: an owner's permissions with a
 resource-wide grant, or the superadmin flag, short-circuits before any walk.
 
@@ -409,8 +409,10 @@ anchor is the anchor row itself.
 
 `canGrantEntitlement` judges each placed record in two passes:
 
-1. **The writer's table.** Its table alone (its role), with no entitlements and no actor, takes
-   each action on `placed`. (A delegate's permissions capped at a ceiling, from `delegate`, is
+1. **The writer's table, and what it holds outright above the granted record.** Its table (its
+   role), with no actor, takes each action on `placed`. An entitlement also counts here, as a
+   role on its record would, when all of these hold: it is marked `grantsBelow: true`; it has no
+   `where`; and the walk meets it on a real row above the granted record (below). (A delegate's permissions capped at a ceiling, from `delegate`, is
    permissions entries too.) It reads `placed` with json-rules `absent: 'unknown'`: a field it does not carry fails
    every positive leaf, `equals null` included, so a writer whose authority reads a field the
    `where` leaves open is refused. A rule that needs an actor (`__actor.model equals 'User'`, an id compared to `__actor.record`) never passes: who the writer is is not
@@ -429,6 +431,42 @@ anchor is the anchor row itself.
    therefore counts as live for records outside it; reads still apply every `where` on the chain
    they walk, so a copy installed under its writer admits no more than that chain. Held entitlements never
    combine: to pass on two, grant two.
+
+**An entitlement that grants below it.** The first pass counts three things: the writer's role;
+an entitlement the writer holds on a record above the granted one, with no `where`, marked
+`grantsBelow`; and, behind each such entitlement, whoever granted it, judged by the same three.
+A member that holds `operate` on its own member row this way grants over its own integrations; a
+holder of `manage` on space s1 this way grants `manage` on the integrations of s1 (before, it
+could pass on only a copy of `manage` on s1).
+
+- **Above the granted record** means the hydrated rows the entry's anchor row holds under to-one
+  relations that own their key, followed up, plus the anchor row itself when the entry sits under
+  it by a path. An entitlement met anywhere else never counts: on a placed record below the
+  anchor, on a row reached through a relation that does not own its key or across a bridge, or on
+  the granted record itself (a self-anchored entry's placed record is the granted row). So held
+  entitlements still never combine, and one is still never re-anchored (held on the integrations
+  of o1, never granted for the one integration i1) or stretched to an action that needs more than
+  it (`read` on s1 never grants a rule-gated `rename` on s1).
+- **No `where`, at every depth.** A held `where` would be read on today's anchor row and then
+  left out of the grant: holding `manage` on s1 `where label = draft` would grant `manage` on the
+  integrations of s1 while s1 is a draft, and the new row, backed by someone else, would keep
+  admitting after s1 stops being one. A row with a `where` is handed on only by the second pass,
+  which keeps every held condition. The same holds for the granter behind a counted row, and the
+  granter behind that.
+- **The mark, and why it is a positive one.** The library sees a `where`; it does not see a lens
+  or any other limit the app keeps on a stored row. The app sets `grantsBelow: true` only on a
+  row nothing narrows (in template and Kingdom: no lens). A row without the mark never counts in
+  the first pass, at any depth, so an app that forgets the mark gets the refusal it had before,
+  never a grant that drops a lens. A lensed row is handed on by the second pass, where the lens
+  composes along the chain at read. The mark is no part of what the entry grants: no check or
+  `paths` reads it, and the second pass ignores it. `setup` keeps it, a marked row and its
+  unmarked twin are two rows, and neither makes the other redundant.
+- **Rejected on the way** (Aron, 2026-11-14), for the member case this was built for:
+  a plain id-keyed grant in the member's table (a token capped at the member's role would keep
+  it); the user's own grant in the member's table (it reaches the personal account and the
+  user's other memberships); a `where id equals <the member's id>` rule (true for every holder);
+  a rule on the actor (the grant check has no actor); and the first pass counting every
+  entitlement the writer holds, `where` included (it reproduced the unsound class above).
 
 `reachableFrom(schema, resource, action)` is that pure-delegation walk: the actions on `resource`
 whose holding grants `action` (itself included). `capAtRole` keeps a delegate's entries at its

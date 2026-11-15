@@ -1,11 +1,10 @@
 import { isEqual } from 'lodash-es';
 import { booleanAlgebra } from './algebra';
-import { createRebacCheck } from './check';
 import { entitlementProblem } from './entitlementProblem';
 import { asOwner } from './identity';
 import type { EntitlementEntry } from './permix';
 import { reachableFrom } from './reachableFrom';
-import { conjuncts, type SchemaMap } from './schemaMap';
+import { conjuncts, rowsAbove, type SchemaMap } from './schemaMap';
 import type { Anchor, CheckOptions, Entitlement, PermixLike, RebacSchema, Row } from './types';
 import { createWalker } from './walker';
 
@@ -31,9 +30,14 @@ const narrows = (held: Entitlement, entry: EntitlementEntry) => {
  * Build the grant check, bound to the same schema map as the rebac check.
  *
  * A grant is judged in two passes. The first: the writer's table (its role; a delegate's role is
- * its owner's table capped at it) with no entitlements and no actor, takes every action `entry` names on `placed`, the pseudo record `placeEntitlement` builds
+ * its owner's table capped at it) with no actor takes every action `entry` names on `placed`, the pseudo record `placeEntitlement` builds
  * from the hydrated anchor along the entry's path; a field it does not carry is unknown (json-rules
- * `absent: 'unknown'`), so the writer covers every record the `where` admits. Failing that, the
+ * `absent: 'unknown'`), so the writer covers every record the `where` admits. In that pass an
+ * entitlement counts as a role on its record would when it is marked `grantsBelow`, has no
+ * `where`, and the walk meets it on a hydrated row above the granted record (`rowsAbove`: never
+ * the granted record itself, never a placed one); its owner is walked from there under the same
+ * rule. A `where` is excluded because it would be read on today's row and dropped from the grant.
+ * Failing that, the
  * entitlement pass: the entry is one entitlement the writer holds, copied or narrowed — same
  * resource and anchor, each of its actions one the held entitlement holds or reaches by pure
  * delegation (a bare action name, alone or an arm of a top-level `any`), and every condition of the held `where`
@@ -45,9 +49,9 @@ const narrows = (held: Entitlement, entry: EntitlementEntry) => {
  */
 export const createCanGrantEntitlement = <R extends string = string>(
   map: SchemaMap<R>,
-  options: CheckOptions = {},
+  _options: CheckOptions = {},
 ): CanGrantEntitlement<R> => {
-  const check = createRebacCheck(map, { ...options, absent: 'unknown' });
+  const check = createWalker(map, 'unknown', booleanAlgebra);
   const backs = createWalker(map, 'unknown', booleanAlgebra, true);
 
   return (permix, schema, entry, placed) => {
@@ -56,12 +60,10 @@ export const createCanGrantEntitlement = <R extends string = string>(
     const actions = Object.entries(entry.actions)
       .filter(([, held]) => held === true)
       .map(([action]) => action);
-    const table: PermixLike = {
-      check: (on, action, id, data) => permix.check(on, action, id, data),
-      isSuperadmin: () => permix.isSuperadmin?.() ?? false,
-      getActor: () => null,
-    };
-    if (actions.every((action) => check(table, schema, { resource, record: placed }, action)))
+    const table = asOwner(permix, null);
+    const above = rowsAbove(map, entry, placed);
+    const subject = { resource, record: placed };
+    if (actions.every((action) => check(table, schema, subject, action, new Set(), above)))
       return true;
     const reached = actions.map((action) => reachableFrom(schema, resource, action));
     const candidates = [...(reached[0] ?? [])].flatMap(

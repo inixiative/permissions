@@ -19,6 +19,11 @@ export type Walk<R extends string, T = boolean> = {
   algebra: Algebra<T>;
   /** The grant check's liveness walk: every entitlement `where` counts as holding. */
   ignoreWheres?: boolean;
+  /**
+   * The grant check's first pass: the hydrated rows above the granted record (`rowsAbove`). An
+   * entitlement counts only at one of these rows, marked `grantsBelow`, without a `where`.
+   */
+  above?: ReadonlySet<Row>;
 };
 
 export const evaluate = <R extends string, T>(

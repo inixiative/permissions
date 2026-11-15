@@ -1,3 +1,37 @@
+## Unreleased — an entitlement held outright on a record above grants below it
+
+- **The grant check's first pass counts some entitlements.** Before, it was the writer's table
+  alone. It now also counts an entitlement the writer holds when the entitlement is marked
+  `grantsBelow: true`, has no `where`, and the walk meets it on a real row above the granted
+  record: the entry's anchor row (when the entry sits under it by a path) or a row that anchor
+  holds under to-one relations that own their key. It then counts as a role on that row would,
+  and whoever granted it is judged the same way at every depth. A member holding `operate` on its
+  own member row can now grant over its own integrations.
+- **Why only an unconditional, unlensed row above the record.** A held `where` would
+  be read on today's anchor row and left out of the grant, so the new row would outlive the
+  condition under another owner (`manage` on s1 `where label = draft` granting `manage` on the
+  integrations of s1). Counting every held entitlement in the first pass reproduced that class;
+  this rule excludes anything with a `where`. An entitlement on the granted record itself, or on
+  a placed record, never counts, so held entitlements still never combine (R101), are never
+  re-anchored to one row (R95), and never stretch to an action that needs more than they hold
+  (R99).
+- **R103 reversed, for a marked row only.** Holding `manage` on s1 as an entitlement marked
+  `grantsBelow` grants `manage` on the integrations of s1. Unmarked, it grants a copy of itself
+  and nothing below, as before.
+- **`grantsBelow?: true` on an entitlement entry**: the app's statement that nothing narrows the
+  row (no lens, in template and Kingdom). Absent, the row never counts in the first pass, so an
+  app that does not set it behaves as before: it fails closed. `entitlementProblem` refuses any
+  value but `true`, and refuses it beside a `where`. `setup` carries it; a marked row and its
+  unmarked twin are two rows and neither covers the other (`coversEntitlement`). No check and no
+  `paths` reads it; the second (copy) pass ignores it.
+- **Options rejected** for the member case: a plain id-keyed grant (a role-capped token would
+  keep it); the user's grant in the member's table (reaches the personal account and other
+  memberships); an `id equals id` rule (true for every holder); an actor rule (the grant check
+  has no actor); the first pass counting every held entitlement, the wide walk of #28 (unsound
+  with a `where`, above).
+- `createCanGrantEntitlement`'s `options` argument is unused: the first pass always read absent
+  fields as unknown.
+
 ## Unreleased — delegatedWhere; no negative rules; a where never takes part in liveness
 
 - **`delegatedWhere(held, ...added)`**: the `where` of a grant passed on from a held one: `all` of

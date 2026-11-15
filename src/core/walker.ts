@@ -3,7 +3,7 @@ import type { Algebra } from './algebra';
 import { evaluate } from './evaluate';
 import { withExactStrings } from './exactStrings';
 import { indexMap, type SchemaMap } from './schemaMap';
-import type { ActionRule, CheckOptions, PermixLike, RebacSchema, Subject } from './types';
+import type { ActionRule, CheckOptions, PermixLike, RebacSchema, Row, Subject } from './types';
 import { validateActionRule } from './validateActionRule';
 import { schemaRuleIssues } from './validateSchema';
 
@@ -36,6 +36,7 @@ export const createWalker = <R extends string, T>(
     subject: Subject<R>,
     actionOrRule: ActionRule,
     visited: Set<string> = new Set(),
+    above?: ReadonlySet<Row>,
   ): T => {
     assertPositiveSchema(schema);
     if (
@@ -59,7 +60,7 @@ export const createWalker = <R extends string, T>(
     };
     return withExactStrings(() =>
       evaluate(
-        { map, absent, schema, getDict, algebra, ignoreWheres },
+        { map, absent, schema, getDict, algebra, ignoreWheres, ...(above ? { above } : {}) },
         permix,
         subject.resource,
         subject.record,

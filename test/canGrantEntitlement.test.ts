@@ -413,7 +413,8 @@ test('an entitlement that grants no action is malformed: refused at setup and at
   ).rejects.toThrow();
 });
 
-describe('step one is the table: a stored entitlement is passed on only as itself (R103)', () => {
+// Reversed 2026-11-14 for a row marked `grantsBelow` (test/grantBelow.test.ts); unmarked, it stands.
+describe('step one is the table: a stored entitlement is passed on only as itself, unless it is marked grantsBelow (R103)', () => {
   const manageS1 = entry('db:space', at('db:space', 's1'), ['manage']);
   const slackUnderS1 = entry('db:integration', at('db:space', 's1', 'space'), ['manage'], {
     field: 'provider',
@@ -426,6 +427,15 @@ describe('step one is the table: a stored entitlement is passed on only as itsel
     await holder.setup([manageS1], { owner: await holding('db:space', 's1', ['own']) });
     expect(may(holder, manageS1, s1)).toBe(true);
     expect(may(holder, slackUnderS1, { ...integrationUnder(s1), provider: 'slack' })).toBe(false);
+  });
+
+  test('holding the same manage on s1 marked grantsBelow grants manage on its integrations', async () => {
+    const holder = createPermissions();
+    await holder.setup([{ ...manageS1, grantsBelow: true }], {
+      owner: await holding('db:space', 's1', ['own']),
+    });
+    expect(may(holder, manageS1, s1)).toBe(true);
+    expect(may(holder, slackUnderS1, { ...integrationUnder(s1), provider: 'slack' })).toBe(true);
   });
 
   test('the same manage on s1 in the table grants manage on its integrations', async () => {

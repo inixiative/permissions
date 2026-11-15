@@ -29,6 +29,10 @@ export const entitlementProblem = (entry: EntitlementEntry): string | null => {
     return 'an entitlement grants at least one action';
   if (entry.ref !== undefined && (typeof entry.ref !== 'string' || entry.ref === ''))
     return '`ref` is a non-empty string';
+  if (entry.grantsBelow !== undefined && entry.grantsBelow !== true)
+    return '`grantsBelow` is true or absent';
+  if (entry.grantsBelow === true && entry.where !== undefined)
+    return '`grantsBelow` with `where`: a conditional entitlement never grants below it';
   if (entry.where === null)
     return '`where: null` is not a rule: omit `where` for none, or write the rule';
   if (entry.where !== undefined) {
