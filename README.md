@@ -169,6 +169,34 @@ the item's resource, `rel` walks from the item, and `{ rule }` reads the item, s
 is a resource in the map (it needs no actions of its own). A record below the list reaches it by
 delegating, as `message.read` does; `rel` in the arm is the list field alone.
 
+**When to reach for it.** Whenever access to a record turns on one of its child rows, and the
+record holds no key to walk up:
+
+- *Membership*: you are one of the conversation's participants (above).
+- *A junction table*: a resource is attached to many projects, and whoever can read one of those
+  projects reads the resource. The role or entitlement stays on the project; the resource's rule
+  goes down to the junction rows and up from each to its project.
+
+  ```prisma
+  model IntegrationResource {
+    /// @permissions(down: [project.organization])
+    projects ProjectIntegrationResource[]
+  }
+  ```
+
+  ```ts
+  integrationResource: {
+    actions: {
+      read: { rel: 'projects', arrayOperator: 'any', condition: { rel: 'project', action: 'read' } },
+    },
+  },
+  ```
+
+  `project.read` walks on to the organization here, so the declared path is `project.organization`.
+
+When the record holds the key itself (a message's `conversationId`), use a plain `rel`; this arm
+is only for the direction a to-one walk cannot go.
+
 The shape is json-rules' array condition, `{ field, arrayOperator, condition }`, with `field`
 renamed `rel` because the list is a relation walked through the table. The third key is
 `condition` and not `rule`: in this language `rule` always holds a json-rules condition, and one

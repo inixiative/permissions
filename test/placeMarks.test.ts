@@ -3,6 +3,7 @@ import type { Condition, FieldMap } from '@inixiative/json-rules';
 import {
   type ActionRule,
   createCanGrantEntitlement,
+  createHydrator,
   createPermissions,
   createRebacCheck,
   type EntitlementEntry,
@@ -603,5 +604,69 @@ describe('review: Kingdom’s project scope, as the review corrected it (B-2, B-
     expect(sends(call(r1))).toBe(false);
     expect(sends(through(link('d', p1, resource('r3', i1, 'user'))))).toBe(false);
     expect(sends(through(link('e', p1, foreign)))).toBe(false);
+  });
+});
+
+describe('a junction list: a resource is reached through a project it is attached to', () => {
+  const junction = mapOver(
+    annotate(models, 'IntegrationResource', 'projects', { down: ['project.organization'] }),
+  );
+  const inProject: ActionRule = {
+    rel: 'projects',
+    arrayOperator: 'any',
+    condition: { rel: 'project', action: 'read' },
+  };
+  const rules: RebacSchema = {
+    permissions: {
+      ...schema.permissions,
+      'db:integrationResource': {
+        actions: { operate: { rel: 'integration', action: 'operate' }, read: inProject },
+      },
+    },
+  };
+  const rows: Record<string, Row[]> = {
+    'db:organization': [o1, { id: 'o2' }],
+    'db:project': [
+      { id: 'p1', organizationId: 'o1' },
+      { id: 'p2', organizationId: 'o2' },
+    ],
+    'db:projectIntegrationResource': [
+      { id: 'l1', projectId: 'p1', integrationResourceId: 'r1' },
+      { id: 'l2', projectId: 'p2', integrationResourceId: 'r2' },
+    ],
+  };
+  const matches = (where: Row) => (row: Row) =>
+    Object.entries(where).every(([key, value]) => row[key] === value);
+  const hydrate = createHydrator({
+    map: junction,
+    load: async (of, where) => rows[of]?.find(matches(where)) ?? null,
+    loadMany: async (of, where) => rows[of]?.filter(matches(where)) ?? [],
+  });
+  const read = async (permix: Awaited<ReturnType<typeof holding>>, id: string) =>
+    createRebacCheck(junction)(
+      permix,
+      rules,
+      {
+        resource: 'db:integrationResource',
+        record: await hydrate('db:integrationResource', { id }),
+      },
+      'read',
+    );
+
+  test('the declaration carries what the rule walks, and a shorter one is reported', () => {
+    expect(validateSchema(junction, rules).errors).toEqual([]);
+    const short = mapOver(
+      annotate(models, 'IntegrationResource', 'projects', { down: ['project'] }),
+    );
+    expect(validateSchema(short, rules).errors.map((issue) => issue.code)).toEqual(['down']);
+  });
+
+  test('a role on the project, or above it, reads the resources attached to it and no others', async () => {
+    const onProject = await holding(['db:project', 'p1', 'read']);
+    expect(await read(onProject, 'r1')).toBe(true);
+    expect(await read(onProject, 'r2')).toBe(false);
+    expect(await read(await orgOwner(), 'r1')).toBe(true);
+    expect(await read(await orgOwner(), 'r2')).toBe(false);
+    expect(await read(onProject, 'r-unattached')).toBe(false);
   });
 });
