@@ -1143,7 +1143,7 @@ describe('the apps’ own maps', () => {
     },
   });
 
-  test('Zealot: under a participant, a declared path reads (outside `down`: listArm A-2)', () => {
+  test('Zealot: under a participant a declared path reads; at a landing only the rest of `down` does', () => {
     const ask = createRebacCheck(zealot);
     const record = {
       uuid: 'c1',
@@ -1156,6 +1156,25 @@ describe('the apps’ own maps', () => {
     const declared = participantReads('forumUser.fanUser.userUuid');
     expect(validateSchema(zealot, declared).ok).toBe(true);
     expect(ask(fay, declared, { resource: 'db:conversation', record }, 'act')).toBe(true);
+    const landing: RebacSchema = {
+      permissions: {
+        'db:conversation': {
+          actions: {
+            act: {
+              rel: 'participants',
+              arrayOperator: 'any',
+              condition: { rel: 'forumUser', action: 'x' },
+            },
+          },
+        },
+        'db:forumUser': {
+          actions: {
+            x: { rule: { field: 'brand.uuid', operator: 'equals', path: '__actor.record.uuid' } },
+          },
+        },
+      },
+    };
+    expect(validateSchema(zealot, landing).errors.map((issue) => issue.code)).toEqual(['down']);
   });
 
   test('Kingdom: a surface rule reads through its synthetic integrationResource relation', () => {
