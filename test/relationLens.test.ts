@@ -5,9 +5,11 @@ import {
   createCanGrantEntitlement,
   createHydrator,
   createRebacCheck,
+  createRebacPaths,
   type EntitlementEntry,
   entitlementProblem,
   type PermixLike,
+  placeEntitlement,
   type RebacSchema,
   type Row,
   type SchemaMap,
@@ -266,13 +268,100 @@ describe('the review probes: each returned true on 0.22.0', () => {
     expect(createCanGrantEntitlement(map)(writer, schema, entry, record)).toBe(false);
   });
 
-  test('T8: a path past the hydrator’s cycle cut is refused, so a set name never reads as null', async () => {
+  test('T8: a path around a cycle reads the same row again, so a set name never reads as null', async () => {
     const attacker = await hydrate('user', db.user?.attacker as Row);
-    expect(((attacker.org as Row).creator as Row).org).toBeUndefined();
-    const schema = ruled('user', reads('org.creator.org.name'));
-    expect(() =>
-      check(actorAs('attacker'), schema, { resource: 'user', record: attacker }, 'act'),
-    ).toThrow(/`org.creator.org.name` comes back to `user`/);
+    const org = attacker.org as Row;
+    expect((org.creator as Row).org).toBe(org);
+    const at = (field: string, value: unknown) =>
+      check(
+        actorAs('attacker'),
+        ruled('user', reads(field, value)),
+        { resource: 'user', record: attacker },
+        'act',
+      );
+    expect(at('org.creator.org.name', null)).toBe(false);
+    expect(at('org.creator.org.name', 'acme')).toBe(true);
+    expect(at('org.creator.org.creator.org.creator.name', 'Una')).toBe(true);
+  });
+
+  test('P1: chained { rel } hops and a where held on the row past the old cut read the real row', async () => {
+    const u1 = await hydrate('user', db.user?.u1 as Row);
+    expect((u1.org as Row).creator as Row).toBe(u1);
+    const chained: RebacSchema = {
+      permissions: {
+        user: {
+          actions: { act: { rel: 'org.creator', action: 'vouch' }, vouch: reads('org.name', null) },
+        },
+      },
+    };
+    expect(check(actorAs('x'), chained, { resource: 'user', record: u1 }, 'act')).toBe(false);
+    const held: EntitlementEntry = {
+      resource: 'user',
+      anchor: { resource: 'user', id: 'u1' },
+      where: { field: 'org.name', operator: 'equals', value: null },
+      actions: { vouch: true },
+    };
+    const viaWhere: RebacSchema = {
+      permissions: {
+        user: { actions: { act: { rel: 'org.creator', action: 'vouch' }, vouch: null } },
+      },
+    };
+    expect(check(actorAs('x', [held]), viaWhere, { resource: 'user', record: u1 }, 'act')).toBe(
+      false,
+    );
+    const conversation = await hydrate('conversation', db.conversation?.c1 as Row);
+    const fromConversation: RebacSchema = {
+      permissions: {
+        conversation: { actions: { act: { rel: 'org.creator', action: 'vouch' } } },
+        user: { actions: { vouch: reads('org.name', null) } },
+      },
+    };
+    expect(
+      check(
+        actorAs('x'),
+        fromConversation,
+        { resource: 'conversation', record: conversation },
+        'act',
+      ),
+    ).toBe(false);
+  });
+});
+
+describe('a cyclic record in the grant check and in paths', () => {
+  const walks: RebacSchema = {
+    permissions: {
+      user: { actions: { own: null, read: { any: ['own', { rel: 'org', action: 'read' }] } } },
+      org: { actions: { read: { rel: 'creator', action: 'read' } } },
+    },
+  };
+
+  // An open point for the owner: a denial explores every arm, so on a linked cycle it reaches the
+  // same view twice and the walk's cycle rule throws where the tree form denied.
+  test('the grant check on a cyclic anchor: an allow is as on a tree; a denial throws', async () => {
+    const u1 = await hydrate('user', db.user?.u1 as Row);
+    const tree = { ...(db.org?.o1 as Row) };
+    const entry: EntitlementEntry = {
+      resource: 'user',
+      anchor: { resource: 'org', id: 'o1', path: 'org' },
+      actions: { read: true },
+    };
+    const grants = (writer: PermixLike, anchor: Row) =>
+      (placeEntitlement(map, entry, anchor) ?? []).every((placed) =>
+        createCanGrantEntitlement(map)(writer, walks, entry, placed),
+      );
+    const orgReader: PermixLike = { check: (resource) => resource === 'org', getActor: () => null };
+    const nobody: PermixLike = { check: () => false, getActor: () => null };
+    expect(grants(orgReader, u1.org as Row)).toBe(true);
+    expect(grants(orgReader, tree)).toBe(true);
+    expect(grants(nobody, tree)).toBe(false);
+    expect(() => grants(nobody, u1.org as Row)).toThrow(/Cycle detected/);
+  });
+
+  test('a walk around the cycle: paths contributes nothing; check throws, as on any cyclic record', async () => {
+    const u1 = await hydrate('user', db.user?.u1 as Row);
+    const subject = { resource: 'user', record: u1 };
+    expect(createRebacPaths(map)(actorAs('x'), walks, subject, 'read')).toEqual([]);
+    expect(() => check(actorAs('x'), walks, subject, 'read')).toThrow(/Cycle detected/);
   });
 });
 
@@ -408,8 +497,7 @@ describe('what the lens keeps', () => {
         'act',
       ),
     ).toBe(true);
-    // off an item the same path passes the user twice and is refused
-    expect(codes(ruled('message', reads('author.org.creator.name')))).toEqual(['lens']);
+    expect(codes(ruled('message', reads('author.org.creator.name')))).toEqual([]);
   });
 
   test('a key the model does not have and an index are refused; a computed key only inline, at the subject', () => {

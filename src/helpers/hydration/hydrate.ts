@@ -52,9 +52,11 @@ export const createHydrator = <R extends string>({ map, load, loadMany }: Hydrat
     node: LensNode<R>,
     record: Row,
     pending: Map<string, Promise<Row | null>>,
-    ancestors: ReadonlySet<string>,
+    ancestors: ReadonlyMap<string, Row>,
+    key?: string,
   ): Promise<Row> => {
     const result: Row = { ...record };
+    const above = key ? new Map(ancestors).set(key, result) : ancestors;
     const lists = [...node.lists].map(async ([name, list]) => {
       const where = keysFrom(list, record);
       const complete = Object.keys(where).length === list.from.length;
@@ -62,7 +64,7 @@ export const createHydrator = <R extends string>({ map, load, loadMany }: Hydrat
         ? await (loadMany as NonNullable<typeof loadMany>)(list.resource, where)
         : [];
       result[name] = await Promise.all(
-        items.map((item) => hydrateAt(list.item, item, pending, ancestors)),
+        items.map((item) => hydrateAt(list.item, item, pending, above)),
       );
     });
     await Promise.all([
@@ -71,21 +73,22 @@ export const createHydrator = <R extends string>({ map, load, loadMany }: Hydrat
         delete result[name];
         const where = whereOf(relation, record);
         if (!where) return;
-        const key = keyOf(relation.resource, where);
-        // why: a declared path is finite; only upward hydration can loop
-        if (!node.down && ancestors.has(key)) return;
+        const at = keyOf(relation.resource, where);
+        // why: a row already above on this path is that same object here, so the record is the real cyclic graph
+        const ancestor = above.get(at);
+        if (ancestor) {
+          result[name] = ancestor;
+          return;
+        }
         const related = await once(relation.resource, where, pending);
-        if (related)
-          result[name] = await hydrateAt(
-            node.below(name),
-            related,
-            pending,
-            new Set(ancestors).add(key),
-          );
+        if (related) result[name] = await hydrateAt(node.below(name), related, pending, above, at);
       }),
     ]);
     return result;
   };
-  return (resource: R, record: Row): Promise<Row> =>
-    hydrateAt(lensOf(map, resource), record, new Map(), new Set());
+  return (resource: R, record: Row): Promise<Row> => {
+    const id = record[idField()];
+    const key = id == null || id === '' ? undefined : keyOf(resource, { [idField()]: id });
+    return hydrateAt(lensOf(map, resource), record, new Map(), new Map(), key);
+  };
 };

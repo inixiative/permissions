@@ -144,7 +144,6 @@ const pathMiss = (
       ? null
       : lens(`\`${path}\`: a \`where\` reads the record alone; \`__actor\` is not on it`);
   let node = start;
-  const passed = new Set([start.resource]);
   const walked: string[] = [];
   for (const [index, segment] of segments.entries()) {
     const at = under && { ...under, prefix: [...under.prefix, ...walked] };
@@ -161,11 +160,6 @@ const pathMiss = (
       );
     }
     walked.push(segment);
-    if (!node.down && passed.has(step.next.resource))
-      return lens(
-        `\`${path}\` comes back to \`${step.next.resource}\`: a path passes each model once, and hydration stops where a loop closes; read it from \`${step.next.resource}\` itself`,
-      );
-    passed.add(step.next.resource);
     node = step.next;
   }
   return null;
