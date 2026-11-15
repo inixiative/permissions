@@ -146,7 +146,8 @@ const pathMiss = (
   let node = start;
   const walked: string[] = [];
   for (const [index, segment] of segments.entries()) {
-    const at = under && { ...under, prefix: [...under.prefix, ...walked] };
+    const within = under ?? (start.down ? { list: start.resource, prefix: [] } : undefined);
+    const at = within && { ...within, prefix: [...within.prefix, ...walked] };
     const step = stepLens(map, node, segment, at);
     if ('column' in step) return null;
     if ('miss' in step) return step.miss;
@@ -178,26 +179,37 @@ export const conditionMisses = (
     return miss ? [{ path: at, ...miss }] : [];
   });
 
-const judgedWheres = new WeakMap<SchemaMap, WeakMap<object, Map<string, string | null>>>();
+const judged = new WeakMap<object, Map<object, unknown>>();
+
+/** `judge`'s answer for `value` at `key`, once: `value` is frozen first, so the answer cannot go stale. */
+export const judgeOnce = <T>(value: object, key: object, judge: () => T): T => {
+  const byKey = judged.get(value) ?? new Map<object, unknown>();
+  judged.set(value, byKey);
+  if (byKey.has(key)) return byKey.get(key) as T;
+  freeze(value);
+  const answer = judge();
+  byKey.set(key, answer);
+  return answer;
+};
+
+/** Why an entitlement `where` read at `node` leaves the lens, or null. */
+export const whereNodeProblem = (
+  map: SchemaMap,
+  node: LensNode,
+  where: Condition | undefined,
+): string | null => {
+  if (typeof where !== 'object' || where === null) return null;
+  return judgeOnce(where, node, () => {
+    const misses = conditionMisses(map, node, where, '$', { actor: false });
+    return misses.length
+      ? `entitlement \`where\` reads outside the lens: ${misses.map((miss) => miss.message).join('; ')}`
+      : null;
+  });
+};
 
 /** Why an entitlement `where` at `resource` reads outside the lens, or null. Frozen on first use. */
 export const whereLensProblem = (
   map: SchemaMap,
   resource: string,
   where: Condition | undefined,
-): string | null => {
-  if (typeof where !== 'object' || where === null) return null;
-  const byWhere = judgedWheres.get(map) ?? new WeakMap<object, Map<string, string | null>>();
-  judgedWheres.set(map, byWhere);
-  const byResource = byWhere.get(where) ?? new Map<string, string | null>();
-  byWhere.set(where, byResource);
-  const known = byResource.get(resource);
-  if (known !== undefined) return known;
-  freeze(where);
-  const misses = conditionMisses(map, lensOf(map, resource), where, '$', { actor: false });
-  const problem = misses.length
-    ? `entitlement \`where\` reads outside the lens: ${misses.map((miss) => miss.message).join('; ')}`
-    : null;
-  byResource.set(resource, problem);
-  return problem;
-};
+): string | null => whereNodeProblem(map, lensOf(map, resource), where);

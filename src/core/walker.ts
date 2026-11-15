@@ -2,7 +2,7 @@ import { type BridgeDictionary, indexBridges } from '@inixiative/json-rules';
 import type { Algebra } from './algebra';
 import { evaluate } from './evaluate';
 import { withExactStrings } from './exactStrings';
-import { freeze, projectRecord } from './lens';
+import { judgeOnce, projectRecord } from './lens';
 import { indexMap, type SchemaMap } from './schemaMap';
 import type { ActionRule, CheckOptions, PermixLike, RebacSchema, Row, Subject } from './types';
 import { validateActionRule } from './validateActionRule';
@@ -18,19 +18,15 @@ const outsideLens = ({ path, message }: { path: string; message: string }) => {
   throw new Error(`\`${path}\`: ${message} (run validateSchema)`);
 };
 
-const judged = new WeakMap<object, WeakSet<object>>();
-
 // why: a negated rule, or a read outside the lens, answers on what nothing loaded
-const assertSchema = (map: SchemaMap, schema: RebacSchema) => {
-  const known = judged.get(map) ?? new WeakSet();
-  if (known.has(schema)) return;
-  freeze(schema);
-  const [negated] = schemaRuleIssues(schema);
-  if (negated) refuse(`\`${negated.path}\``);
-  const [outside] = lensIssues(map, schema);
-  if (outside) outsideLens(outside);
-  judged.set(map, known.add(schema));
-};
+const assertSchema = (map: SchemaMap, schema: RebacSchema) =>
+  judgeOnce(schema, map, () => {
+    const [negated] = schemaRuleIssues(schema);
+    if (negated) refuse(`\`${negated.path}\``);
+    const [outside] = lensIssues(map, schema);
+    if (outside) outsideLens(outside);
+    return true;
+  });
 
 export const createWalker = <R extends string, T>(
   map: SchemaMap<R>,
@@ -89,7 +85,7 @@ export const createWalker = <R extends string, T>(
         subject.resource,
         record,
         actionOrRule,
-        visited,
+        new Map([...visited].map((key) => [key, 0])),
       ),
     );
   };

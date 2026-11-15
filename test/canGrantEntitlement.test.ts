@@ -65,6 +65,7 @@ const relations: Record<string, Record<string, string>> = {
   'db:integration': { space: 'db:space' },
 };
 const columns = {
+  'db:user': [],
   'db:organization': ['role'],
   'db:space': ['label', 'name', 'role'],
   'db:integration': ['provider', 'name'],

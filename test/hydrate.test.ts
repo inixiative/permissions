@@ -170,18 +170,20 @@ describe('polymorphic records: every relation whose columns are set, whatever th
 describe('cycles and shared parents', () => {
   const map = mapOf({ user: { manager: 'user' } });
 
-  test('a self-referential key holds the record itself, loaded never', async () => {
+  test('a self-referential key loads the stored row once, which then holds itself', async () => {
     const loads: string[] = [];
     const hydrate = createHydrator({
       map,
-      load: loaderOver({ user: [{ id: 'u1', managerId: 'u1' }] }, loads),
+      load: loaderOver({ user: [{ id: 'u1', managerId: 'u1', name: 'Una' }] }, loads),
     });
     const record = await hydrate('user', { id: 'u1', managerId: 'u1' });
-    expect(record.manager).toBe(record);
-    expect(loads).toEqual([]);
+    const stored = record.manager as Row;
+    expect(stored.name).toBe('Una');
+    expect(stored.manager).toBe(stored);
+    expect(loads).toEqual(['user:{"id":"u1"}']);
   }, 5000);
 
-  test('an A to B to A loop holds A again at the end, each row loaded once', async () => {
+  test('an A to B to A loop from a partial root loads A once and links on the next lap', async () => {
     const store = {
       user: [
         { id: 'a', managerId: 'b' },
@@ -189,10 +191,12 @@ describe('cycles and shared parents', () => {
       ],
     };
     const hydrate = createHydrator({ map, load: loaderOver(store) });
-    const record = await hydrate('user', store.user[0] as Row);
+    const record = await hydrate('user', { id: 'a', managerId: 'b' });
     const b = record.manager as Row;
     expect(b.id).toBe('b');
-    expect(b.manager).toBe(record);
+    const a = b.manager as Row;
+    expect(a).not.toBe(record);
+    expect(a.manager).toBe(b);
   }, 5000);
 
   test('a parent reached on two paths is hydrated on both and loaded once', async () => {

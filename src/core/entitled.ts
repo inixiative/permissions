@@ -1,7 +1,7 @@
 import { type Absent, type Condition, check as checkRule } from '@inixiative/json-rules';
-import { evaluate, type Walk } from './evaluate';
+import { evaluate, type Visited, type Walk } from './evaluate';
 import { asOwner, nodeId, permixId } from './identity';
-import { lensOf, whereLensProblem } from './lens';
+import { lensOf, whereNodeProblem } from './lens';
 import { reachableFrom } from './reachableFrom';
 import { recordId } from './recordId';
 import type { Anchor, PermixLike, Row } from './types';
@@ -46,7 +46,7 @@ export const entitled = <R extends string, T>(
   resource: R,
   record: Row,
   action: string,
-  visited: Set<string>,
+  visited: Visited,
 ): T => {
   const { above } = walk;
   if (above && !above.has(record)) return walk.algebra.none;
@@ -62,12 +62,13 @@ export const entitled = <R extends string, T>(
           (above
             ? grantsBelow === true && where === undefined
             : where === undefined ||
-              (whereLensProblem(walk.map, resource, where) === null &&
+              (whereNodeProblem(walk.map, walk.under ?? lensOf(walk.map, resource), where) ===
+                null &&
                 (walk.ignoreWheres || holds(where, record, walk.absent)))) &&
           reaches(walk, resource, record, anchor)
             ? walk.algebra.through(
                 ref,
-                evaluate(walk, asOwner(owner, actor), resource, record, action, new Set(visited)),
+                evaluate(walk, asOwner(owner, actor), resource, record, action, new Map(visited)),
               )
             : walk.algebra.none,
     ),

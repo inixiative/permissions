@@ -56,7 +56,7 @@ export const createHydrator = <R extends string>({ map, load, loadMany }: Hydrat
     key?: string,
   ): Promise<Row> => {
     const result: Row = { ...record };
-    const above = key ? new Map(ancestors).set(key, result) : ancestors;
+    const above = key && !node.down ? new Map(ancestors).set(key, result) : ancestors;
     const lists = [...node.lists].map(async ([name, list]) => {
       const where = keysFrom(list, record);
       const complete = Object.keys(where).length === list.from.length;
@@ -74,8 +74,8 @@ export const createHydrator = <R extends string>({ map, load, loadMany }: Hydrat
         const where = whereOf(relation, record);
         if (!where) return;
         const at = keyOf(relation.resource, where);
-        // why: a row already above on this path is that same object here, so the record is the real cyclic graph
-        const ancestor = above.get(at);
+        // why: a loaded row above on this path is the same object here; a declared path is finite, loaded as written
+        const ancestor = node.down ? undefined : above.get(at);
         if (ancestor) {
           result[name] = ancestor;
           return;
@@ -86,9 +86,7 @@ export const createHydrator = <R extends string>({ map, load, loadMany }: Hydrat
     ]);
     return result;
   };
-  return (resource: R, record: Row): Promise<Row> => {
-    const id = record[idField()];
-    const key = id == null || id === '' ? undefined : keyOf(resource, { [idField()]: id });
-    return hydrateAt(lensOf(map, resource), record, new Map(), new Map(), key);
-  };
+  // why: the root is the caller's record, not a stored row, so an edge back to it loads the row
+  return (resource: R, record: Row): Promise<Row> =>
+    hydrateAt(lensOf(map, resource), record, new Map(), new Map());
 };

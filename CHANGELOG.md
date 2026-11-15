@@ -21,7 +21,13 @@ it; they are replaced, not joined by a fourth.
 - **Cycles are linked, not cut** (the owner's decision): a row already above on the path is the
   same object at the position. The old cut left the relation empty, and an empty relation read
   as null; a per-path "comes back to a model" refusal could not see chained `{ rel }` hops or a
-  `where` held on the cut row. The hydrator owns the loop rule; the refusal is gone.
+  `where` held on the cut row. The hydrator owns the loop rule; the refusal is gone. The root is
+  not linked (it is the caller's record: a column left out read as null at the linked position,
+  a supplied one was believed); an edge back to it loads the stored row. Under a list item a
+  declared path is loaded as written, never linked: a row met higher holds only its own node's
+  relations, so linking lost a legitimate allow.
+- **A schema resource missing from `resources`** (and not a bridge's far end) is refused: it had
+  no lens, so every read passed (`ghost.read` reading `members.0.role` on a caller's list).
 - **A key the model does not have is refused in every stored rule** (the owner's decision: "it
   should match the thing"): schema rules, row `permissionRules` and entitlement `where`s, at the
   root too. A computed `plan` on `org`, reached by `{ rel }`, read `plan equals null` as true.

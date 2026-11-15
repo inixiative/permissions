@@ -287,7 +287,7 @@ const check = createRebacCheck(map);
 
 check(permix, schema, { resource: 'membership', record }, 'manage');
 // string → permix grant or schema delegation; { rel } walks `record.organization` (or a bridge —
-// see below); { rule } evals json-rules over the record (the actor under __actor); any/all compose. Cycles throw.
+// see below); { rule } evals json-rules over the record (the actor under __actor); any/all compose. A data loop denies; a rule naming itself throws.
 ```
 
 **There is no `self` arm. Identity lives in the table.** The actor's table holds grants on its own
@@ -797,7 +797,9 @@ always read, so ABAC is untouched. Bridges are their own mechanism.
 **Where it runs.** A schema on first use: it throws, and the schema is frozen so it is judged once.
 A rule passed to `check`: it throws. A row's `permissionRules`: they widen nothing. An
 entitlement's `where`, when consulted: it never holds, and it is frozen when first judged
-(`whereLensProblem(map, resource, where)` says why; the grant check refuses it). `setup` and
+(`whereLensProblem(map, resource, where)` says why; the grant check refuses it), judged at the
+node it is consulted at, so on a list item against the item's declared paths. A schema resource
+missing from `resources` (and not a bridge's far end) is refused too. `setup` and
 `wellFormedEntitlements` have no map, so they cannot.
 
 Why one object: every reported leak (a request body's list read by index or in brackets, a
@@ -866,9 +868,11 @@ check(permix, schema, { resource: 'document', record: doc }, 'manage');
   prisma-map annotation) is not followed, and so is outside the lens: no rule reads it and no
   `rel` walks it. Use it for an edge that is not part of ownership, or to break a loop in the
   schema.
-- **Cycles:** an edge back to a row already on the path (the root included) holds that same
-  hydrated object, so the record is the real cyclic graph and a path around it reads the real
-  row, never null; each row loads once, and a parent reached on two paths is hydrated on both.
+- **Cycles:** an edge back to a stored row already on the path holds that same hydrated object,
+  so the record is the real cyclic graph and a path around it reads the real row, never null;
+  each row loads once, and a parent reached on two paths is hydrated on both. The root is your
+  record, not a stored row, so an edge back to it loads the row. Under a list item the declared
+  paths are loaded as written and never linked: they are finite.
   The record is not `JSON.stringify`-able then; serialise the row, not the hydrated record.
 
 Records are plain data: `check` reads the lens of the record it is given and cannot tell a loaded

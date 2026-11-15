@@ -139,19 +139,37 @@ export const actionRuleLensIssues = (
     (issue) => issue.code !== 'action',
   );
 
+// why: a resource with no model in the map has no lens, so nothing it reads could be refused
+const unmapped = (map: SchemaMap, schema: RebacSchema): ValidationIssue[] => {
+  const far = new Set(
+    (schema.bridges ?? []).flatMap((bridge) =>
+      bridge.endpoints.map((end) => `${end.fieldMap}:${end.model}`),
+    ),
+  );
+  return Object.keys(schema.permissions)
+    .filter((resource) => !map.resources[resource] && !far.has(resource))
+    .map((resource) => ({
+      path: resource,
+      code: 'lens',
+      message: `\`${resource}\` is not a resource in the map: add it to \`resources\`, or nothing it reads is checked`,
+    }));
+};
+
 /** Every read of a schema's action rules outside the lens, by `resource.action`. */
-export const lensIssues = (map: SchemaMap, schema: RebacSchema): ValidationIssue[] =>
-  Object.entries(schema.permissions).flatMap(([resource, permission]) =>
+export const lensIssues = (map: SchemaMap, schema: RebacSchema): ValidationIssue[] => [
+  ...unmapped(map, schema),
+  ...Object.entries(schema.permissions).flatMap(([resource, permission]) =>
     Object.entries(permission?.actions ?? {}).flatMap(([action, rule]) =>
       validateActionRule(rule).ok
         ? actionRuleLensIssues(map, schema, resource, rule, `${resource}.${action}`)
         : [],
     ),
-  );
+  ),
+];
 
 /** A whole schema against the map, for a test or boot: well formed, positive, inside the lens, every action defined. */
 export const validateSchema = (map: SchemaMap, schema: RebacSchema): ValidationResult => {
-  const errors: ValidationIssue[] = [];
+  const errors: ValidationIssue[] = [...unmapped(map, schema)];
   for (const [resource, permission] of Object.entries(schema.permissions)) {
     for (const [action, rule] of Object.entries(permission?.actions ?? {})) {
       const at = `${resource}.${action}`;
@@ -159,7 +177,7 @@ export const validateSchema = (map: SchemaMap, schema: RebacSchema): ValidationR
       errors.push(
         ...shape.errors.map((issue) => ({ ...issue, path: `${at}${issue.path.slice(1)}` })),
       );
-      if (validateActionRule(rule).ok)
+      if (shape.errors.every((issue) => issue.code === 'cycle'))
         errors.push(...relIssues(map, schema, lensOf(map, resource), rule, at));
     }
   }

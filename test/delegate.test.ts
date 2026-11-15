@@ -28,7 +28,9 @@ const schema: RebacSchema = {
     'db:user': { actions: { own: null, read: 'own' } },
   },
 };
-const check = createRebacCheck(mapOf({ 'db:space': { organization: 'db:organization' } }));
+const check = createRebacCheck(
+  mapOf({ 'db:space': { organization: 'db:organization' } }, { 'db:user': [] }),
+);
 
 const o1 = { id: 'o1' };
 const s1 = { id: 's1', organizationId: 'o1', organization: o1 };

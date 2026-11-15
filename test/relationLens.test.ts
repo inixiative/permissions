@@ -16,6 +16,7 @@ import {
   validateSchema,
   whereLensProblem,
 } from '../index';
+import { lensOf, whereNodeProblem } from '../src/core/lens';
 import { loadModels } from './fixtures/load';
 
 // One lens decides what hydration loads, what a check reads of a record, and which paths a rule
@@ -286,7 +287,7 @@ describe('the review probes: each returned true on 0.22.0', () => {
 
   test('P1: chained { rel } hops and a where held on the row past the old cut read the real row', async () => {
     const u1 = await hydrate('user', db.user?.u1 as Row);
-    expect((u1.org as Row).creator as Row).toBe(u1);
+    expect(((u1.org as Row).creator as Row).org).toBe(u1.org);
     const chained: RebacSchema = {
       permissions: {
         user: {
@@ -342,7 +343,7 @@ describe('a loop made by data denies; a schema that names itself throws', () => 
 
   test('around the cycle: no grant denies, the owner is allowed, paths agree', async () => {
     const u1 = await hydrate('user', db.user?.u1 as Row);
-    expect((u1.org as Row).creator as Row).toBe(u1);
+    expect(((u1.org as Row).creator as Row).org).toBe(u1.org);
     const subject = { resource: 'user', record: u1 };
     expect(check(actorAs('x'), walks, subject, 'read')).toBe(false);
     expect(check(owns('u1'), walks, subject, 'read')).toBe(true);
@@ -588,6 +589,137 @@ describe('the record a check reads is a view', () => {
     expect(check(actorAs('x'), schema, { resource: 'user', record: user }, 'act')).toBe(true);
     expect(user.targetEntitlements).toBe(targetEntitlements);
     expect(codes(ruled('user', reads('targetEntitlements.0.id', 'e1')))).toEqual(['lens']);
+  });
+});
+
+describe('the second review of the final build', () => {
+  test('an edge back to the root loads the stored row: the caller’s record is not believed there', async () => {
+    const named = (value: unknown): RebacSchema => ({
+      permissions: {
+        user: {
+          actions: { act: { rel: 'org.creator', action: 'named' }, named: reads('name', value) },
+        },
+      },
+    });
+    const partial = await hydrate('user', { id: 'u1', orgId: 'o1' });
+    const creator = (partial.org as Row).creator as Row;
+    expect(creator).not.toBe(partial);
+    expect(creator.name).toBe('Una');
+    expect(check(actorAs('x'), named(null), { resource: 'user', record: partial }, 'act')).toBe(
+      false,
+    );
+    const forged = await hydrate('user', { id: 'u1', name: 'EVIL', orgId: 'o1' });
+    expect(check(actorAs('x'), named('EVIL'), { resource: 'user', record: forged }, 'act')).toBe(
+      false,
+    );
+    expect(check(actorAs('x'), named('Una'), { resource: 'user', record: forged }, 'act')).toBe(
+      true,
+    );
+  });
+
+  test('under a list item a declared path is loaded as written, never linked to a row met higher', async () => {
+    const col = column('String');
+    const people: SchemaMap = {
+      resources: { project: 'Project', task: 'Task', user: 'User', org: 'Org' },
+      fieldMap: {
+        models: {
+          Project: {
+            fields: {
+              id: col,
+              tasks: toMany('Task', {
+                relationName: 'TaskProject',
+                annotations: { permissions: { down: ['assignee.mentor.mentor.org'] } },
+              } as Partial<FieldMapEntry>),
+            },
+          },
+          Task: {
+            fields: {
+              id: col,
+              projectId: col,
+              assigneeId: col,
+              project: toOne('Project', 'projectId', { relationName: 'TaskProject' }),
+              assignee: toOne('User', 'assigneeId', { relationName: 'TaskAssignee' }),
+            },
+          },
+          User: {
+            fields: {
+              id: col,
+              orgId: col,
+              mentorId: col,
+              org: toOne('Org', 'orgId', { relationName: 'UserOrg' }),
+              mentor: toOne('User', 'mentorId', { relationName: 'UserMentor' }),
+            },
+          },
+          Org: { fields: { id: col, name: col } },
+        },
+      },
+    };
+    const rows: Record<string, Record<string, Row>> = {
+      task: { t1: { id: 't1', projectId: 'p1', assigneeId: 'u1' } },
+      user: {
+        u1: { id: 'u1', orgId: 'o1', mentorId: 'u2' },
+        u2: { id: 'u2', orgId: 'o1', mentorId: 'u1' },
+      },
+      org: { o1: { id: 'o1', name: 'acme' } },
+    };
+    const load = createHydrator({
+      map: people,
+      load: async (resource, where) => rows[resource]?.[where.id as string] ?? null,
+      loadMany: async (resource, where) =>
+        Object.values(rows[resource] ?? {}).filter((row) =>
+          Object.entries(where).every(([key, value]) => row[key] === value),
+        ),
+    });
+    const project = await load('project', { id: 'p1' });
+    const schema: RebacSchema = {
+      permissions: {
+        project: {
+          actions: {
+            read: {
+              rel: 'tasks',
+              arrayOperator: 'any',
+              condition: reads('assignee.mentor.mentor.org.name', 'acme'),
+            },
+          },
+        },
+      },
+    };
+    expect(
+      createRebacCheck(people)(
+        actorAs('x'),
+        schema,
+        { resource: 'project', record: project },
+        'read',
+      ),
+    ).toBe(true);
+  });
+
+  test('a schema resource that is not in the map is refused, not read with no lens', () => {
+    const ghost: RebacSchema = {
+      permissions: { ghost: { actions: { read: reads('members.0.role', 'admin') } } },
+    };
+    expect(codes(ghost)).toEqual(['lens']);
+    expect(() =>
+      check(
+        actorAs('x'),
+        ghost,
+        { resource: 'ghost', record: { members: [{ role: 'admin' }] } },
+        'read',
+      ),
+    ).toThrow('`ghost` is not a resource in the map');
+  });
+
+  test('a where consulted on a list item is judged at the item’s declared node', () => {
+    const where: Condition = {
+      field: 'author.org.creator.org.name',
+      operator: 'equals',
+      value: 'acme',
+    };
+    const item = lensOf(map, 'conversation').lists.get('messages')?.item;
+    expect(whereNodeProblem(map, lensOf(map, 'message'), where)).toBeNull();
+    expect(whereNodeProblem(map, item as never, where)).toMatch(
+      /loads no `author.org.creator.org`/,
+    );
   });
 });
 

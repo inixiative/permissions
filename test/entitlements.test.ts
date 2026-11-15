@@ -65,6 +65,7 @@ const relations: Record<string, Record<string, string>> = {
 };
 const check = createRebacCheck(
   mapOf(relations, {
+    'db:user': [],
     'db:space': ['name', 'defaultProvider', 'archivedAt'],
     'db:integration': ['provider'],
     'db:contact': ['protected', 'name', 'userId', 'valueKey'],
