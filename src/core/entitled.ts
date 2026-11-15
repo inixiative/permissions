@@ -1,9 +1,10 @@
 import { type Absent, type Condition, check as checkRule } from '@inixiative/json-rules';
 import { evaluate, type Visited, type Walk } from './evaluate';
-import { asOwner, nodeId, permixId } from './identity';
-import { lensOf, whereNodeProblem } from './lens';
+import { asOwner, permixId, rowId } from './identity';
+import { lensAt, relationPathProblem, whereProblemAt } from './lens';
 import { reachableFrom } from './reachableFrom';
 import { recordId } from './recordId';
+import { rowsAlong } from './schemaMap';
 import type { Anchor, PermixLike, Row } from './types';
 
 const holds = (where: Condition, record: Row, absent: Absent): boolean =>
@@ -15,18 +16,16 @@ const reaches = <R extends string, T>(
   record: Row,
   anchor: Anchor,
 ) => {
-  let currentResource: R = resource;
-  let current: Row = record;
-  for (const segment of anchor.path?.split('.') ?? []) {
-    const relation = lensOf(walk.map, currentResource).toOne.get(segment);
-    const related = current[segment] as Row | null | undefined;
-    if (!relation || !related || Array.isArray(related)) return false;
-    if (relation.kinds && !relation.kinds.values.includes(current[relation.kinds.field] as string))
-      return false;
-    currentResource = relation.resource;
-    current = related;
-  }
-  return currentResource === anchor.resource && recordId(current) === anchor.id;
+  const segments = anchor.path?.split('.') ?? [];
+  // why: under an item only the declared paths are loaded; anything else on the item is the loader's
+  if (
+    walk.under &&
+    relationPathProblem(walk.map, lensAt(walk.map, resource, walk.under), anchor.path ?? '')
+  )
+    return false;
+  const steps = rowsAlong(walk.map, resource, record, segments, true);
+  const end = steps[segments.length];
+  return end?.resource === anchor.resource && recordId(end.row) === anchor.id;
 };
 
 // Entitlements are consulted after the table and the schema both miss, at the node the holder's
@@ -58,12 +57,11 @@ export const entitled = <R extends string, T>(
     held.map(
       ({ anchor, where, owner, ref, grantsBelow }) =>
         () =>
-          !visited.has(`${permixId(owner)}:${nodeId(record)}:${resource}:${action}`) &&
+          !visited.has(`${permixId(owner)}:${rowId(record)}:${resource}:${action}`) &&
           (above
             ? grantsBelow === true && where === undefined
             : where === undefined ||
-              (whereNodeProblem(walk.map, walk.under ?? lensOf(walk.map, resource), where) ===
-                null &&
+              (whereProblemAt(walk.map, lensAt(walk.map, resource, walk.under), where) === null &&
                 (walk.ignoreWheres || holds(where, record, walk.absent)))) &&
           reaches(walk, resource, record, anchor)
             ? walk.algebra.through(

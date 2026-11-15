@@ -1,7 +1,12 @@
-import { type Condition, check as checkRule, type FieldMap } from '@inixiative/json-rules';
+import {
+  type Condition,
+  check as checkRule,
+  type FieldMap,
+  type LensNarrowing,
+  type ModelNarrowing,
+} from '@inixiative/json-rules';
 import { entitlementProblem } from './entitlementProblem';
 import { withExactStrings } from './exactStrings';
-import type { LensNode } from './lens';
 import type { EntitlementEntry } from './permix';
 import { idField, recordId } from './recordId';
 import type { Row } from './types';
@@ -31,12 +36,15 @@ export type Relation<R extends string = string> = {
   kinds: { field: string; values: string[] } | null;
 };
 
-/** A list declared `/// @permissions(down: [...])`: the items' resource, their key back to the parent, and an item's lens. */
+/** A tree of relations in json-rules' spelling (`{ org: { relations: { creator: { relations: {} } } } }`). */
+export type Spelled = Record<string, ModelNarrowing>;
+
+/** A list declared `/// @permissions(down: [...])`: the items' resource, their key back to the parent, and the declared paths. */
 export type ListRelation<R extends string = string> = {
   resource: R;
   from: readonly string[];
   to: readonly string[];
-  item: LensNode<R>;
+  down: Spelled;
 };
 
 type MapIndex = {
@@ -44,7 +52,7 @@ type MapIndex = {
   relations: Map<string, Relation | string>;
   lists: Map<string, ListRelation>;
   marks: Map<string, ReadonlySet<string>>;
-  lenses: Map<string, LensNode>;
+  lenses: Map<string, LensNarrowing | null>;
 };
 
 type Annotated = { annotations?: { permissions?: Record<string, unknown> } };
@@ -160,34 +168,27 @@ const listFor = (map: SchemaMap, resource: string, name: string, down: unknown):
     throw new Error(
       `${at}: \`down\` is a list of dotted relation paths, \`[forumUser.fanUser, forumUser.brandUser]\`, got ${JSON.stringify(down)}`,
     );
-  type Building = { node: LensNode; toOne: Map<string, Relation>; children: Map<string, Building> };
-  const building = (resource: string): Building => {
-    const toOne = new Map<string, Relation>();
-    const children = new Map<string, Building>();
-    const below = (child: string) => (children.get(child) as Building).node;
-    return { toOne, children, node: { resource, down: true, toOne, lists: new Map(), below } };
-  };
-  const root = building(item);
+  const tree: Spelled = {};
   for (const path of (down as string[]).map((dotted) => dotted.split('.'))) {
-    let branch = root;
+    let branch = tree;
+    let current = item;
     for (const [depth, segment] of path.entries()) {
-      const relation = toOneOf(map, branch.node.resource, segment);
+      const relation = toOneOf(map, current, segment);
       if (typeof relation === 'string')
         throw new Error(`${at}: \`${path.join('.')}\`: ${relation}`);
       if (depth === 0 && segment === inverse[0])
         throw new Error(`${at}: \`${path.join('.')}\` goes back up the list it came down`);
-      if (!branch.children.has(segment)) {
-        branch.toOne.set(segment, relation);
-        branch.children.set(segment, building(relation.resource));
-      }
-      branch = branch.children.get(segment) as Building;
+      const next: ModelNarrowing = branch[segment] ?? { relations: {} };
+      branch[segment] = next;
+      branch = next.relations as Spelled;
+      current = relation.resource;
     }
   }
   return {
     resource: item,
     from: inverse[1].fromFields ?? [],
     to: inverse[1].toFields ?? [],
-    item: root.node,
+    down: tree,
   };
 };
 
@@ -218,7 +219,7 @@ export const listsOf = <R extends string>(
 const marksOf = <R extends string>(map: SchemaMap<R>, resource: R): ReadonlySet<string> =>
   indexMap(map as SchemaMap).marks.get(resource) ?? new Set();
 
-const resourceOf = <R extends string>(map: SchemaMap<R>, model: string): R | null =>
+export const resourceOf = <R extends string>(map: SchemaMap<R>, model: string): R | null =>
   (indexMap(map as SchemaMap).resources.get(model) as R | undefined) ?? null;
 
 export const fieldOf = <R extends string>(map: SchemaMap<R>, resource: R, segment: string) => {
@@ -362,25 +363,42 @@ const ownerRelationOf = <R extends string>(
   );
 };
 
+/**
+ * The rows `segments` reaches from `row`, start included, each by a to-one relation the hydrator
+ * follows; it stops where one is missing, or with `kinds` where a polymorphic step's kind is not
+ * one its relation admits.
+ */
+export const rowsAlong = <R extends string>(
+  map: SchemaMap<R>,
+  resource: R,
+  row: Row,
+  segments: readonly string[],
+  kinds = false,
+): { resource: R; row: Row }[] => {
+  const steps = [{ resource, row }];
+  for (const segment of segments) {
+    const { resource: current, row: at } = steps[steps.length - 1] as { resource: R; row: Row };
+    const relation = relationOf(map, current, segment);
+    const next = at[segment];
+    if (!relation || !next || typeof next !== 'object' || Array.isArray(next)) break;
+    if (
+      kinds &&
+      relation.kinds &&
+      !relation.kinds.values.includes(at[relation.kinds.field] as string)
+    )
+      break;
+    steps.push({ resource: relation.resource, row: next as Row });
+  }
+  return steps;
+};
+
 const chainOf = <R extends string>(
   map: SchemaMap<R>,
   resource: R,
   row: Row,
   segments: string[],
-): Map<R, Row> => {
-  const chain = new Map<R, Row>([[resource, row]]);
-  let current = resource;
-  let at = row;
-  for (const segment of segments) {
-    const relation = relationOf(map, current, segment);
-    const next = at[segment] as Row | undefined;
-    if (!relation || !next) break;
-    current = relation.resource;
-    at = next;
-    chain.set(current, at);
-  }
-  return chain;
-};
+): Map<R, Row> =>
+  new Map(rowsAlong(map, resource, row, segments).map((step) => [step.resource, step.row]));
 
 const placeTowards = <R extends string>(
   map: SchemaMap<R>,
@@ -511,19 +529,21 @@ export const rowsAbove = <R extends string>(
   placed: Row,
 ): ReadonlySet<Row> => {
   const rows = new Set<Row>();
-  let resource = entry.resource as R;
-  let anchor = placed;
-  for (const segment of entry.anchor.path?.split('.') ?? []) {
-    const relation = relationOf(map, resource, segment);
-    const parent = anchor[segment] as Row | null | undefined;
-    if (!relation || !parent || typeof parent !== 'object' || Array.isArray(parent)) return rows;
-    resource = relation.resource;
-    anchor = parent;
-  }
-  if (resource !== entry.anchor.resource || recordId(anchor) !== entry.anchor.id) return rows;
+  const segments = entry.anchor.path?.split('.') ?? [];
+  const steps = rowsAlong(map, entry.resource as R, placed, segments);
+  const end = steps[segments.length];
+  if (!end || end.resource !== entry.anchor.resource || recordId(end.row) !== entry.anchor.id)
+    return rows;
+  // why: around a loop the granted row comes back as another object; it is the same row, by resource and id
+  const granted = (resource: R, row: Row) =>
+    entry.anchor.path === undefined &&
+    resource === entry.resource &&
+    recordId(row) === entry.anchor.id;
+  const seen = new Set<Row>();
   const climb = (current: R, row: Row) => {
-    if (rows.has(row)) return;
-    rows.add(row);
+    if (seen.has(row)) return;
+    seen.add(row);
+    if (!granted(current, row)) rows.add(row);
     for (const name of relationNames(map, current)) {
       const relation = relationOf(map, current, name);
       const parent = row[name] as Row | null | undefined;
@@ -531,7 +551,6 @@ export const rowsAbove = <R extends string>(
         climb(relation.resource, parent);
     }
   };
-  climb(resource, anchor);
-  if (entry.anchor.path === undefined) rows.delete(anchor);
+  climb(end.resource, end.row);
   return rows;
 };

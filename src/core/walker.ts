@@ -2,7 +2,7 @@ import { type BridgeDictionary, indexBridges } from '@inixiative/json-rules';
 import type { Algebra } from './algebra';
 import { evaluate } from './evaluate';
 import { withExactStrings } from './exactStrings';
-import { judgeOnce, projectRecord } from './lens';
+import { judgeOnce } from './lens';
 import { indexMap, type SchemaMap } from './schemaMap';
 import type { ActionRule, CheckOptions, PermixLike, RebacSchema, Row, Subject } from './types';
 import { validateActionRule } from './validateActionRule';
@@ -56,7 +56,7 @@ export const createWalker = <R extends string, T>(
       );
       if (outside) outsideLens(outside);
     }
-    const record = projectRecord(map, subject.resource, subject.record);
+    const record = subject.record;
     // Built lazily on the first bridge hop: a check that never crosses a bridge must not pay for —
     // or be crashed by (indexBridges throws on malformed `data`) — a dictionary it never reads.
     let built = false;

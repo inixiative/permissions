@@ -1,6 +1,13 @@
-import { type LensNode, lensOf } from '../../core/lens';
 import { idField } from '../../core/recordId';
-import { indexMap, keysFrom, type Relation, type SchemaMap } from '../../core/schemaMap';
+import {
+  indexMap,
+  keysFrom,
+  listsOf,
+  type Relation,
+  relationOf,
+  type SchemaMap,
+  type Spelled,
+} from '../../core/schemaMap';
 import type { Row } from '../../core/types';
 /**
  * What the hydrator needs: the schema map the checks walk, and `load`, one read of a `resource`'s
@@ -31,62 +38,109 @@ const whereOf = (relation: Relation, record: Row): Row | null => {
 const keyOf = (resource: string, where: Row): string =>
   `${resource}\u0000${JSON.stringify(Object.entries(where).sort(([a], [b]) => a.localeCompare(b)))}`;
 
-/** A hydrator that loads the relation lens of a record, owning what it follows (README, Helper: hydration). */
+/** The most `load`/`loadMany` calls one hydration makes before it throws. */
+export const hydrationLimits = { loads: 10_000 };
+
+type Run = {
+  raw: Map<string, Promise<Row | null>>;
+  rows: Map<string, Promise<Row | null>>;
+  work: Promise<void>[];
+  loads: number;
+};
+
+/** A hydrator that loads every to-one of every row, and each declared list (README, Helper: hydration). */
 export const createHydrator = <R extends string>({ map, load, loadMany }: HydrateDeps<R>) => {
   if (indexMap(map as SchemaMap).lists.size && !loadMany)
     throw new Error('the map declares a list (`@permissions(down: ...)`): pass `loadMany`');
-  const once = (
-    resource: R,
-    where: Row,
-    pending: Map<string, Promise<Row | null>>,
-  ): Promise<Row | null> => {
+  const counted = (run: Run, resource: R) => {
+    if (++run.loads > hydrationLimits.loads)
+      throw new Error(
+        `hydrating \`${resource}\` passed ${hydrationLimits.loads} loads: a chain that long is not a permission walk`,
+      );
+  };
+  const loadOnce = (run: Run, resource: R, where: Row): Promise<Row | null> => {
     const key = keyOf(resource, where);
-    let loading = pending.get(key);
+    let loading = run.raw.get(key);
     if (!loading) {
+      counted(run, resource);
       loading = load(resource, where);
-      pending.set(key, loading);
+      run.raw.set(key, loading);
     }
     return loading;
   };
-  const hydrateAt = async (
-    node: LensNode<R>,
-    record: Row,
-    pending: Map<string, Promise<Row | null>>,
-    ancestors: ReadonlyMap<string, Row>,
-    key?: string,
-  ): Promise<Row> => {
-    const result: Row = { ...record };
-    const above = key && !node.down ? new Map(ancestors).set(key, result) : ancestors;
-    const lists = [...node.lists].map(async ([name, list]) => {
+  const fields = (resource: R) =>
+    Object.keys(map.fieldMap.models[map.resources[resource]]?.fields ?? {}).flatMap((name) => {
+      const relation = relationOf(map, resource, name);
+      return relation ? [[name, relation] as const] : [];
+    });
+  // why: a row stored once is one object wherever it is reached, so a loop is the real cyclic graph
+  const linked = (run: Run, relation: Relation<R>, where: Row): Promise<Row | null> => {
+    const key = keyOf(relation.resource, where);
+    let row = run.rows.get(key);
+    if (!row) {
+      let resolve: (value: Row | null) => void = () => {};
+      row = new Promise((done) => {
+        resolve = done;
+      });
+      run.rows.set(key, row);
+      run.work.push(
+        (async () => {
+          const stored = await loadOnce(run, relation.resource, where);
+          const object = stored ? { ...stored } : null;
+          resolve(object);
+          if (object && stored) await fill(run, relation.resource, object, stored);
+        })(),
+      );
+    }
+    return row;
+  };
+  const fill = async (run: Run, resource: R, result: Row, record: Row): Promise<void> => {
+    const lists = listsOf(map, resource).map(async ([name, list]) => {
       const where = keysFrom(list, record);
       const complete = Object.keys(where).length === list.from.length;
+      if (complete) counted(run, list.resource);
       const items = complete
         ? await (loadMany as NonNullable<typeof loadMany>)(list.resource, where)
         : [];
       result[name] = await Promise.all(
-        items.map((item) => hydrateAt(list.item, item, pending, above)),
+        items.map((item) => declared(run, list.resource, item, list.down)),
       );
     });
     await Promise.all([
       ...lists,
-      ...[...node.toOne].map(async ([name, relation]) => {
+      ...fields(resource).map(async ([name, relation]) => {
         delete result[name];
         const where = whereOf(relation, record);
-        if (!where) return;
-        const at = keyOf(relation.resource, where);
-        // why: a loaded row above on this path is the same object here; a declared path is finite, loaded as written
-        const ancestor = node.down ? undefined : above.get(at);
-        if (ancestor) {
-          result[name] = ancestor;
-          return;
-        }
-        const related = await once(relation.resource, where, pending);
-        if (related) result[name] = await hydrateAt(node.below(name), related, pending, above, at);
+        const row = where && (await linked(run, relation, where));
+        if (row) result[name] = row;
       }),
     ]);
+  };
+  // why: a declared path is finite and loaded as written, never linked to a row met elsewhere
+  const declared = async (run: Run, resource: R, record: Row, tree: Spelled): Promise<Row> => {
+    const result: Row = { ...record };
+    await Promise.all(
+      Object.entries(tree).map(async ([name, below]) => {
+        delete result[name];
+        const relation = relationOf(map, resource, name);
+        const where = relation && whereOf(relation, record);
+        const stored = where && relation && (await loadOnce(run, relation.resource, where));
+        if (stored && relation)
+          result[name] = await declared(
+            run,
+            relation.resource,
+            stored,
+            (below.relations ?? {}) as Spelled,
+          );
+      }),
+    );
     return result;
   };
-  // why: the root is the caller's record, not a stored row, so an edge back to it loads the row
-  return (resource: R, record: Row): Promise<Row> =>
-    hydrateAt(lensOf(map, resource), record, new Map(), new Map());
+  return async (resource: R, record: Row): Promise<Row> => {
+    const run: Run = { raw: new Map(), rows: new Map(), work: [], loads: 0 };
+    const result: Row = { ...record };
+    await fill(run, resource, result, record);
+    while (run.work.length) await Promise.all(run.work.splice(0));
+    return result;
+  };
 };

@@ -16,7 +16,8 @@ import {
   validateSchema,
   whereLensProblem,
 } from '../index';
-import { lensOf, whereNodeProblem } from '../src/core/lens';
+import { lensAt, whereProblemAt } from '../src/core/lens';
+import { listOf } from '../src/core/schemaMap';
 import { loadModels } from './fixtures/load';
 
 // One lens decides what hydration loads, what a check reads of a record, and which paths a rule
@@ -269,47 +270,49 @@ describe('the review probes: each returned true on 0.22.0', () => {
     expect(createCanGrantEntitlement(map)(writer, schema, entry, record)).toBe(false);
   });
 
-  test('T8: a path around a cycle reads the same row again, so a set name never reads as null', async () => {
+  test('T8: a path back to a model is refused; the hydrator links the row it would read', async () => {
     const attacker = await hydrate('user', db.user?.attacker as Row);
     const org = attacker.org as Row;
     expect((org.creator as Row).org).toBe(org);
-    const at = (field: string, value: unknown) =>
-      check(
-        actorAs('attacker'),
-        ruled('user', reads(field, value)),
-        { resource: 'user', record: attacker },
-        'act',
-      );
-    expect(at('org.creator.org.name', null)).toBe(false);
-    expect(at('org.creator.org.name', 'acme')).toBe(true);
-    expect(at('org.creator.org.creator.org.creator.name', 'Una')).toBe(true);
+    for (const field of ['org.creator.org.name', 'org.creator.name'])
+      expect(() =>
+        check(
+          actorAs('attacker'),
+          ruled('user', reads(field)),
+          { resource: 'user', record: attacker },
+          'act',
+        ),
+      ).toThrow(/comes back to `user`: a path back to a model is not in the lens/);
   });
 
-  test('P1: chained { rel } hops and a where held on the row past the old cut read the real row', async () => {
+  test('P1: a rel back to a model is two hops; each lands on the real row, and a where there holds on it', async () => {
     const u1 = await hydrate('user', db.user?.u1 as Row);
     expect(((u1.org as Row).creator as Row).org).toBe(u1.org);
-    const chained: RebacSchema = {
-      permissions: {
-        user: {
-          actions: { act: { rel: 'org.creator', action: 'vouch' }, vouch: reads('org.name', null) },
-        },
-      },
-    };
-    expect(check(actorAs('x'), chained, { resource: 'user', record: u1 }, 'act')).toBe(false);
-    const held: EntitlementEntry = {
-      resource: 'user',
-      anchor: { resource: 'user', id: 'u1' },
-      where: { field: 'org.name', operator: 'equals', value: null },
-      actions: { vouch: true },
-    };
-    const viaWhere: RebacSchema = {
+    const oneHop: RebacSchema = {
       permissions: {
         user: { actions: { act: { rel: 'org.creator', action: 'vouch' }, vouch: null } },
       },
     };
-    expect(check(actorAs('x', [held]), viaWhere, { resource: 'user', record: u1 }, 'act')).toBe(
-      false,
+    expect(() => check(actorAs('x'), oneHop, { resource: 'user', record: u1 }, 'act')).toThrow(
+      /`org.creator` comes back to `user`/,
     );
+    const twoHops = (vouch: ActionRule): RebacSchema => ({
+      permissions: {
+        user: { actions: { act: { rel: 'org', action: 'creator' }, vouch } },
+        org: { actions: { creator: { rel: 'creator', action: 'vouch' } } },
+      },
+    });
+    const subject = { resource: 'user', record: u1 };
+    expect(check(actorAs('x'), twoHops(reads('org.name', null)), subject, 'act')).toBe(false);
+    expect(check(actorAs('x'), twoHops(reads('org.name', 'acme')), subject, 'act')).toBe(true);
+    const held = (value: string | null): EntitlementEntry => ({
+      resource: 'user',
+      anchor: { resource: 'user', id: 'u1' },
+      where: { field: 'org.name', operator: 'equals', value },
+      actions: { vouch: true },
+    });
+    expect(check(actorAs('x', [held(null)]), twoHops(null), subject, 'act')).toBe(false);
+    expect(check(actorAs('x', [held('acme')]), twoHops(null), subject, 'act')).toBe(true);
     const conversation = await hydrate('conversation', db.conversation?.c1 as Row);
     const fromConversation: RebacSchema = {
       permissions: {
@@ -464,12 +467,13 @@ describe('the second review: each returned true on the first build', () => {
 });
 
 describe('what the lens keeps', () => {
-  test('a column of a relation, a Json sub-path, an index into a scalar list, a computed root key', async () => {
+  test('a column of a relation, a Json sub-path, a scalar list (never indexed), a computed root key', async () => {
     const message = await hydrate('message', db.message?.m1 as Row);
     const passes = (rule: ActionRule, record: Row = message) =>
       check(actorAs('attacker'), ruled('message', rule), { resource: 'message', record }, 'act');
     expect(passes(reads('conversation.org.name', 'acme'))).toBe(true);
-    expect(passes(reads('mentions.0', 'aron'))).toBe(true);
+    expect(passes({ rule: { field: 'mentions', operator: 'contains', value: 'aron' } })).toBe(true);
+    expect(() => passes(reads('mentions.0', 'aron'))).toThrow(/`mentions` is a column/);
     expect(
       passes(reads('conversation.meta.flags.0', 'x'), {
         ...message,
@@ -530,7 +534,7 @@ describe('what the lens keeps', () => {
         'act',
       ),
     ).toBe(true);
-    expect(codes(ruled('message', reads('author.org.creator.name')))).toEqual([]);
+    expect(codes(ruled('message', reads('author.org.creator.name')))).toEqual(['lens']);
   });
 
   test('a key the model does not have and an index are refused; a computed key only inline, at the subject', () => {
@@ -597,8 +601,9 @@ describe('the second review of the final build', () => {
     const named = (value: unknown): RebacSchema => ({
       permissions: {
         user: {
-          actions: { act: { rel: 'org.creator', action: 'named' }, named: reads('name', value) },
+          actions: { act: { rel: 'org', action: 'creator' }, named: reads('name', value) },
         },
+        org: { actions: { creator: { rel: 'creator', action: 'named' } } },
       },
     });
     const partial = await hydrate('user', { id: 'u1', orgId: 'o1' });
@@ -709,17 +714,16 @@ describe('the second review of the final build', () => {
     ).toThrow('`ghost` is not a resource in the map');
   });
 
-  test('a where consulted on a list item is judged at the item’s declared node', () => {
-    const where: Condition = {
-      field: 'author.org.creator.org.name',
-      operator: 'equals',
-      value: 'acme',
-    };
-    const item = lensOf(map, 'conversation').lists.get('messages')?.item;
-    expect(whereNodeProblem(map, lensOf(map, 'message'), where)).toBeNull();
-    expect(whereNodeProblem(map, item as never, where)).toMatch(
-      /loads no `author.org.creator.org`/,
-    );
+  test('a where consulted on a list item is judged at the item’s declared paths', () => {
+    const where: Condition = { field: 'conversation.org.name', operator: 'equals', value: 'acme' };
+    const list = listOf(map, 'conversation', 'messages');
+    const item = lensAt(map, 'message', {
+      list: 'conversation.messages',
+      listRelation: list as never,
+      prefix: [],
+    });
+    expect(whereProblemAt(map, lensAt(map, 'message'), where)).toBeNull();
+    expect(whereProblemAt(map, item, where)).toMatch(/loads no `conversation` under an item/);
   });
 });
 

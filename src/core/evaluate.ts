@@ -3,10 +3,10 @@ import { isNil, isPlainObject } from 'lodash-es';
 import type { Algebra } from './algebra';
 import { bridgeHop, lookupFar } from './bridgeHop';
 import { entitled } from './entitled';
-import { nodeId, permixId } from './identity';
-import { type LensNode, lensOf } from './lens';
+import { permixId, rowId } from './identity';
+import type { Under } from './lens';
 import { recordId } from './recordId';
-import type { SchemaMap } from './schemaMap';
+import { listOf, relationOf, type SchemaMap } from './schemaMap';
 import type { ActionRule, PermixLike, RebacSchema, Row } from './types';
 import { validateActionRule } from './validateActionRule';
 import { actionRuleLensIssues } from './validateSchema';
@@ -27,7 +27,7 @@ export type Walk<R extends string, T = boolean> = {
    */
   above?: ReadonlySet<Row>;
   /** The item's lens node once the walk has crossed a list: a missing column is unknown, a bridge denies, the first pass counts nothing. */
-  under?: LensNode<R>;
+  under?: Under;
   /** Relation hops crossed on this path: a node met again after one is a data loop, which denies. */
   hops?: number;
 };
@@ -72,7 +72,7 @@ const walkAction = <R extends string, T>(
 ): T => {
   // Key by resource too: the same record object reached as a different resource (a self-join) is
   // a distinct node, not a cycle. Key by table too: an owner walk legitimately revisits the node.
-  const key = `${permixId(permix)}:${nodeId(record)}:${resource}:${actionOrRule}`;
+  const key = `${permixId(permix)}:${rowId(record)}:${resource}:${actionOrRule}`;
   const hops = walk.hops ?? 0;
   // why: a loop with no hop is a schema naming itself (a bug, it throws); one through a hop is data, and denies
   if (visited.has(key))
@@ -92,7 +92,8 @@ const walkAction = <R extends string, T>(
       action: actionOrRule,
       rowRules,
     }).ok &&
-    actionRuleLensIssues(walk.map, walk.schema, resource, rowRule).length === 0;
+    actionRuleLensIssues(walk.map, walk.schema, resource, rowRule, '$', false, walk.under)
+      .length === 0;
   // Row-level override is additive (OR) with the schema rule — a per-record grant can only widen.
   const merged: ActionRule = rowRuleHolds ? { any: [schemaRule, rowRule] } : schemaRule;
   return walk.algebra.any([
@@ -112,13 +113,13 @@ const walkRule = <R extends string, T>(
   const { algebra } = walk;
   // why: `visited` is forked per item, since two items reaching one row are parallel paths, not a cycle
   if ('arrayOperator' in rule) {
-    const list = lensOf(walk.map, resource).lists.get(rule.rel);
+    const list = listOf(walk.map, resource, rule.rel);
     const items = record[rule.rel];
     if (!list || !Array.isArray(items)) return algebra.none;
     const under: Walk<R, T> = {
       ...walk,
       absent: 'unknown',
-      under: list.item,
+      under: { list: `${resource}.${rule.rel}`, listRelation: list, prefix: [] },
       hops: (walk.hops ?? 0) + 1,
       ...(walk.above ? { above: noRows } : {}),
     };
@@ -135,7 +136,7 @@ const walkRule = <R extends string, T>(
     const segments = rule.rel.split('.');
     let currentResource = resource;
     let current: Row = record;
-    let node = walk.under;
+    const walked: string[] = [];
     for (const segment of segments) {
       const hop = bridgeHop(walk.schema.bridges, currentResource, segment);
       if (hop) {
@@ -149,15 +150,15 @@ const walkRule = <R extends string, T>(
       } else {
         const related = current[segment] as Row | null | undefined;
         if (!related || Array.isArray(related)) return algebra.none;
-        const at = node ?? lensOf(walk.map, currentResource);
-        const next = at.toOne.get(segment);
+        const next = relationOf(walk.map, currentResource, segment);
         if (!next) return algebra.none;
-        if (node) node = at.below(segment);
+        walked.push(segment);
         current = related;
         currentResource = next.resource;
       }
     }
-    const hopped = { ...walk, hops: (walk.hops ?? 0) + 1, ...(node ? { under: node } : {}) };
+    const under = walk.under && { ...walk.under, prefix: [...walk.under.prefix, ...walked] };
+    const hopped = { ...walk, hops: (walk.hops ?? 0) + 1, ...(under ? { under } : {}) };
     return evaluate(hopped, permix, currentResource, current, rule.action, visited);
   }
 
