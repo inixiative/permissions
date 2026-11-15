@@ -1,0 +1,41 @@
+{
+  "id": "grants-and-entitlements",
+  "title": "Grants, entitlements and delegation",
+  "routing": "Is this about what an actor holds or hands on: createPermissions and permix.setup(entries, { owner?, replace? }), table grants { resource, id?, actions }, entitlements { resource, anchor: { resource, id, path? }, where?, actions, ref? } backed by an owner, createCanGrantEntitlement with placeEntitlement and delegatedWhere, or delegates via delegate / capAtRole / permixOf / installPermissions / wellFormedEntitlements; jobs like 'give this token manage on one space', 'may this admin grant that', 'cap the integration at read', 'license our products to another org'?",
+  "concepts": ["permix", "entitlements", "granting", "delegation", "tenant-boundaries"],
+  "tokens": 15588,
+  "tokenMethod": "chars/4",
+  "files": {
+    "recognise": {
+      "path": "recognise.md",
+      "tokens": 1756,
+      "experimental": true,
+      "note": "a smaller recognise-only document; knowledge.md is the Warden document"
+    },
+    "knowledge": {
+      "path": "knowledge.md",
+      "tokens": 15588
+    }
+  },
+  "runsAgreed": 3,
+  "sources": {
+    "docs": ["README.md"],
+    "docUnits": [
+      "doc:README.md#the-permix-wrapper",
+      "doc:README.md#the-permix-wrapper/entitlements",
+      "doc:README.md#helper-delegation-full-or-specified",
+      "doc:README.md#tenant-boundaries"
+    ],
+    "catalogClusters": [
+      "primitive-action-rules",
+      "primitive-delegation",
+      "primitive-entitlements",
+      "primitive-granting",
+      "primitive-permix"
+    ],
+    "codeEntries": 19,
+    "docMembers": 26
+  },
+  "bypassLines": 19,
+  "glossaryTerms": 29
+}

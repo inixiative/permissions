@@ -264,8 +264,8 @@ import { engineGlobals } from '@inixiative/json-rules';
 import { createRebacCheck, type SchemaMap } from '@inixiative/permissions';
 
 // the schema the walk reads: which fieldMap model each resource is, its relations and foreign keys
-// (a json-rules FieldMap, structurally a prisma-map), and the polymorphic models' kinds
-const map: SchemaMap = { resources, fieldMap: prismaMap, polymorphism };
+// (a json-rules FieldMap, whose `models` are structurally a prisma-map), and the polymorphic models' kinds
+const map: SchemaMap = { resources, fieldMap: { models: prismaMap }, polymorphism };
 // the field a record's grants are keyed by: `id` unless set (`uuid`, `_id`, `ID`…), once, at boot
 engineGlobals.set('permissions.idField', 'uuid');
 const check = createRebacCheck(map);
@@ -818,9 +818,10 @@ check(permix, schema, { resource: 'document', record: doc }, 'manage');
   `targetEntitlements` the app loaded): no `rel` crosses it. Scalars are left as given.
 - **Check the schema against the map:** `validateSchema(map, schema)` returns every `{ rel }` that
   names a missing relation or goes through a list, every list arm the declarations do not carry,
-  and every action named where it isn't defined, which would otherwise deny forever. Run it in a
-  test or at boot. `declarationIssues(map, schema)` is the list-arm part alone, the part a check
-  enforces on first use.
+  and every action named where it isn't defined, which would otherwise deny forever, along with
+  every rule `validateActionRule` refuses (not positive, or a cycle back to its own action). Run
+  it in a test or at boot. `declarationIssues(map, schema)` is the list-arm part alone, the part
+  a check enforces on first use.
 - **Composite keys and non-id targets** load by every column the target names (`toFields`); a key with
   one column null loads nothing.
 - **Polymorphic records** get every relation whose columns are set, whatever the kind: hydration does
@@ -843,6 +844,16 @@ or predicate fields by hand only after hydrating, from data you loaded yourself.
   shape, and every `{ rule }` a positive json-rules condition. Given `{ schema, resource, action,
   rowRules? }`, it also refuses a rule that delegates back to its own action through the schema or
   the record's other rules. No schema library involved.
+- `validateSchema(map, schema)` checks a whole schema against the map, for a test or boot: every
+  rule as `validateActionRule` checks it (cycles included), every `{ rel }` segment a relation or a
+  bridge, and every action a rule names defined where it lands. Same `{ ok, errors }`, each issue's
+  `path` starting `resource.action`.
+- `schemaRuleIssues(schema)` returns the issues of every schema rule that is not well formed and
+  positive, without the map or the cycle check. It is the test a check runs on a schema's first use
+  before it throws.
+- `PermissionsEngineGlobals` types the engine setting this package registers,
+  `permissions.idField` (see [The check engine](#the-check-engine)), so
+  `engineGlobals.set('permissions.idField', 'uuid')` typechecks without redeclaring it.
 
 ## Roadmap: 1.0, reflection
 
