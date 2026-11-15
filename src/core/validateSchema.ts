@@ -1,14 +1,14 @@
 import type { ValidationIssue, ValidationResult } from '@inixiative/json-rules';
 import { bridgeHop } from './bridgeHop';
 import {
-  conditionMisses,
-  type LensAt,
-  lensAt,
-  lensLimits,
-  lensSize,
-  refuses,
-  relationPathProblem,
-  type Under,
+  countRelationsOneRowHydrates,
+  issueRefusesTheRead,
+  issuesForReadsOutsideLens,
+  type LensesAtRow,
+  lensesAtRow,
+  type PositionUnderListItem,
+  relationLensLimits,
+  whyRelationPathCannotBeWalked,
 } from './lens';
 import { listOf, relationOf, type SchemaMap } from './schemaMap';
 import type { ActionRule, RebacSchema } from './types';
@@ -17,13 +17,13 @@ import { validateActionRule } from './validateActionRule';
 const relIssues = (
   map: SchemaMap,
   schema: RebacSchema,
-  at: LensAt,
+  at: LensesAtRow,
   rule: ActionRule,
   path: string,
   seen?: Set<string>,
 ): ValidationIssue[] => {
   const { resource, under } = at;
-  const follow = (landed: LensAt, action: string): ValidationIssue[] => {
+  const follow = (landed: LensesAtRow, action: string): ValidationIssue[] => {
     const key = `${landed.resource}\u0000${action}\u0000${landed.under?.prefix.join('.')}`;
     if (!seen || seen.has(key)) return [];
     seen.add(key);
@@ -50,7 +50,7 @@ const relIssues = (
     return rule.all.flatMap((child, i) =>
       relIssues(map, schema, at, child, `${path}.all[${i}]`, seen),
     );
-  if ('rule' in rule) return conditionMisses(map, at, rule.rule, path, { actor: true });
+  if ('rule' in rule) return issuesForReadsOutsideLens(map, at, rule.rule, path, { actor: true });
   if ('arrayOperator' in rule) {
     if (under)
       return [
@@ -69,11 +69,15 @@ const relIssues = (
           message: `\`${resource}.${rule.rel}\` is not a declared list: mark the list field \`/// @permissions(down: [...])\``,
         },
       ];
-    const item: Under = { list: `${resource}.${rule.rel}`, listRelation: list, prefix: [] };
+    const item: PositionUnderListItem = {
+      list: `${resource}.${rule.rel}`,
+      listRelation: list,
+      prefix: [],
+    };
     return relIssues(
       map,
       schema,
-      lensAt(map, list.resource, item),
+      lensesAtRow(map, list.resource, item),
       rule.condition,
       `${path}.condition`,
       new Set(),
@@ -83,7 +87,7 @@ const relIssues = (
   let run: string[] = [];
   let current = resource;
   const judge = (): ValidationIssue[] => {
-    const problem = relationPathProblem(map, from, run.join('.'));
+    const problem = whyRelationPathCannotBeWalked(map, from, run.join('.'));
     return problem
       ? [{ path, code: problem.code === 'down' ? 'down' : 'relation', message: problem.message }]
       : [];
@@ -108,7 +112,7 @@ const relIssues = (
     const missed = judge();
     if (missed.length) return missed;
     current = hop.farResource;
-    from = lensAt(map, current);
+    from = lensesAtRow(map, current);
     run = [];
   }
   const missed = judge();
@@ -116,8 +120,8 @@ const relIssues = (
   if (!(rule.action in (schema.permissions[current]?.actions ?? {})))
     return [{ path, code: 'action', message: `\`${current}\` has no action \`${rule.action}\`` }];
   const landed = from.under
-    ? lensAt(map, current, { ...from.under, prefix: [...from.under.prefix, ...run] })
-    : lensAt(map, current);
+    ? lensesAtRow(map, current, { ...from.under, prefix: [...from.under.prefix, ...run] })
+    : lensesAtRow(map, current);
   return under ? follow(landed, rule.action) : [];
 };
 
@@ -133,15 +137,15 @@ export const schemaRuleIssues = (schema: RebacSchema): ValidationIssue[] =>
   );
 
 /** Every read of a well-formed action rule at `resource` outside the lens. */
-export const actionRuleLensIssues = (
+export const issuesForRuleReadsOutsideLens = (
   map: SchemaMap,
   schema: RebacSchema,
   resource: string,
   rule: ActionRule,
   at = '$',
 ): ValidationIssue[] =>
-  relIssues(map, schema, lensAt(map, resource), rule, at).filter(
-    (issue) => issue.code !== 'action' && refuses(issue),
+  relIssues(map, schema, lensesAtRow(map, resource), rule, at).filter(
+    (issue) => issue.code !== 'action' && issueRefusesTheRead(issue),
   );
 
 // why: a resource with no model in the map has no lens, so nothing it reads could be refused
@@ -166,26 +170,29 @@ const readIssues = (map: SchemaMap, schema: RebacSchema): ValidationIssue[] => [
   ...Object.entries(schema.permissions).flatMap(([resource, permission]) =>
     Object.entries(permission?.actions ?? {}).flatMap(([action, rule]) =>
       validateActionRule(rule).ok
-        ? relIssues(map, schema, lensAt(map, resource), rule, `${resource}.${action}`)
+        ? relIssues(map, schema, lensesAtRow(map, resource), rule, `${resource}.${action}`)
         : [],
     ),
   ),
 ];
 
 /** Every read of a schema's action rules outside the lens, by `resource.action`. */
-export const lensIssues = (map: SchemaMap, schema: RebacSchema): ValidationIssue[] =>
-  readIssues(map, schema).filter((issue) => issue.code !== 'action' && refuses(issue));
+export const schemaIssuesRefusedOnFirstUse = (
+  map: SchemaMap,
+  schema: RebacSchema,
+): ValidationIssue[] =>
+  readIssues(map, schema).filter((issue) => issue.code !== 'action' && issueRefusesTheRead(issue));
 
 // why: a row that hydrates this much is doing too much; it is reported, not refused
 const lensWarnings = (map: SchemaMap, schema: RebacSchema): ValidationIssue[] =>
   Object.keys(schema.permissions).flatMap((resource) => {
-    const size = lensSize(map, resource);
-    return size > lensLimits.report
+    const size = countRelationsOneRowHydrates(map, resource);
+    return size > relationLensLimits.report
       ? [
           {
             path: resource,
-            code: 'lensSize',
-            message: `a \`${resource}\` row hydrates ${size} relations (over ${lensLimits.report}): split the walk, or mark an edge \`hydrate: false\``,
+            code: 'countRelationsOneRowHydrates',
+            message: `a \`${resource}\` row hydrates ${size} relations (over ${relationLensLimits.report}): split the walk, or mark an edge \`hydrate: false\``,
           },
         ]
       : [];

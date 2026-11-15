@@ -37,14 +37,14 @@ export type Relation<R extends string = string> = {
 };
 
 /** A tree of relations in json-rules' spelling (`{ org: { relations: { creator: { relations: {} } } } }`). */
-export type Spelled = Record<string, ModelNarrowing>;
+export type SpelledRelationTree = Record<string, ModelNarrowing>;
 
 /** A list declared `/// @permissions(down: [...])`: the items' resource, their key back to the parent, and the declared paths. */
 export type ListRelation<R extends string = string> = {
   resource: R;
   from: readonly string[];
   to: readonly string[];
-  down: Spelled;
+  down: SpelledRelationTree;
 };
 
 type MapIndex = {
@@ -174,19 +174,19 @@ const listFor = (map: SchemaMap, resource: string, name: string, down: unknown):
     throw new Error(
       `${at}: \`down\` is a list of dotted relation paths, \`[forumUser.fanUser, forumUser.brandUser]\`, got ${JSON.stringify(down)}`,
     );
-  const tree: Spelled = {};
+  const tree: SpelledRelationTree = {};
   for (const path of (down as string[]).map((dotted) => dotted.split('.'))) {
     let branch = tree;
     let current = item;
     for (const [depth, segment] of path.entries()) {
-      const relation = toOneOf(map, current, segment);
+      const relation = followedToOneRelationOrWhyNot(map, current, segment);
       if (typeof relation === 'string')
         throw new Error(`${at}: \`${path.join('.')}\`: ${relation}`);
       if (depth === 0 && segment === inverse[0])
         throw new Error(`${at}: \`${path.join('.')}\` goes back up the list it came down`);
       const next: ModelNarrowing = branch[segment] ?? { relations: {} };
       branch[segment] = next;
-      branch = next.relations as Spelled;
+      branch = next.relations as SpelledRelationTree;
       current = relation.resource;
     }
   }
@@ -244,7 +244,7 @@ const kindsOf = (axes: readonly PolymorphicAxis[], columns: readonly string[]) =
 };
 
 /** `segment` of `resource` as a relation the hydrator follows, or why it is not one. */
-export const toOneOf = <R extends string>(
+export const followedToOneRelationOrWhyNot = <R extends string>(
   map: SchemaMap<R>,
   resource: R,
   segment: string,
@@ -260,7 +260,7 @@ export const relationOf = <R extends string>(
   resource: R,
   segment: string,
 ): Relation<R> | null => {
-  const relation = toOneOf(map, resource, segment);
+  const relation = followedToOneRelationOrWhyNot(map, resource, segment);
   return typeof relation === 'string' ? null : relation;
 };
 
@@ -359,19 +359,19 @@ type Keyed = {
 };
 
 /** The one encoding of a row's key: its resource and the columns that pick it, in column order. */
-export const keyOf = (resource: string, where: Row): string =>
+export const keyFromResourceAndColumns = (resource: string, where: Row): string =>
   `${resource}\u0000${JSON.stringify(Object.entries(where).sort(([a], [b]) => a.localeCompare(b)))}`;
 
 // why: the engine id field is what the app loads by (Zealot's `uuid`), so it wins over the model's `isId`
 /** A row's key: the engine id field when the model has it and the row a value, else the model's id columns, else undefined (the object). */
-export const rowKey = (
+export const identityKeyOfRow = (
   map: SchemaMap,
   resource: string,
   record: Row,
   field = idField(),
 ): string | undefined => {
   if (fieldOf(map, resource, field) && recordId(record, field) !== undefined)
-    return keyOf(resource, { [field]: recordId(record, field) });
+    return keyFromResourceAndColumns(resource, { [field]: recordId(record, field) });
   const { idColumns } = indexMap(map);
   if (!idColumns.has(resource)) {
     const model = map.fieldMap.models[map.resources[resource] as string] as Keyed | undefined;
@@ -386,12 +386,12 @@ export const rowKey = (
   const columns = idColumns.get(resource) as readonly string[];
   const values = columns.map((column) => [column, recordId(record, column)] as const);
   return values.length && values.every(([, value]) => value !== undefined)
-    ? keyOf(resource, Object.fromEntries(values))
+    ? keyFromResourceAndColumns(resource, Object.fromEntries(values))
     : undefined;
 };
 
 /** Every to-one relation of `resource` the hydrator follows, by field name. */
-export const toOnesOf = <R extends string>(
+export const followedToOneRelationsOf = <R extends string>(
   map: SchemaMap<R>,
   resource: R,
 ): [string, Relation<R>][] => {
@@ -415,13 +415,13 @@ const ownerRelationOf = <R extends string>(
 ): string | undefined => {
   const axis = map.polymorphism?.[map.resources[resource]]?.axes.find((a) => a.field === field);
   const columns = [...(axis?.fkMap[value] ?? [])].sort().join(',');
-  return toOnesOf(map, resource).find(
+  return followedToOneRelationsOf(map, resource).find(
     ([, relation]) => [...relation.from].sort().join(',') === columns,
   )?.[0];
 };
 
 /** The rows `segments` reaches from `row` by followed to-ones, start included; it stops at a missing one (with `kinds`, a kind its step does not admit). */
-export const rowsAlong = <R extends string>(
+export const rowsAlongAnchorPath = <R extends string>(
   map: SchemaMap<R>,
   resource: R,
   row: Row,
@@ -451,7 +451,9 @@ const chainOf = <R extends string>(
   row: Row,
   segments: string[],
 ): Map<R, Row> =>
-  new Map(rowsAlong(map, resource, row, segments).map((step) => [step.resource, step.row]));
+  new Map(
+    rowsAlongAnchorPath(map, resource, row, segments).map((step) => [step.resource, step.row]),
+  );
 
 const placeTowards = <R extends string>(
   map: SchemaMap<R>,
@@ -462,7 +464,7 @@ const placeTowards = <R extends string>(
 ): Row | null => {
   const row: Row = {};
   let reached = false;
-  for (const [name, relation] of toOnesOf(map, resource)) {
+  for (const [name, relation] of followedToOneRelationsOf(map, resource)) {
     const parent =
       chain.get(relation.resource) ??
       (depth > 1 && !seen.has(relation.resource)
@@ -563,14 +565,14 @@ export const rowsAbove = <R extends string>(
 ): ReadonlySet<Row> => {
   const rows = new Set<Row>();
   const segments = entry.anchor.path?.split('.') ?? [];
-  const steps = rowsAlong(map, entry.resource as R, placed, segments);
+  const steps = rowsAlongAnchorPath(map, entry.resource as R, placed, segments);
   const end = steps[segments.length];
   if (!end || end.resource !== entry.anchor.resource || recordId(end.row) !== entry.anchor.id)
     return rows;
   const climb = (current: R, row: Row) => {
     if (rows.has(row)) return;
     rows.add(row);
-    for (const [name, relation] of toOnesOf(map, current)) {
+    for (const [name, relation] of followedToOneRelationsOf(map, current)) {
       const parent = row[name] as Row | null | undefined;
       if (parent && typeof parent === 'object' && !Array.isArray(parent))
         climb(relation.resource, parent);

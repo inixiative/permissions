@@ -4,12 +4,12 @@ import type { Algebra } from './algebra';
 import { bridgeHop, lookupFar } from './bridgeHop';
 import { entitled } from './entitled';
 import { permixId, rowId } from './identity';
-import type { Under } from './lens';
+import type { PositionUnderListItem } from './lens';
 import { recordId } from './recordId';
-import { listOf, relationOf, rowKey, type SchemaMap } from './schemaMap';
+import { identityKeyOfRow, listOf, relationOf, type SchemaMap } from './schemaMap';
 import type { ActionRule, PermixLike, RebacSchema, Row } from './types';
 import { validateActionRule } from './validateActionRule';
-import { actionRuleLensIssues } from './validateSchema';
+import { issuesForRuleReadsOutsideLens } from './validateSchema';
 
 // One walk: the app's schema map, the schema, the bridge dictionary built on first use, and how
 // what it finds combines (a boolean for `check`, every admission for `paths`).
@@ -27,7 +27,7 @@ export type Walk<R extends string, T = boolean> = {
    */
   above?: ReadonlySet<Row>;
   /** The item's lens node once the walk has crossed a list: a missing column is unknown, a bridge denies, the first pass counts nothing. */
-  under?: Under;
+  under?: PositionUnderListItem;
   /** The engine's id field, read once per check. */
   idField: string;
   /** Relation hops crossed on this path: a node met again after one is a data loop, which denies. */
@@ -74,7 +74,7 @@ const walkAction = <R extends string, T>(
 ): T => {
   // Key by resource too: the same record object reached as a different resource (a self-join) is
   // a distinct node, not a cycle. Key by table too: an owner walk legitimately revisits the node.
-  const key = `${permixId(permix)}:${rowId(record, rowKey(walk.map, resource, record, walk.idField))}:${resource}:${actionOrRule}`;
+  const key = `${permixId(permix)}:${rowId(record, identityKeyOfRow(walk.map, resource, record, walk.idField))}:${resource}:${actionOrRule}`;
   const hops = walk.hops ?? 0;
   // why: a loop with no hop is a schema naming itself (a bug, it throws); one through a hop is data, and denies
   if (visited.has(key))
@@ -94,7 +94,7 @@ const walkAction = <R extends string, T>(
       action: actionOrRule,
       rowRules,
     }).ok &&
-    actionRuleLensIssues(walk.map, walk.schema, resource, rowRule).length === 0;
+    issuesForRuleReadsOutsideLens(walk.map, walk.schema, resource, rowRule).length === 0;
   // Row-level override is additive (OR) with the schema rule — a per-record grant can only widen.
   const merged: ActionRule = rowRuleHolds ? { any: [schemaRule, rowRule] } : schemaRule;
   return walk.algebra.any([

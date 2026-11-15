@@ -16,9 +16,15 @@ already judges paths; its own documentation says a model reached another way is 
 `root`, and spelled, it holds siblings, refuses lists, made-up keys and unspelled revisits, and
 fits Kingdom's 313 rule reads and 368 rel hops.
 
+- **`docs/VERBS.md`**: every operation has one verb, a name that says the action and one owner
+  module, enforced by `test/verbs.test.ts` (every exported function is listed; the lens calls, the
+  annotation read, the owning-key classification and the freeze each live in one module). Why:
+  the lens work's first names (`built`, `anchored`, `explain`, `refuses`, `judgeOnce`) said nothing,
+  and unreadable names hide parallel machinery from review. The public name is
+  `whyEntitlementWhereLeavesLens`.
 - **Limits that throw, never cut.** Chains of at most 20 relations; a row's lens counted one kind
   per false-polymorphic model (Kingdom's largest: 444): `validateSchema` warns over 1,000
-  (`warnings`, `lensSize`), building throws over 10,000. A hydration throws past 10,000 loads.
+  (`warnings`, `countRelationsOneRowHydrates`), building throws over 10,000. A hydration throws past 10,000 loads.
 - **A loop made by data denies; it never throws.** Back at the same row and action after a
   relation hop, that branch counts as nothing; with no hop between, it is a schema naming itself
   and throws. The stored copy of the starting record is that record, so a forged root does not
@@ -36,14 +42,14 @@ fits Kingdom's 313 rule reads and 368 rel hops.
   its own org), and the writer holds the action there by the schema.
 - **Rows are known by their key**: the engine id field when the model has it and the row a value
   (it is what the app loads by), else the model's id columns (`isId`, or a composite `@@id`), else
-  the object (a stand-in). One encoder, `keyOf`, keys rows for the hydrator and for identity.
+  the object (a stand-in). One encoder, `keyFromResourceAndColumns`, keys rows for the hydrator and for identity.
 - `validateSchema` reports json-rules' `operator_kind_mismatch` (a check never refuses on it).
   `invalid_value` is left off: it would fail 64 of this repo's tests only because the fixture
   helper types every column `String` (`test/schemaMaps.ts`); the owner decides later.
 - The freeze costs about 15% in json-rules' evaluator; it stays.
 - The list arm's `arrayOperator === 'any'` guard is gone (a frozen, judged schema cannot carry
   another). The bridge guard and `absent: 'unknown'` under an item stay.
-- One anchor-path walk (`rowsAlong`) replaces `reaches`, `chainOf` and the start of `rowsAbove`;
+- One anchor-path walk (`rowsAlongAnchorPath`) replaces `reaches`, `chainOf` and the start of `rowsAbove`;
   one delegation walker (`delegationReach`, with `pureDelegates` or `allDelegates`) replaces the
   cycle test's and `reachableFrom`'s, which is cached per frozen schema.
 
@@ -61,7 +67,7 @@ fits Kingdom's 313 rule reads and 368 rel hops.
 - A hydrated record with a cycle is cyclic (`JSON.stringify` throws on it).
 - `createHydrator` no longer deletes values under relations it does not follow; it takes
   `(resource, record)`. `ListRelation.paths` is `down` (json-rules' spelling).
-  `declarationIssues` and `resolveField` are gone; `whereLensProblem` is new; `validateSchema`
+  `declarationIssues` and `resolveField` are gone; `whyEntitlementWhereLeavesLens` is new; `validateSchema`
   also returns `warnings`. A `hydrate: false` relation is no anchor-path, `rel` or `rowsAbove` step.
 
 ### Options rejected

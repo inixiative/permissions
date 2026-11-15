@@ -14,10 +14,15 @@ import {
   type Row,
   type SchemaMap,
   validateSchema,
-  whereLensProblem,
+  whyEntitlementWhereLeavesLens,
 } from '../index';
-import { lensAt, lensLimits, lensSize, whereProblemAt } from '../src/core/lens';
-import { listOf, rowKey } from '../src/core/schemaMap';
+import {
+  countRelationsOneRowHydrates,
+  lensesAtRow,
+  relationLensLimits,
+  whyWhereLeavesLensAtRow,
+} from '../src/core/lens';
+import { identityKeyOfRow, listOf } from '../src/core/schemaMap';
 import { hydrationLimits } from '../src/helpers/hydration/hydrate';
 import { loadModels } from './fixtures/load';
 
@@ -264,7 +269,7 @@ describe('the review probes: each returned true on 0.22.0', () => {
       check(actorAs('attacker', [entry]), schema, { resource: 'conversation', record }, 'act'),
     ).toBe(false);
     expect(entitlementProblem(entry)).toBeNull();
-    expect(whereLensProblem(map, entry.resource, entry.where)).toMatch(
+    expect(whyEntitlementWhereLeavesLens(map, entry.resource, entry.where)).toMatch(
       /reads outside the lens: `conversation.drafts` is a list/,
     );
     const writer: PermixLike = { check: () => true, getActor: () => null };
@@ -462,7 +467,9 @@ describe('the second review: each returned true on the first build', () => {
     expect(
       check(actorAs('u1', [entry]), ruled('user', null), { resource: 'user', record }, 'act'),
     ).toBe(false);
-    expect(whereLensProblem(map, 'user', entry.where)).toMatch(/`__actor` is not on it/);
+    expect(whyEntitlementWhereLeavesLens(map, 'user', entry.where)).toMatch(
+      /`__actor` is not on it/,
+    );
     expect(codes(ruled('user', actorWrote('id')))).toEqual([]);
   });
 });
@@ -511,7 +518,7 @@ describe('what the lens keeps', () => {
       where: { field: 'mentions', operator: 'contains', value: 'aron' },
       actions: { act: true },
     };
-    expect(whereLensProblem(map, entry.resource, entry.where)).toBeNull();
+    expect(whyEntitlementWhereLeavesLens(map, entry.resource, entry.where)).toBeNull();
     const message = await hydrate('message', db.message?.m1 as Row);
     expect(
       check(
@@ -563,9 +570,9 @@ describe('what the lens keeps', () => {
     expect(
       check(actorAs('x'), ruled('user', null), { resource: 'user', record: rowRule }, 'act'),
     ).toBe(false);
-    expect(whereLensProblem(map, 'user', { field: 'plann', operator: 'equals', value: 1 })).toMatch(
-      /`user` has no field `plann`/,
-    );
+    expect(
+      whyEntitlementWhereLeavesLens(map, 'user', { field: 'plann', operator: 'equals', value: 1 }),
+    ).toMatch(/`user` has no field `plann`/);
     expect(codes(ruled('user', reads('__actor.record.org.creator.org')))).toEqual([]);
   });
 });
@@ -720,13 +727,15 @@ describe('the second review of the final build', () => {
   test('a where consulted on a list item is judged at the item’s declared paths', () => {
     const where: Condition = { field: 'conversation.org.name', operator: 'equals', value: 'acme' };
     const list = listOf(map, 'conversation', 'messages');
-    const item = lensAt(map, 'message', {
+    const item = lensesAtRow(map, 'message', {
       list: 'conversation.messages',
       listRelation: list as never,
       prefix: [],
     });
-    expect(whereProblemAt(map, lensAt(map, 'message'), where)).toBeNull();
-    expect(whereProblemAt(map, item, where)).toMatch(/loads no `conversation` under an item/);
+    expect(whyWhereLeavesLensAtRow(map, lensesAtRow(map, 'message'), where)).toBeNull();
+    expect(whyWhereLeavesLensAtRow(map, item, where)).toMatch(
+      /loads no `conversation` under an item/,
+    );
   });
 });
 
@@ -970,14 +979,14 @@ describe('the limits throw; nothing is cut', () => {
         ),
       },
     };
-    expect(() => lensSize(dense, 'm0')).toThrow(
-      `the lens of \`m0\` hydrates more than ${lensLimits.refuse} relations a row`,
+    expect(() => countRelationsOneRowHydrates(dense, 'm0')).toThrow(
+      `the lens of \`m0\` hydrates more than ${relationLensLimits.refuse} relations a row`,
     );
   });
 
   test('a chain longer than the depth cap throws, naming where', () => {
     const col = column('String');
-    const length = lensLimits.depth + 2;
+    const length = relationLensLimits.depth + 2;
     const chain: SchemaMap = {
       resources: Object.fromEntries(Array.from({ length }, (_, i) => [`c${i}`, `C${i}`])),
       fieldMap: {
@@ -995,8 +1004,8 @@ describe('the limits throw; nothing is cut', () => {
         ),
       },
     };
-    expect(() => lensSize(chain, 'c0')).toThrow(
-      `the lens of \`c0\` goes past ${lensLimits.depth} relations`,
+    expect(() => countRelationsOneRowHydrates(chain, 'c0')).toThrow(
+      `the lens of \`c0\` goes past ${relationLensLimits.depth} relations`,
     );
   });
 
@@ -1086,7 +1095,7 @@ describe('the actor and the size of a lens', () => {
     expect(codes(ruled('user', reads('__actor.record.org.creator')))).toEqual([]);
     expect(codes(ruled('user', reads('org.__actor.record.id')))).toEqual(['lens']);
     expect(
-      whereLensProblem(map, 'user', {
+      whyEntitlementWhereLeavesLens(map, 'user', {
         field: '__actor.record.id',
         operator: 'equals',
         value: null,
@@ -1123,7 +1132,7 @@ describe('the actor and the size of a lens', () => {
     };
     const result = validateSchema(wide, { permissions: { hub: { actions: { read: null } } } });
     expect(result.ok).toBe(true);
-    expect(result.warnings.map((issue) => issue.code)).toEqual(['lensSize']);
+    expect(result.warnings.map((issue) => issue.code)).toEqual(['countRelationsOneRowHydrates']);
   });
 
   test('a polymorphic row counts one kind: four kinds of 301 relations are not over the report limit', () => {
@@ -1174,7 +1183,7 @@ describe('the actor and the size of a lens', () => {
         },
       },
     };
-    expect(lensSize(poly, 'hub')).toBe(301);
+    expect(countRelationsOneRowHydrates(poly, 'hub')).toBe(301);
     expect(
       validateSchema(poly, { permissions: { hub: { actions: { read: null } } } }).warnings,
     ).toEqual([]);
@@ -1395,13 +1404,13 @@ describe('a row’s key', () => {
         },
       },
     };
-    expect(rowKey(keyed, 'brand', { uuid: 'b-1' }, 'uuid')).toBe(
-      rowKey(keyed, 'brand', { uuid: 'b-1', id: 7 }, 'uuid'),
+    expect(identityKeyOfRow(keyed, 'brand', { uuid: 'b-1' }, 'uuid')).toBe(
+      identityKeyOfRow(keyed, 'brand', { uuid: 'b-1', id: 7 }, 'uuid'),
     );
-    expect(rowKey(keyed, 'brand', { id: 7 }, 'uuid')).toBe(
-      rowKey(keyed, 'brand', { id: 7 }, 'uuid'),
+    expect(identityKeyOfRow(keyed, 'brand', { id: 7 }, 'uuid')).toBe(
+      identityKeyOfRow(keyed, 'brand', { id: 7 }, 'uuid'),
     );
-    expect(rowKey(keyed, 'brand', {}, 'uuid')).toBeUndefined();
+    expect(identityKeyOfRow(keyed, 'brand', {}, 'uuid')).toBeUndefined();
   });
 
   test('composite values never collide across a NUL', () => {
@@ -1414,8 +1423,8 @@ describe('a row’s key', () => {
         },
       },
     } as unknown as SchemaMap;
-    expect(rowKey(pair, 'pair', { a: 'x\u0000', b: 'y' })).not.toBe(
-      rowKey(pair, 'pair', { a: 'x', b: '\u0000y' }),
+    expect(identityKeyOfRow(pair, 'pair', { a: 'x\u0000', b: 'y' })).not.toBe(
+      identityKeyOfRow(pair, 'pair', { a: 'x', b: '\u0000y' }),
     );
   });
 });

@@ -51,6 +51,9 @@ Want your own delegation model or your own loading? Skip the helpers and call `c
 
 ## Vocabulary
 
+The nouns are below. The verbs, one per operation with the name that says the action, are in
+[`docs/VERBS.md`](docs/VERBS.md); a test fails when an export is missing from it.
+
 | Word | Means |
 |---|---|
 | **resource** | a model name in your schema (`db:organization`); a record is one row of it |
@@ -782,7 +785,7 @@ on first use, and cached with the map. Lists are not spelled in it. Columns (Jso
 lists included) are always readable, so ABAC is untouched; bridges are their own mechanism.
 
 - **How deep, and the limits.** Chains of up to 20 relations; a row's lens is counted one kind per
-  false-polymorphic model, warned over 1,000 (`validateSchema` `warnings`, `lensSize`) and refused
+  false-polymorphic model, warned over 1,000 (`validateSchema` `warnings`, `countRelationsOneRowHydrates`) and refused
   over 10,000. Each limit throws or warns, naming the resource; nothing is cut.
 - **Judged with json-rules.** Every path a stored rule reads (field and value side, every spelling
   json-rules reads) is judged with `validateRuleInLens`; a `{ rel }` path with `walkLensPath`.
@@ -804,7 +807,7 @@ the list arm's `condition` and the actions it follows are judged against the dec
 paths. A rule passed to `check`: it throws (judged once per rule object). A row's
 `permissionRules` and an entitlement's `where` are judged at their own resource, as when the row is
 reached directly: one that reads outside the lens widens nothing, or never holds (a `where` is
-frozen when first judged; `whereLensProblem(map, resource, where)` says why, for an app that
+frozen when first judged; `whyEntitlementWhereLeavesLens(map, resource, where)` says why, for an app that
 validates a row before saving it, as Kingdom's `validateEntitlementGrants` can). On a list item
 only the declared paths are loaded, so an arm reading anything else is unknown there and its
 siblings still decide. A schema resource missing from `resources` (and not a bridge's far end) is
@@ -899,7 +902,7 @@ and declare in the map any computed value a rule reads.
 - `validateSchema(map, schema)` checks a whole schema against the map, for a test or boot: every
   rule as `validateActionRule` checks it (cycles included), every read inside the lens, and every
   action a rule names defined where it lands. Same `{ ok, errors }`, each issue's `path` starting
-  `resource.action`. `whereLensProblem(map, resource, where)` is the lens check of one
+  `resource.action`. `whyEntitlementWhereLeavesLens(map, resource, where)` is the lens check of one
   entitlement `where`, for an app that validates a row before saving it.
 - `schemaRuleIssues(schema)` returns the issues of every schema rule that is not well formed and
   positive, without the map or the cycle check. It is the test a check runs on a schema's first use

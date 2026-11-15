@@ -1,14 +1,14 @@
 import { idField } from '../../core/recordId';
 import {
+  followedToOneRelationsOf,
   indexMap,
-  keyOf,
+  keyFromResourceAndColumns,
   keysFrom,
   listsOf,
   type Relation,
   relationOf,
   type SchemaMap,
-  type Spelled,
-  toOnesOf,
+  type SpelledRelationTree,
 } from '../../core/schemaMap';
 import type { Row } from '../../core/types';
 /**
@@ -51,25 +51,29 @@ type Run = {
 export const createHydrator = <R extends string>({ map, load, loadMany }: HydrateDeps<R>) => {
   if (indexMap(map as SchemaMap).lists.size && !loadMany)
     throw new Error('the map declares a list (`@permissions(down: ...)`): pass `loadMany`');
-  const counted = (run: Run, resource: R) => {
+  const countLoadAgainstBudget = (run: Run, resource: R) => {
     if (++run.loads > hydrationLimits.loads)
       throw new Error(
         `hydrating \`${resource}\` passed ${hydrationLimits.loads} loads: a chain that long is not a permission walk`,
       );
   };
   const loadOnce = (run: Run, resource: R, where: Row): Promise<Row | null> => {
-    const key = keyOf(resource, where);
+    const key = keyFromResourceAndColumns(resource, where);
     let loading = run.raw.get(key);
     if (!loading) {
-      counted(run, resource);
+      countLoadAgainstBudget(run, resource);
       loading = load(resource, where);
       run.raw.set(key, loading);
     }
     return loading;
   };
   // why: a row stored once is one object wherever it is reached, so a loop is the real cyclic graph
-  const linked = (run: Run, relation: Relation<R>, where: Row): Promise<Row | null> => {
-    const key = keyOf(relation.resource, where);
+  const storedRowAsOneSharedObject = (
+    run: Run,
+    relation: Relation<R>,
+    where: Row,
+  ): Promise<Row | null> => {
+    const key = keyFromResourceAndColumns(relation.resource, where);
     let row = run.rows.get(key);
     if (!row) {
       let resolve: (value: Row | null) => void = () => {};
@@ -82,36 +86,49 @@ export const createHydrator = <R extends string>({ map, load, loadMany }: Hydrat
           const stored = await loadOnce(run, relation.resource, where);
           const object = stored ? { ...stored } : null;
           resolve(object);
-          if (object && stored) await fill(run, relation.resource, object, stored);
+          if (object && stored)
+            await loadFollowedRelationsOnto(run, relation.resource, object, stored);
         })(),
       );
     }
     return row;
   };
-  const fill = async (run: Run, resource: R, result: Row, record: Row): Promise<void> => {
+  const loadFollowedRelationsOnto = async (
+    run: Run,
+    resource: R,
+    result: Row,
+    record: Row,
+  ): Promise<void> => {
     const lists = listsOf(map, resource).map(async ([name, list]) => {
       const where = keysFrom(list, record);
       const complete = Object.keys(where).length === list.from.length;
-      if (complete) counted(run, list.resource);
+      if (complete) countLoadAgainstBudget(run, list.resource);
       const items = complete
         ? await (loadMany as NonNullable<typeof loadMany>)(list.resource, where)
         : [];
       result[name] = await Promise.all(
-        items.map((item) => declared(run, list.resource, item, list.down)),
+        items.map((item) =>
+          loadOnlyDeclaredPathsUnderListItem(run, list.resource, item, list.down),
+        ),
       );
     });
     await Promise.all([
       ...lists,
-      ...toOnesOf(map, resource).map(async ([name, relation]) => {
+      ...followedToOneRelationsOf(map, resource).map(async ([name, relation]) => {
         delete result[name];
         const where = whereOf(relation, record);
-        const row = where && (await linked(run, relation, where));
+        const row = where && (await storedRowAsOneSharedObject(run, relation, where));
         if (row) result[name] = row;
       }),
     ]);
   };
   // why: under an item only the declared paths exist, loaded as written and never linked
-  const declared = async (run: Run, resource: R, record: Row, tree: Spelled): Promise<Row> => {
+  const loadOnlyDeclaredPathsUnderListItem = async (
+    run: Run,
+    resource: R,
+    record: Row,
+    tree: SpelledRelationTree,
+  ): Promise<Row> => {
     const result: Row = { ...record };
     for (const [name, field] of Object.entries(
       map.fieldMap.models[map.resources[resource]]?.fields ?? {},
@@ -124,11 +141,11 @@ export const createHydrator = <R extends string>({ map, load, loadMany }: Hydrat
         const where = relation && whereOf(relation, record);
         const stored = where && relation && (await loadOnce(run, relation.resource, where));
         if (stored && relation)
-          result[name] = await declared(
+          result[name] = await loadOnlyDeclaredPathsUnderListItem(
             run,
             relation.resource,
             stored,
-            (below.relations ?? {}) as Spelled,
+            (below.relations ?? {}) as SpelledRelationTree,
           );
       }),
     );
@@ -137,7 +154,7 @@ export const createHydrator = <R extends string>({ map, load, loadMany }: Hydrat
   return async (resource: R, record: Row): Promise<Row> => {
     const run: Run = { raw: new Map(), rows: new Map(), work: [], loads: 0 };
     const result: Row = { ...record };
-    await fill(run, resource, result, record);
+    await loadFollowedRelationsOnto(run, resource, result, record);
     while (run.work.length) await Promise.all(run.work.splice(0));
     return result;
   };

@@ -2,7 +2,7 @@ import { isEqual } from 'lodash-es';
 import { booleanAlgebra } from './algebra';
 import { entitlementProblem } from './entitlementProblem';
 import { asOwner } from './identity';
-import { whereLensProblem } from './lens';
+import { whyEntitlementWhereLeavesLens } from './lens';
 import type { EntitlementEntry } from './permix';
 import { reachableFrom } from './reachableFrom';
 import { conjuncts, rowsAbove, type SchemaMap } from './schemaMap';
@@ -55,7 +55,10 @@ export const createCanGrantEntitlement = <R extends string = string>(
   const backs = createWalker(map, 'unknown', booleanAlgebra, true);
 
   return (permix, schema, entry, placed) => {
-    if (entitlementProblem(entry) !== null || whereLensProblem(map, entry.resource, entry.where))
+    if (
+      entitlementProblem(entry) !== null ||
+      whyEntitlementWhereLeavesLens(map, entry.resource, entry.where)
+    )
       return false;
     const resource = entry.resource as R;
     const actions = Object.entries(entry.actions)

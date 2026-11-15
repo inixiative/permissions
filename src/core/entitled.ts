@@ -1,10 +1,10 @@
 import { type Absent, type Condition, check as checkRule } from '@inixiative/json-rules';
 import { evaluate, type Visited, type Walk } from './evaluate';
 import { asOwner, permixId, rowId } from './identity';
-import { lensAt, whereProblemAt } from './lens';
+import { lensesAtRow, whyWhereLeavesLensAtRow } from './lens';
 import { reachableFrom } from './reachableFrom';
 import { recordId } from './recordId';
-import { rowKey, rowsAlong } from './schemaMap';
+import { identityKeyOfRow, rowsAlongAnchorPath } from './schemaMap';
 import type { Anchor, PermixLike, Row } from './types';
 
 const holds = (where: Condition, record: Row, absent: Absent): boolean =>
@@ -17,7 +17,7 @@ const reaches = <R extends string, T>(
   anchor: Anchor,
 ) => {
   const segments = anchor.path?.split('.') ?? [];
-  const steps = rowsAlong(walk.map, resource, record, segments, true);
+  const steps = rowsAlongAnchorPath(walk.map, resource, record, segments, true);
   const end = steps[segments.length];
   return end?.resource === anchor.resource && recordId(end.row) === anchor.id;
 };
@@ -52,12 +52,12 @@ export const entitled = <R extends string, T>(
       ({ anchor, where, owner, ref, grantsBelow }) =>
         () =>
           !visited.has(
-            `${permixId(owner)}:${rowId(record, rowKey(walk.map, resource, record, walk.idField))}:${resource}:${action}`,
+            `${permixId(owner)}:${rowId(record, identityKeyOfRow(walk.map, resource, record, walk.idField))}:${resource}:${action}`,
           ) &&
           (above
             ? grantsBelow === true && where === undefined
             : where === undefined ||
-              (whereProblemAt(walk.map, lensAt(walk.map, resource), where) === null &&
+              (whyWhereLeavesLensAtRow(walk.map, lensesAtRow(walk.map, resource), where) === null &&
                 (walk.ignoreWheres || holds(where, record, walk.absent)))) &&
           reaches(walk, resource, record, anchor)
             ? walk.algebra.through(

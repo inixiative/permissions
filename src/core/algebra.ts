@@ -49,12 +49,12 @@ export class PathLimitError extends Error {
   }
 }
 
-const keyOf = (value: unknown) => JSON.stringify(value);
+const keyFromResourceAndColumns = (value: unknown) => JSON.stringify(value);
 
 const uniqueChains = (admission: Admission): Admission => {
   const seen = new Set<string>();
   return admission.filter((chain) => {
-    const key = keyOf(chain);
+    const key = keyFromResourceAndColumns(chain);
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
@@ -66,7 +66,7 @@ export const pathsAlgebra = (limit: number): Algebra<Admission[]> => {
   // in, so it is kept once and counted once against the limit.
   const add = (into: Map<string, Admission>, admission: Admission) => {
     const normal = uniqueChains(admission);
-    into.set(keyOf(normal), normal);
+    into.set(keyFromResourceAndColumns(normal), normal);
     if (into.size > limit) throw new PathLimitError(limit);
   };
   return {
