@@ -1,0 +1,285 @@
+{
+  "Organization": {
+    "dbName": null,
+    "fields": {
+      "id": {
+        "kind": "scalar",
+        "type": "String",
+        "isRequired": true,
+        "isList": false,
+        "isId": true
+      }
+    }
+  },
+  "Project": {
+    "dbName": null,
+    "fields": {
+      "id": {
+        "kind": "scalar",
+        "type": "String",
+        "isRequired": true,
+        "isList": false,
+        "isId": true
+      },
+      "organizationId": {
+        "kind": "scalar",
+        "type": "String",
+        "isRequired": true,
+        "isList": false,
+        "isId": false
+      },
+      "organization": {
+        "kind": "object",
+        "type": "Organization",
+        "isList": false,
+        "isRequired": true,
+        "relationName": "OrganizationToProject",
+        "fromFields": ["organizationId"],
+        "toFields": ["id"]
+      },
+      "resources": {
+        "kind": "object",
+        "type": "ProjectIntegrationResource",
+        "isList": true,
+        "isRequired": true,
+        "relationName": "ProjectToProjectIntegrationResource",
+        "fromFields": [],
+        "toFields": []
+      }
+    }
+  },
+  "Integration": {
+    "dbName": null,
+    "fields": {
+      "id": {
+        "kind": "scalar",
+        "type": "String",
+        "isRequired": true,
+        "isList": false,
+        "isId": true
+      },
+      "organizationId": {
+        "kind": "scalar",
+        "type": "String",
+        "isRequired": true,
+        "isList": false,
+        "isId": false
+      },
+      "provider": {
+        "kind": "scalar",
+        "type": "String",
+        "isRequired": true,
+        "isList": false,
+        "isId": false
+      },
+      "enabled": {
+        "kind": "scalar",
+        "type": "Boolean",
+        "isRequired": true,
+        "isList": false,
+        "isId": false,
+        "default": {
+          "kind": "literal",
+          "value": true
+        }
+      },
+      "deletedAt": {
+        "kind": "scalar",
+        "type": "DateTime",
+        "isRequired": false,
+        "isList": false,
+        "isId": false
+      },
+      "organization": {
+        "kind": "object",
+        "type": "Organization",
+        "isList": false,
+        "isRequired": true,
+        "relationName": "IntegrationToOrganization",
+        "fromFields": ["organizationId"],
+        "toFields": ["id"]
+      }
+    }
+  },
+  "IntegrationResource": {
+    "dbName": null,
+    "fields": {
+      "id": {
+        "kind": "scalar",
+        "type": "String",
+        "isRequired": true,
+        "isList": false,
+        "isId": true
+      },
+      "integrationId": {
+        "kind": "scalar",
+        "type": "String",
+        "isRequired": true,
+        "isList": false,
+        "isId": false
+      },
+      "name": {
+        "kind": "scalar",
+        "type": "String",
+        "isRequired": true,
+        "isList": false,
+        "isId": false
+      },
+      "kind": {
+        "kind": "scalar",
+        "type": "String",
+        "isRequired": true,
+        "isList": false,
+        "isId": false,
+        "annotations": {
+          "permissions": {
+            "place": true
+          }
+        }
+      },
+      "externalId": {
+        "kind": "scalar",
+        "type": "String",
+        "isRequired": true,
+        "isList": false,
+        "isId": false
+      },
+      "metadata": {
+        "kind": "scalar",
+        "type": "Json",
+        "isRequired": true,
+        "isList": false,
+        "isId": false
+      },
+      "enabled": {
+        "kind": "scalar",
+        "type": "Boolean",
+        "isRequired": true,
+        "isList": false,
+        "isId": false,
+        "default": {
+          "kind": "literal",
+          "value": true
+        },
+        "annotations": {
+          "permissions": {
+            "place": true
+          }
+        }
+      },
+      "integration": {
+        "kind": "object",
+        "type": "Integration",
+        "isList": false,
+        "isRequired": true,
+        "relationName": "IntegrationToIntegrationResource",
+        "fromFields": ["integrationId"],
+        "toFields": ["id"]
+      },
+      "projects": {
+        "kind": "object",
+        "type": "ProjectIntegrationResource",
+        "isList": true,
+        "isRequired": true,
+        "relationName": "IntegrationResourceToProjectIntegrationResource",
+        "fromFields": [],
+        "toFields": []
+      }
+    }
+  },
+  "ProjectIntegrationResource": {
+    "dbName": null,
+    "fields": {
+      "id": {
+        "kind": "scalar",
+        "type": "String",
+        "isRequired": true,
+        "isList": false,
+        "isId": true
+      },
+      "projectId": {
+        "kind": "scalar",
+        "type": "String",
+        "isRequired": true,
+        "isList": false,
+        "isId": false
+      },
+      "integrationResourceId": {
+        "kind": "scalar",
+        "type": "String",
+        "isRequired": true,
+        "isList": false,
+        "isId": false
+      },
+      "project": {
+        "kind": "object",
+        "type": "Project",
+        "isList": false,
+        "isRequired": true,
+        "relationName": "ProjectToProjectIntegrationResource",
+        "fromFields": ["projectId"],
+        "toFields": ["id"]
+      },
+      "integrationResource": {
+        "kind": "object",
+        "type": "IntegrationResource",
+        "isList": false,
+        "isRequired": true,
+        "relationName": "IntegrationResourceToProjectIntegrationResource",
+        "fromFields": ["integrationResourceId"],
+        "toFields": ["id"]
+      }
+    }
+  },
+  "SlackChannelOperation": {
+    "dbName": null,
+    "fields": {
+      "operation": {
+        "kind": "scalar",
+        "type": "String",
+        "isRequired": false,
+        "isList": false,
+        "isId": false
+      },
+      "channel": {
+        "kind": "scalar",
+        "type": "String",
+        "isRequired": false,
+        "isList": false,
+        "isId": false
+      },
+      "integrationResourceId": {
+        "kind": "scalar",
+        "type": "String",
+        "isRequired": false,
+        "isList": false,
+        "isId": false
+      },
+      "integrationResource": {
+        "kind": "object",
+        "type": "IntegrationResource",
+        "isList": false,
+        "isRequired": false,
+        "relationName": "IntegrationResourceToSlackChannelOperation",
+        "fromFields": ["integrationResourceId"],
+        "toFields": ["id"]
+      },
+      "projectIntegrationResourceId": {
+        "kind": "scalar",
+        "type": "String",
+        "isRequired": false,
+        "isList": false,
+        "isId": false
+      },
+      "projectIntegrationResource": {
+        "kind": "object",
+        "type": "ProjectIntegrationResource",
+        "isList": false,
+        "isRequired": false,
+        "relationName": "ProjectIntegrationResourceToSlackChannelOperation",
+        "fromFields": ["projectIntegrationResourceId"],
+        "toFields": ["id"]
+      }
+    }
+  }
+}

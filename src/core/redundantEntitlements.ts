@@ -6,11 +6,12 @@ const heldActions = (entry: EntitlementEntry) =>
     .filter(([, held]) => held === true)
     .map(([action]) => action);
 
-/** Whether `held` makes `entry` redundant: identical aside from `held` holding every action `entry` does. */
+/** Whether `held` makes `entry` redundant: identical (`grantsBelow` included) aside from `held` holding every action `entry` does. */
 export const coversEntitlement = (held: EntitlementEntry, entry: EntitlementEntry): boolean =>
   held.resource === entry.resource &&
   isEqual(held.anchor, entry.anchor) &&
   isEqual(held.where, entry.where) &&
+  (held.grantsBelow === true) === (entry.grantsBelow === true) &&
   heldActions(entry).every((action) => held.actions[action] === true);
 
 /** `entries` without the redundant ones: the first of identical entries, and none another covers. */

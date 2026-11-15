@@ -1,11 +1,11 @@
 import { type Absent, type BridgeDictionary, check as checkRule } from '@inixiative/json-rules';
-import { isNil } from 'lodash-es';
+import { isNil, isPlainObject } from 'lodash-es';
 import type { Algebra } from './algebra';
 import { bridgeHop, lookupFar } from './bridgeHop';
 import { entitled } from './entitled';
 import { nodeId, permixId } from './identity';
 import { recordId } from './recordId';
-import { resolveField, type SchemaMap } from './schemaMap';
+import { listOf, resolveField, type SchemaMap } from './schemaMap';
 import type { ActionRule, PermixLike, RebacSchema, Row } from './types';
 import { validateActionRule } from './validateActionRule';
 
@@ -19,7 +19,20 @@ export type Walk<R extends string, T = boolean> = {
   algebra: Algebra<T>;
   /** The grant check's liveness walk: every entitlement `where` counts as holding. */
   ignoreWheres?: boolean;
+  /**
+   * The grant check's first pass: the hydrated rows above the granted record (`rowsAbove`). An
+   * entitlement counts only at one of these rows, marked `grantsBelow`, without a `where`.
+   */
+  above?: ReadonlySet<Row>;
+  /**
+   * Set once the walk has crossed a list. Under an item only the declared paths are loaded, so a
+   * field that is not there is unknown, a second list and a bridge deny, and nothing counts in the
+   * grant check's first pass.
+   */
+  underItem?: true;
 };
+
+const noRows: ReadonlySet<Row> = new Set();
 
 export const evaluate = <R extends string, T>(
   walk: Walk<R, T>,
@@ -88,6 +101,28 @@ const walkRule = <R extends string, T>(
   visited: Set<string>,
 ): T => {
   const { algebra } = walk;
+  // why: `visited` is forked per item, since two items reaching one row are parallel paths, not a cycle
+  if ('arrayOperator' in rule) {
+    if (walk.underItem) return algebra.none;
+    // why: a schema is validated once per object; one edited afterwards must still deny here
+    const list = rule.arrayOperator === 'any' ? listOf(walk.map, resource, rule.rel) : null;
+    const items = record[rule.rel];
+    if (!list || !Array.isArray(items)) return algebra.none;
+    const under: Walk<R, T> = {
+      ...walk,
+      absent: 'unknown',
+      underItem: true,
+      ...(walk.above ? { above: noRows } : {}),
+    };
+    return algebra.any(
+      items
+        .filter((item): item is Row => isPlainObject(item))
+        .map(
+          (item) => () =>
+            evaluate(under, permix, list.resource, item, rule.condition, new Set(visited)),
+        ),
+    );
+  }
   if ('rel' in rule && 'action' in rule) {
     const segments = rule.rel.split('.');
     let currentResource = resource;
@@ -95,6 +130,7 @@ const walkRule = <R extends string, T>(
     for (const segment of segments) {
       const hop = bridgeHop(walk.schema.bridges, currentResource, segment);
       if (hop) {
+        if (walk.underItem) return algebra.none;
         const farId = current[hop.localOn];
         if (isNil(farId)) return algebra.none;
         const far = lookupFar(walk.getDict(), hop, String(farId));

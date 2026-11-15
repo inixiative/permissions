@@ -36,6 +36,9 @@ const reaches = <R extends string, T>(
 // owner's own table, walked from here. A space moved to another org stops reaching its grantor.
 // An owner that is already on this walk for this node and action is a loop built from grant
 // data, not a schema bug: it denies instead of throwing, so it can never hide a sibling.
+// In the grant check's first pass (`walk.above`) one counts only at a hydrated row above the
+// granted record, and only when it is marked `grantsBelow` and has no `where`, at every depth of
+// the owner walk.
 export const entitled = <R extends string, T>(
   walk: Walk<R, T>,
   permix: PermixLike,
@@ -44,16 +47,20 @@ export const entitled = <R extends string, T>(
   action: string,
   visited: Set<string>,
 ): T => {
+  const { above } = walk;
+  if (above && !above.has(record)) return walk.algebra.none;
   const actor = permix.getActor();
   const held = [...reachableFrom(walk.schema, resource, action)].flatMap(
     (implying) => permix.entitlements?.(resource, implying) ?? [],
   );
   return walk.algebra.any(
     held.map(
-      ({ anchor, where, owner, ref }) =>
+      ({ anchor, where, owner, ref, grantsBelow }) =>
         () =>
           !visited.has(`${permixId(owner)}:${nodeId(record)}:${resource}:${action}`) &&
-          (where === undefined || walk.ignoreWheres || holds(where, record, walk.absent)) &&
+          (above
+            ? grantsBelow === true && where === undefined
+            : where === undefined || walk.ignoreWheres || holds(where, record, walk.absent)) &&
           reaches(walk, resource, record, anchor)
             ? walk.algebra.through(
                 ref,

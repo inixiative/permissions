@@ -31,6 +31,14 @@ export type EntitlementEntry<Action extends string = string> = {
   actions: Partial<Record<Action, boolean>>;
   /** The app's id for the row this came from; `paths` reports it. Not part of what it grants. */
   ref?: string;
+  /**
+   * This row may grant below it: held on a record above a granted one, the grant check's first pass
+   * counts it as a role on that record would count. The app sets it only on a row nothing narrows
+   * (no `where`, and no lens or other limit the library cannot see); absent, the row is handed on
+   * only as a copy. A marked copy of an unmarked row grants nothing below: the mark is asked of
+   * every owner up the chain. Only the grant check reads it.
+   */
+  grantsBelow?: true;
 };
 
 export type PermissionEntry<Action extends string = string> =
@@ -110,14 +118,21 @@ export const createPermissions = <
       }
       for (const entry of entries) {
         if (isEntitlement(entry)) {
-          const { resource, anchor, where, actions, ref } = entry;
+          const { resource, anchor, where, actions, ref, grantsBelow } = entry;
           const owner = options?.owner as PermixLike;
-          // Two rows alike but for their ref are two rows: `paths` reports each.
+          // Two rows alike but for their ref are two rows.
           const same = `${permixId(owner)}\0${resource}\0${JSON.stringify(anchor)}\0${JSON.stringify(where)}\0${ref ?? ''}`;
           const alike = granted.get(same) ?? [];
           if (alike.some((held) => coversEntitlement(held, entry))) continue;
           granted.set(same, [...alike, entry]);
-          const held = { anchor, where, actions, owner, ...(ref === undefined ? {} : { ref }) };
+          const held: Entitlement = {
+            anchor,
+            where,
+            actions,
+            owner,
+            ...(ref === undefined ? {} : { ref }),
+            ...(grantsBelow === true ? { grantsBelow } : {}),
+          };
           for (const [action, value] of Object.entries(actions)) {
             if (value !== true) continue;
             const key = `${resource}\0${action}`;

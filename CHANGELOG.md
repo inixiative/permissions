@@ -1,3 +1,127 @@
+## Unreleased — grants below a held row; a list arm; marks that join a stand-in
+
+Three additions to what a schema and a grant can say, with the adversarial reviews' findings
+applied. Each is off until an app uses it; the breaking changes are listed last.
+
+### An entitlement held outright on a record above grants below it
+
+- **The grant check's first pass counts some entitlements.** Before, it was the writer's table
+  alone. It now also counts an entitlement the writer holds when the entitlement is marked
+  `grantsBelow: true`, has no `where`, and the walk meets it on a real row above the granted
+  record: the entry's anchor row (when the entry sits under it by a path) or a row that anchor
+  holds under to-one relations that own their key. It then counts as a role on that row would,
+  and whoever granted it is judged the same way at every depth. A member holding `operate` on its
+  own member row can now grant over its own integrations.
+- **Why only an unconditional, unlensed row above the record.** A held `where` would
+  be read on today's anchor row and left out of the grant, so the new row would outlive the
+  condition under another owner (`manage` on s1 `where label = draft` granting `manage` on the
+  integrations of s1). Counting every held entitlement in the first pass reproduced that class;
+  this rule excludes anything with a `where`. An entitlement on the granted record itself, or on
+  a placed record, never counts, so held entitlements still never combine (R101), are never
+  re-anchored to one row (R95), and never stretch to an action that needs more than they hold
+  (R99).
+- **R103 reversed, for a marked row only.** Holding `manage` on s1 as an entitlement marked
+  `grantsBelow` grants `manage` on the integrations of s1. Unmarked, it grants a copy of itself
+  and nothing below, as before.
+- **`grantsBelow?: true` on an entitlement entry**: the app's statement that nothing narrows the
+  row (no lens, in template and Kingdom). Absent, the row never counts in the first pass, so an
+  app that does not set it behaves as before: it fails closed. `entitlementProblem` refuses any
+  value but `true`, and refuses it beside a `where`. `setup` carries it; a marked row and its
+  unmarked twin are two rows and neither covers the other (`coversEntitlement`). No check and no
+  `paths` reads it; the second (copy) pass ignores it.
+- **Options rejected** for the member case: a plain id-keyed grant (a role-capped token would
+  keep it); the user's grant in the member's table (reaches the personal account and other
+  memberships); an `id equals id` rule (true for every holder); an actor rule (the grant check
+  has no actor); the first pass counting every held entitlement, the wide walk of #28 (unsound
+  with a `where`, above).
+
+### A list the walk may cross: `{ rel, arrayOperator: 'any', condition }`
+
+- **The list arm.** A rule passes when `condition`, an action rule judged on each item as the
+  item's own resource, passes on some item of a declared list relation. It is json-rules' array
+  condition with `field` renamed `rel`; the third key is `condition` because `rule` already means
+  a json-rules condition here. Why: a chat rule ("you are one of the participants") had been
+  written as a json-rules array condition inside `{ rule }`, which "no negative rules" refuses
+  and which judges whoever is asking, never an entitlement's grantor.
+- **`/// @permissions(down: [a.b, a.c])` on the list field** declares it: the dotted to-one paths
+  loaded under each item, leaves by their full path. A list that is not declared is never
+  crossed. `createHydrator` takes `loadMany` and loads a declared list wherever its model is
+  hydrated: one read of the items, then only the declared paths under each. Nothing else loads
+  from an item, so loading never backtracks.
+- **Only `any`.** Every other array operator holds on a list with no rows or counts them; they
+  are refused by name (`arrayOperator`).
+- **Never on a stand-in.** A placed record has no lists and a `where` cannot pin one, so a grant
+  that rests on a list is anchored where a real list is.
+- **Declared leaves: the declaration carries what the rule walks.** Every relation a rule walks or
+  reads under an item, followed through the actions it lands on, must be inside a declared path.
+  `validateSchema` reports it (code `down`) and a check now refuses such a schema on first use,
+  so the two agree. Why this way round: with a shorter declaration an action answers for a person
+  whose table holds an id-keyed grant on the landing row and denies for one who has it through
+  the rule, though the same action on the same row passes when hydrated from above. An action
+  the table alone answers needs only the row it is granted on. `declarationIssues(map, schema)`
+  is exported.
+- **From the review** (each with a test that fails without it):
+  - *A-1.* The hydrator owns every to-one relation and declared list: the result holds the row it loaded, or
+    nothing. Before, a value already on the record survived when the key was missing or loaded
+    nothing, so a request body's `conversation: { participants: [...] }` was walked as a
+    membership claim.
+  - *A-2.* Under an item the check reads with `absent: 'unknown'`: a field the item does not
+    carry never passes `equals null`. Before, a member who left, loaded without `leftAt`, counted
+    as present, and a read through a relation nothing loaded passed.
+  - *A-3.* The engine denies a second list, and a bridge, under an item, whatever the record
+    holds. Before, only `validateSchema` and the hydrator kept "one jump".
+  - *A-4.* In the grant check's first pass nothing met under an item counts. Before, a row that
+    was both above the record and under an item counted or not by object identity.
+  - *A-5.* A `where` pins scalar values only, on fields that are not relations or lists. Before,
+    `conversation equals { participants: [...] }` put a list on a stand-in inside a to-one.
+- `validateSchema`: a `{ rel }` segment that is a list is an error, declared or not (it used to
+  validate and deny forever); a `{ rule }` under an item that reads through a relation outside
+  the map is reported; a bridge under an item is refused with its own message.
+- **Options rejected:** a plain `rel` through a list (one spelling for "the parent" and "some
+  item"); the json-rules array condition inside `{ rule }` (above); deriving what to load from
+  the rules (rules also live on rows and entitlements; a written declaration is explicit).
+
+### Marks: `/// @permissions(place: true)`
+
+- **A marked scalar joins the stand-in.** When an entry's `where` has a root leaf `<path to the
+  stand-in>.<field> equals <literal>`, `placeUnder` builds that stand-in with the value, at any
+  depth below the anchor. Why: a rule that reads a type field one level down
+  (`integrationResource.kind`) found it unknown on a placed record, so an app had to copy the
+  field onto the root model (`resourceKind`, `resourceEnabled`) and keep the copies true.
+- **Sound because the leaf stays on the row**: it is required of every copy and judged on the
+  real record at read. Root conjuncts, literal `equals`, scalar values, the entry's own path
+  only; never the anchor or a row above it; the path's keys and kind win.
+- **Refused** on an id, a relation key, a discriminator, a list, a relation, and any scalar but
+  String, Int and Boolean; enums are allowed.
+- **From the review, B-1.** A field two root leaves state with different values is left unknown,
+  for a mark and for a root pin. Before, the last conjunct won, so
+  `all[kind = user, kind = channel]` was granted and the same row with the two swapped refused.
+- **Options rejected:** inferring the fields from the rules (too hard to know
+  which belong, and rules also live on rows); filling every nested `equals` (a key, an id or a
+  date stated in a `where` would be believed on a record nobody loaded).
+
+### Breaking
+
+- **`@permissions(...)` is read strictly** when a map is first used: an unknown key, an empty
+  annotation, a malformed `down` or `place`, or `down` beside `hydrate: false` throws. prisma-map
+  keeps a malformed value without complaint, so a typo was a silently missing list or mark.
+  Annotations on models that are not resources are not read.
+- **`createHydrator` drops a value it did not load** from every to-one relation of the model,
+  followed or not, and from every declared list (A-1): a `rel` through a relation nothing loads
+  denies. Hydrate rows; attach a hand-made to-one relation after hydrating. A list that is not
+  declared is left as given, since no `rel` crosses it. A `{ rule }` or a `where` can still read
+  into one by field path (`messages.0.id`, `notEmpty`), and reads scalars and `permissionRules`
+  as given: hydration protects relations only. A map that declares a list needs `loadMany`.
+- **A `where` no longer pins an object or an array** onto the placed record (A-5), nor a field
+  stated with two different values (B-1). A pin on a relation admitted nothing at read, so
+  only a dead grant is lost there. **A pin on a Json column or a scalar list (`String[]`) was a
+  live row and is now refused at grant time.**
+- **`validateSchema` reports a `{ rel }` through a list.**
+- **`createCanGrantEntitlement(map)` takes the map alone.** Its `options` argument is removed:
+  the first pass always read absent fields as unknown.
+- **Under a list item, a to-one relation outside the declared paths ends empty**, as under any
+  hydrated row.
+
 ## Unreleased — delegatedWhere; no negative rules; a where never takes part in liveness
 
 - **`delegatedWhere(held, ...added)`**: the `where` of a grant passed on from a held one: `all` of

@@ -1,5 +1,13 @@
 import { idField } from '../../core/recordId';
-import { type Relation, relationOf, type SchemaMap } from '../../core/schemaMap';
+import {
+  indexMap,
+  keysFrom,
+  listsOf,
+  type Relation,
+  relationOf,
+  type SchemaMap,
+  skipsHydration,
+} from '../../core/schemaMap';
 import type { Row } from '../../core/types';
 
 /**
@@ -10,12 +18,28 @@ import type { Row } from '../../core/types';
 export type HydrateDeps<R extends string = string> = {
   map: SchemaMap<R>;
   load: (resource: R, where: Row) => Promise<Row | null>;
+  /**
+   * One read of the rows of `resource` whose columns equal `where` (the items' foreign key back to
+   * their parent): the items of a list declared `/// @permissions(down: [...])`. Required when the
+   * map declares one. Return every row, or throw: a truncated list silently denies real members.
+   */
+  loadMany?: (resource: R, where: Row) => Promise<Row[]>;
 };
 
-type Annotated = { annotations?: { permissions?: { hydrate?: boolean } } };
+type Tree = Map<string, Tree>;
 
-const skipsHydration = (field: unknown): boolean =>
-  (field as Annotated | undefined)?.annotations?.permissions?.hydrate === false;
+const treeOf = (paths: readonly (readonly string[])[]): Tree => {
+  const tree: Tree = new Map();
+  for (const path of paths) {
+    let at = tree;
+    for (const segment of path) {
+      const next: Tree = at.get(segment) ?? new Map();
+      at.set(segment, next);
+      at = next;
+    }
+  }
+  return tree;
+};
 
 const whereOf = (relation: Relation, record: Row): Row | null => {
   const where: Row = {};
@@ -37,45 +61,83 @@ const keyOf = (resource: string, where: Row): string =>
  * deny), not a loading artifact. Composite keys and non-id targets load by every column the target
  * names. A polymorphic record gets every relation whose columns are set, whatever its kind.
  *
- * A relation tagged `/// @permissions(hydrate: false)` (a prisma-map annotation) is not followed.
+ * The hydrator owns every to-one relation of the model, followed or not: the result holds the row
+ * it loaded there, or nothing. A value the record already carried under one (a request body's
+ * `conversation: {...}`) is dropped. A relation tagged `/// @permissions(hydrate: false)` (a
+ * prisma-map annotation) or one whose key is on the other side is not followed, so it ends empty.
+ * A list that is not declared is never crossed by a `rel`, and is left as given.
+ *
+ * A list relation tagged `/// @permissions(down: [forumUser.fanUser, forumUser.brandUser])` is
+ * loaded one jump down wherever its model is hydrated above an item: one `loadMany` by the items'
+ * foreign key, replacing whatever the record held under that field (`[]` when the record has no
+ * key), then under each item only the declared to-one paths, through `load`, each owned the same
+ * way. Nothing else loads from an item or from the rows on those paths: no upward hydration, no
+ * second list, and their other to-one relations end empty.
  *
  * `ancestors`, the records on the path from the root, cuts an edge back to one of them, so
  * hydration terminates on a self-referential key or an A to B to A loop. It is forked per branch, so
  * a parent reached on two paths is hydrated on both; `pending` loads it once.
  */
-export const createHydrator = <R extends string>({ map, load }: HydrateDeps<R>) => {
+export const createHydrator = <R extends string>({ map, load, loadMany }: HydrateDeps<R>) => {
+  if (indexMap(map as SchemaMap).lists.size && !loadMany)
+    throw new Error('the map declares a list (`@permissions(down: ...)`): pass `loadMany`');
+  const once = (
+    resource: R,
+    where: Row,
+    pending: Map<string, Promise<Row | null>>,
+  ): Promise<Row | null> => {
+    const key = keyOf(resource, where);
+    let loading = pending.get(key);
+    if (!loading) {
+      loading = load(resource, where);
+      pending.set(key, loading);
+    }
+    return loading;
+  };
   const hydrate = async (
     resource: R,
     record: Row,
     pending: Map<string, Promise<Row | null>> = new Map(),
     ancestors: ReadonlySet<string> = new Set(),
+    tree?: Tree,
   ): Promise<Row> => {
     const result: Row = { ...record };
     const fields = map.fieldMap.models[map.resources[resource]]?.fields ?? {};
-    await Promise.all(
-      Object.entries(fields).map(async ([name, field]) => {
-        if (skipsHydration(field)) return;
+    const lists = (tree ? [] : listsOf(map, resource)).map(async ([name, list]) => {
+      const where = keysFrom(list, record);
+      const complete = Object.keys(where).length === list.from.length;
+      const items = complete
+        ? await (loadMany as NonNullable<typeof loadMany>)(list.resource, where)
+        : [];
+      const below = treeOf(list.paths);
+      result[name] = await Promise.all(
+        items.map((item) => hydrate(list.resource, item, pending, ancestors, below)),
+      );
+    });
+    await Promise.all([
+      ...lists,
+      ...Object.entries(fields).map(async ([name, field]) => {
+        // why: a value under a to-one relation is the caller's claim until the hydrator loads it
+        if (field.kind === 'object' && !field.isList) delete result[name];
+        const below = tree?.get(name);
+        if (tree ? !below : skipsHydration(field)) return;
         const relation = relationOf(map, resource, name);
-        if (!relation) return;
-        const where = whereOf(relation, record);
-        if (!where) return;
+        const where = relation && whereOf(relation, record);
+        if (!relation || !where) return;
         const key = keyOf(relation.resource, where);
-        if (ancestors.has(key)) return;
-        let loading = pending.get(key);
-        if (!loading) {
-          loading = load(relation.resource, where);
-          pending.set(key, loading);
-        }
-        const related = await loading;
+        // why: a declared path is finite; only upward hydration can loop
+        if (!tree && ancestors.has(key)) return;
+        const related = await once(relation.resource, where, pending);
         if (related)
           result[name] = await hydrate(
             relation.resource,
             related,
             pending,
             new Set(ancestors).add(key),
+            below,
           );
       }),
-    );
+    ]);
     return result;
   };
   return hydrate;

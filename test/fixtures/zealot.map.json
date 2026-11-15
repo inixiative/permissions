@@ -1,0 +1,320 @@
+{
+  "User": {
+    "dbName": null,
+    "fields": {
+      "uuid": {
+        "kind": "scalar",
+        "type": "String",
+        "isRequired": true,
+        "isList": false,
+        "isId": true
+      }
+    }
+  },
+  "Brands": {
+    "dbName": null,
+    "fields": {
+      "uuid": {
+        "kind": "scalar",
+        "type": "String",
+        "isRequired": true,
+        "isList": false,
+        "isId": true
+      }
+    }
+  },
+  "FanUsers": {
+    "dbName": null,
+    "fields": {
+      "uuid": {
+        "kind": "scalar",
+        "type": "String",
+        "isRequired": true,
+        "isList": false,
+        "isId": true
+      },
+      "userUuid": {
+        "kind": "scalar",
+        "type": "String",
+        "isRequired": false,
+        "isList": false,
+        "isId": false
+      },
+      "brandUuid": {
+        "kind": "scalar",
+        "type": "String",
+        "isRequired": true,
+        "isList": false,
+        "isId": false
+      },
+      "user": {
+        "kind": "object",
+        "type": "User",
+        "isList": false,
+        "isRequired": false,
+        "relationName": "FanUsersToUser",
+        "fromFields": ["userUuid"],
+        "toFields": ["uuid"]
+      },
+      "brand": {
+        "kind": "object",
+        "type": "Brands",
+        "isList": false,
+        "isRequired": true,
+        "relationName": "BrandsToFanUsers",
+        "fromFields": ["brandUuid"],
+        "toFields": ["uuid"]
+      }
+    }
+  },
+  "BrandUsers": {
+    "dbName": null,
+    "fields": {
+      "uuid": {
+        "kind": "scalar",
+        "type": "String",
+        "isRequired": true,
+        "isList": false,
+        "isId": true
+      },
+      "userUuid": {
+        "kind": "scalar",
+        "type": "String",
+        "isRequired": false,
+        "isList": false,
+        "isId": false
+      },
+      "brandUuid": {
+        "kind": "scalar",
+        "type": "String",
+        "isRequired": true,
+        "isList": false,
+        "isId": false
+      },
+      "user": {
+        "kind": "object",
+        "type": "User",
+        "isList": false,
+        "isRequired": false,
+        "relationName": "BrandUsersToUser",
+        "fromFields": ["userUuid"],
+        "toFields": ["uuid"]
+      },
+      "brand": {
+        "kind": "object",
+        "type": "Brands",
+        "isList": false,
+        "isRequired": true,
+        "relationName": "BrandUsersToBrands",
+        "fromFields": ["brandUuid"],
+        "toFields": ["uuid"]
+      }
+    }
+  },
+  "ForumUser": {
+    "dbName": null,
+    "fields": {
+      "uuid": {
+        "kind": "scalar",
+        "type": "String",
+        "isRequired": true,
+        "isList": false,
+        "isId": true
+      },
+      "fanUserUuid": {
+        "kind": "scalar",
+        "type": "String",
+        "isRequired": false,
+        "isList": false,
+        "isId": false
+      },
+      "fanUser": {
+        "kind": "object",
+        "type": "FanUsers",
+        "isList": false,
+        "isRequired": false,
+        "relationName": "FanUsersToForumUser",
+        "fromFields": ["fanUserUuid"],
+        "toFields": ["uuid"]
+      },
+      "brandUserUuid": {
+        "kind": "scalar",
+        "type": "String",
+        "isRequired": false,
+        "isList": false,
+        "isId": false
+      },
+      "brandUser": {
+        "kind": "object",
+        "type": "BrandUsers",
+        "isList": false,
+        "isRequired": false,
+        "relationName": "BrandUsersToForumUser",
+        "fromFields": ["brandUserUuid"],
+        "toFields": ["uuid"]
+      },
+      "brandUuid": {
+        "kind": "scalar",
+        "type": "String",
+        "isRequired": false,
+        "isList": false,
+        "isId": false
+      },
+      "brand": {
+        "kind": "object",
+        "type": "Brands",
+        "isList": false,
+        "isRequired": false,
+        "relationName": "BrandsToForumUser",
+        "fromFields": ["brandUuid"],
+        "toFields": ["uuid"]
+      }
+    }
+  },
+  "Conversation": {
+    "dbName": null,
+    "fields": {
+      "uuid": {
+        "kind": "scalar",
+        "type": "String",
+        "isRequired": true,
+        "isList": false,
+        "isId": true
+      },
+      "brandUuid": {
+        "kind": "scalar",
+        "type": "String",
+        "isRequired": true,
+        "isList": false,
+        "isId": false
+      },
+      "createdByUuid": {
+        "kind": "scalar",
+        "type": "String",
+        "isRequired": true,
+        "isList": false,
+        "isId": false
+      },
+      "brand": {
+        "kind": "object",
+        "type": "Brands",
+        "isList": false,
+        "isRequired": true,
+        "relationName": "BrandsToConversation",
+        "fromFields": ["brandUuid"],
+        "toFields": ["uuid"]
+      },
+      "createdBy": {
+        "kind": "object",
+        "type": "ForumUser",
+        "isList": false,
+        "isRequired": true,
+        "relationName": "ConversationCreatedBy",
+        "fromFields": ["createdByUuid"],
+        "toFields": ["uuid"]
+      },
+      "participants": {
+        "kind": "object",
+        "type": "ConversationParticipant",
+        "isList": true,
+        "isRequired": true,
+        "relationName": "ConversationToConversationParticipant",
+        "fromFields": [],
+        "toFields": [],
+        "annotations": {
+          "permissions": {
+            "down": ["forumUser.fanUser.user", "forumUser.brandUser.user"]
+          }
+        }
+      },
+      "messages": {
+        "kind": "object",
+        "type": "ChatMessage",
+        "isList": true,
+        "isRequired": true,
+        "relationName": "ChatMessageToConversation",
+        "fromFields": [],
+        "toFields": []
+      }
+    }
+  },
+  "ConversationParticipant": {
+    "dbName": null,
+    "fields": {
+      "uuid": {
+        "kind": "scalar",
+        "type": "String",
+        "isRequired": true,
+        "isList": false,
+        "isId": true
+      },
+      "conversationUuid": {
+        "kind": "scalar",
+        "type": "String",
+        "isRequired": true,
+        "isList": false,
+        "isId": false
+      },
+      "forumUserUuid": {
+        "kind": "scalar",
+        "type": "String",
+        "isRequired": true,
+        "isList": false,
+        "isId": false
+      },
+      "leftAt": {
+        "kind": "scalar",
+        "type": "DateTime",
+        "isRequired": false,
+        "isList": false,
+        "isId": false
+      },
+      "conversation": {
+        "kind": "object",
+        "type": "Conversation",
+        "isList": false,
+        "isRequired": true,
+        "relationName": "ConversationToConversationParticipant",
+        "fromFields": ["conversationUuid"],
+        "toFields": ["uuid"]
+      },
+      "forumUser": {
+        "kind": "object",
+        "type": "ForumUser",
+        "isList": false,
+        "isRequired": false,
+        "relationName": "ConversationParticipantToForumUser",
+        "fromFields": ["forumUserUuid"],
+        "toFields": ["uuid"]
+      }
+    }
+  },
+  "ChatMessage": {
+    "dbName": null,
+    "fields": {
+      "uuid": {
+        "kind": "scalar",
+        "type": "String",
+        "isRequired": true,
+        "isList": false,
+        "isId": true
+      },
+      "conversationUuid": {
+        "kind": "scalar",
+        "type": "String",
+        "isRequired": true,
+        "isList": false,
+        "isId": false
+      },
+      "conversation": {
+        "kind": "object",
+        "type": "Conversation",
+        "isList": false,
+        "isRequired": true,
+        "relationName": "ChatMessageToConversation",
+        "fromFields": ["conversationUuid"],
+        "toFields": ["uuid"]
+      }
+    }
+  }
+}

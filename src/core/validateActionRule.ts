@@ -1,9 +1,34 @@
-import { type ValidationIssue, type ValidationResult, validateRule } from '@inixiative/json-rules';
+import {
+  ArrayOperator,
+  type ValidationIssue,
+  type ValidationResult,
+  validateRule,
+} from '@inixiative/json-rules';
 import { isPlainObject } from 'lodash-es';
 import type { RebacSchema } from './types';
 
 const hasOnly = (node: Record<string, unknown>, keys: string[]): boolean =>
   Object.keys(node).every((key) => keys.includes(key));
+
+const arrayOperators: readonly unknown[] = Object.values(ArrayOperator);
+
+const listIssues = (node: Record<string, unknown>, path: string): ValidationIssue[] => {
+  if (typeof node.rel !== 'string' || node.rel === '' || node.rel.includes('.'))
+    return [{ path, code: 'actionRule', message: '`rel` names one list relation, no dots' }];
+  if (node.arrayOperator !== ArrayOperator.any)
+    return arrayOperators.includes(node.arrayOperator)
+      ? [
+          {
+            path: `${path}.arrayOperator`,
+            code: 'arrayOperator',
+            message: `\`${String(node.arrayOperator)}\` is refused: only \`any\` (some item passes) crosses a list, the rest hold on no rows or count them`,
+          },
+        ]
+      : [{ path, code: 'actionRule', message: '`arrayOperator` is `any`' }];
+  if (!('condition' in node))
+    return [{ path, code: 'actionRule', message: '`condition` is the rule judged on each item' }];
+  return issues(node.condition, `${path}.condition`);
+};
 
 const issues = (rule: unknown, path: string): ValidationIssue[] => {
   if (rule === null || typeof rule === 'string' || typeof rule === 'boolean') return [];
@@ -13,6 +38,8 @@ const issues = (rule: unknown, path: string): ValidationIssue[] => {
     return typeof node.rel === 'string' && typeof node.action === 'string'
       ? []
       : [{ path, code: 'actionRule', message: '`rel` and `action` are strings' }];
+  if ('arrayOperator' in node && hasOnly(node, ['rel', 'arrayOperator', 'condition']))
+    return listIssues(node, path);
   if ('rule' in node && hasOnly(node, ['rule']))
     return validateRule(node.rule, { positive: true }).errors.map((issue) => ({
       ...issue,
