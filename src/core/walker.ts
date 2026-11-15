@@ -5,6 +5,7 @@ import { withExactStrings } from './exactStrings';
 import { indexMap, type SchemaMap } from './schemaMap';
 import type { ActionRule, CheckOptions, PermixLike, RebacSchema, Subject } from './types';
 import { validateActionRule } from './validateActionRule';
+import { schemaRuleIssues } from './validateSchema';
 
 const refuse = (what: string) => {
   throw new Error(
@@ -17,11 +18,8 @@ const judged = new WeakSet<object>();
 // why: a negated rule passes on a field the record lacks, so no schema may hold one
 const assertPositiveSchema = (schema: RebacSchema) => {
   if (judged.has(schema)) return;
-  for (const [resource, permission] of Object.entries(schema.permissions))
-    for (const [action, rule] of Object.entries(
-      (permission as { actions: Record<string, ActionRule> } | undefined)?.actions ?? {},
-    ))
-      if (!validateActionRule(rule).ok) refuse(`\`${resource}.${action}\``);
+  const [issue] = schemaRuleIssues(schema);
+  if (issue) refuse(`\`${issue.path}\``);
   judged.add(schema);
 };
 
