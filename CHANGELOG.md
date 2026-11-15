@@ -1,4 +1,4 @@
-## Unreleased — grants below a held row; a list arm; marks that join a stand-in
+## 0.22.0 — grants below a held row; a list arm; marks that join a stand-in
 
 Three additions to what a schema and a grant can say, with the adversarial reviews' findings
 applied. Each is off until an app uses it; the breaking changes are listed last.
@@ -122,7 +122,7 @@ applied. Each is off until an app uses it; the breaking changes are listed last.
 - **Under a list item, a to-one relation outside the declared paths ends empty**, as under any
   hydrated row.
 
-## Unreleased — delegatedWhere; no negative rules; a where never takes part in liveness
+## 0.22.0 — delegatedWhere; no negative rules; a where never takes part in liveness
 
 - **`delegatedWhere(held, ...added)`**: the `where` of a grant passed on from a held one: `all` of
   the added conditions, then the held `where`'s conjuncts, flat and each kept whole (one conjunct
@@ -139,7 +139,7 @@ applied. Each is off until an app uses it; the breaking changes are listed last.
   live for records outside it at grant time; reads still apply every `where` on the chain.
 - `conjuncts` accepts `null`.
 
-## Unreleased — every path a check is admitted along
+## 0.22.0 — every path a check is admitted along
 
 - **`createRebacPaths(map, { limit })`**: the walk `check` runs, without stopping at the first
   admission. It returns every way the check is admitted, once each, as the chains of entitlement
