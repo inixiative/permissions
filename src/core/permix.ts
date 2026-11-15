@@ -35,7 +35,8 @@ export type EntitlementEntry<Action extends string = string> = {
    * This row may grant below it: held on a record above a granted one, the grant check's first pass
    * counts it as a role on that record would count. The app sets it only on a row nothing narrows
    * (no `where`, and no lens or other limit the library cannot see); absent, the row is handed on
-   * only as a copy. Not part of what it grants: no check reads it.
+   * only as a copy. A marked copy of an unmarked row grants nothing below: the mark is asked of
+   * every owner up the chain. Not part of what it grants: no check reads it.
    */
   grantsBelow?: true;
 };
@@ -119,8 +120,8 @@ export const createPermissions = <
         if (isEntitlement(entry)) {
           const { resource, anchor, where, actions, ref, grantsBelow } = entry;
           const owner = options?.owner as PermixLike;
-          // Two rows alike but for their ref or their `grantsBelow` are two rows.
-          const same = `${permixId(owner)}\0${resource}\0${JSON.stringify(anchor)}\0${JSON.stringify(where)}\0${ref ?? ''}\0${grantsBelow === true}`;
+          // Two rows alike but for their ref are two rows.
+          const same = `${permixId(owner)}\0${resource}\0${JSON.stringify(anchor)}\0${JSON.stringify(where)}\0${ref ?? ''}`;
           const alike = granted.get(same) ?? [];
           if (alike.some((held) => coversEntitlement(held, entry))) continue;
           granted.set(same, [...alike, entry]);

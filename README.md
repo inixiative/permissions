@@ -458,7 +458,10 @@ could pass on only a copy of `manage` on s1).
   row nothing narrows (in template and Kingdom: no lens). A row without the mark never counts in
   the first pass, at any depth, so an app that forgets the mark gets the refusal it had before,
   never a grant that drops a lens. A lensed row is handed on by the second pass, where the lens
-  composes along the chain at read. The mark is no part of what the entry grants: no check or
+  composes along the chain at read. A copy may carry the mark even when the row it copies does
+  not: it still grants nothing below, because the owner behind it is unmarked and the mark is
+  asked at every depth. Write `grantsBelow: true` or leave the key out; any other value makes
+  the row malformed, and `wellFormedEntitlements` drops a malformed row. The mark is no part of what the entry grants: no check or
   `paths` reads it, and the second pass ignores it. `setup` keeps it, a marked row and its
   unmarked twin are two rows, and neither makes the other redundant.
 - **Rejected on the way** (Aron, 2026-11-14), for the member case this was built for:

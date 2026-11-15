@@ -14,7 +14,9 @@ import {
 import { mapOf } from './schemaMaps';
 
 // Random writers (owner graphs up to three deep, loops included) and random granted entries over
-// one schema. A writer whose rows carry no `grantsBelow` mark is the grant check before the rule.
+// one schema, on this code only: an unmarked writer stands in for the grant check before the rule
+// (the comparison against the released code was run outside the repo). It does not cover the
+// self-anchored cases; the R95, R99 and R101 tests in narrowGrant do.
 // For every case: the marks change no read, lose no grant, and each grant they add is one the
 // writer can take on every real record the entry reaches using marked rows and roles alone.
 
