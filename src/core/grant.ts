@@ -41,7 +41,7 @@ const narrows = (held: Entitlement, entry: EntitlementEntry) => {
  * action, whoever granted the held one still takes that action on `placed`, in a walk that counts
  * every entitlement `where` as holding. The `where` is judged by structure alone and never by
  * that liveness walk, so a pin the placed record leaves unknown (`id in [A, B]`) passes on at any
- * depth, and a copy never revives what its granter no longer backs.
+ * depth. A granter limited only by a `where` counts as live; reads apply every `where` live.
  */
 export const createCanGrantEntitlement = <R extends string = string>(
   map: SchemaMap<R>,

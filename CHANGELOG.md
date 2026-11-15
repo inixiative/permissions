@@ -7,10 +7,12 @@
   and a check throws when any of its rules, or a rule passed to the check, is one
   `validateActionRule` refuses. A negated rule passes on a field the record lacks, so in the grant
   walk it let a writer grant what it cannot do. Write rules positively.
-- **Fix: the grant check's liveness walk ignores every entitlement `where`.** Passing on a copy
-  still asks that the held entitlement's granter backs the action, but a `where` is judged by
-  structure alone. Before, a granter's `id in [A, B]` could not hold on a placed record whose id is
-  unknown, so a list pin was refused one hop down, even as an exact copy.
+- **Breaking: the grant check's liveness walk consults no entitlement `where`.** Passing on a
+  copy still asks that the held entitlement's granter holds the action, with its anchor reached
+  from the placed record at every link, but a `where` is judged by structure alone. A list pin
+  (`id in [A, B]`) now passes on at any depth; before, the granter's `in` could not hold on a
+  placed record whose id is unknown. It also means a granter limited only by a `where` counts as
+  live for records outside it at grant time; reads still apply every `where` on the chain.
 - `conjuncts` accepts `null`.
 
 ## Unreleased — every path a check is admitted along

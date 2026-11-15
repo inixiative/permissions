@@ -169,6 +169,60 @@ describe('a list pin passes on at any depth: copies are judged by structure, the
   });
 });
 
+describe('liveness asks the anchor and the action along the chain, never a where', () => {
+  const schema: RebacSchema = {
+    permissions: {
+      'db:space': { actions: { own: null } },
+      'db:thread': { actions: { read: { rel: 'space', action: 'own' } } },
+    },
+  };
+  const map = mapOf({ 'db:thread': { space: 'db:space' } });
+  const canGrant = createCanGrantEntitlement(map);
+  const check = createRebacCheck(map);
+  const threads = (spaceId: string, where?: Condition): EntitlementEntry => ({
+    resource: 'db:thread',
+    anchor: { resource: 'db:space', id: spaceId, path: 'space' },
+    actions: { read: true },
+    ...(where === undefined ? {} : { where }),
+  });
+  const pinned: Condition = { field: 'id', operator: Operator.in, value: ['tA'] };
+  const grantable = (writer: Permix, entry: EntitlementEntry, spaceId: string) =>
+    (placeEntitlement(map, entry, { id: spaceId }) as Row[]).every((record) =>
+      canGrant(writer, schema, entry, record),
+    );
+  const held = async (owner: Permix, entry: EntitlementEntry) => {
+    const holder = createPermissions();
+    await holder.setup(entry, { owner });
+    return holder;
+  };
+  const reads = (permix: Permix, id: string) =>
+    check(
+      permix,
+      schema,
+      { resource: 'db:thread', record: { id, spaceId: 's1', space: { id: 's1' } } },
+      'read',
+    );
+
+  test('a granter limited by a where counts as live; reads through that chain still apply it', async () => {
+    const root = createPermissions();
+    await root.setup({ resource: 'db:space', id: 's1', actions: { own: true } });
+    const granter = await held(root, threads('s1', pinned));
+    const writer = await held(granter, threads('s1'));
+
+    expect(grantable(writer, threads('s1'), 's1')).toBe(true);
+    const copy = await held(writer, threads('s1'));
+    expect([reads(copy, 'tA'), reads(copy, 'tB')]).toEqual([true, false]);
+  });
+
+  test('a granter whose anchor no longer reaches the record backs nothing', async () => {
+    const elsewhere = createPermissions();
+    await elsewhere.setup({ resource: 'db:space', id: 's9', actions: { own: true } });
+    const writer = await held(elsewhere, threads('s1'));
+
+    expect(grantable(writer, threads('s1'), 's1')).toBe(false);
+  });
+});
+
 describe('a negated schema rule throws for every caller', () => {
   test('a superadmin and a holder of a direct grant are refused the same as anyone', async () => {
     const schema: RebacSchema = {

@@ -22,7 +22,7 @@ config file shipped on deploy. `validateActionRule` checks a stored rule before 
 - **No second store.** A check reads the records you already have. There is no authorization service to run, no relationship tuples to dual-write, no consistency tokens, nothing to reconcile, so nothing drifts.
 - **Rules are data, down to one record.** The schema, role grants, entitlements and per-record rules are all JSON. A tenant can write a rule on one of its own records, validated before it is saved, and it can only widen access. Policy grows per tenant instead of being one global document someone else has to edit.
 - **Delegation that stays honest.** Every entitlement is backed by whoever granted it. Every check asks again whether that grantor still allows the action on that record, up the whole chain and across tenant boundaries. Demote anyone in the chain and what they handed on stops on the next request, with nothing to clean up.
-- **Granting is checked by the same rules.** You can only hand on what you could do yourself on every record the grant reaches. No separate admin policy to keep in step.
+- **Granting is checked by the same rules.** A role hands on only what it could do itself on every record the grant reaches; a held entitlement is handed on as a copy or a narrowing, while its granter still holds the action at that anchor. No separate admin policy to keep in step.
 - **Change the rules, not the data.** What an action means and what implies what are read at check time, so changing them never means migrating or re-checking stored grants.
 - **Positive by design.** No deny rules: you narrow by composing a stricter rule (`all`), so there is no deny-versus-allow conflict, and a validated rule never passes because something wasn't loaded.
 - **Small enough to read.** A compact core that runs in your process, with json-rules and lodash-es as its only dependencies.
@@ -227,7 +227,7 @@ permix.setActor({ model: 'Token', record: token }); // a token, with whatever ow
 
 It is just a rule. With nobody acting, `__actor` is null and the rule runs as written; a rule that
 needs someone acting names who (`__actor.model equals 'User'` inside its `all`), since rules are
-positive and `notEmpty` is refused. Beware a comparison against a field that may be null: with
+positive. Beware a comparison against a field that may be null: with
 nobody acting, `ownerId equals __actor.record.id` holds when `ownerId` is null. A row's `permissionRules` read it the same way and still only widen. A superadmin skips
 the schema, so it skips these too.
 
@@ -384,7 +384,8 @@ delegatedWhere({ all: [slack, team] }, general); // { all: [general, slack, team
 **No negative rules.** A check throws when any rule of the schema, or a rule passed to it, is one
 `validateActionRule` refuses, negated ones (`notEquals`, `notIn`, …) included; the schema is judged
 whole on first use, so it throws for every caller, a superadmin too. A record's own
-`permissionRules` that are not positive are ignored, as before. A negated rule passes on a field the record lacks, so in
+`permissionRules` that are not positive are ignored, as before. A schema is judged once per object: one changed in
+place after its first check is not judged again. A negated rule passes on a field the record lacks, so in
 the grant walk, where every field the placed record lacks is unknown, it granted what the writer
 cannot do. Run `validateSchema` and write rules positively (`role in ['member', 'guest']`, not
 `role notIn ['owner', 'admin']`).
@@ -421,9 +422,12 @@ anchor is the anchor row itself.
    `manage` grants `read` when `read` is `{ any: ['manage', …] }`); its `where` copied or narrowed
    (every condition of the held `where`, meaning itself or each child of its top `all`, among the
    entry's); and whoever granted the held one still takes each granted action on `placed`, so
-   copying never revives an entitlement its granter no longer backs. That liveness walk counts
-   every entitlement `where` as holding: a `where` is judged by its structure alone, so a pin
-   `placed` leaves unknown (`id in [A, B]`) passes on at any depth. Held entitlements never
+   a copy needs its granter to still hold the action at that anchor. That liveness walk asks the
+   anchor and the action at every link and consults no `where`: a `where` varies too much to prove
+   on a placed record, so it is judged by its structure alone, and a pin `placed` leaves unknown
+   (`id in [A, B]`) passes on at any depth. A granter whose only live route is limited by a `where`
+   therefore counts as live for records outside it; reads still apply every `where` on the chain
+   they walk, so a copy installed under its writer admits no more than that chain. Held entitlements never
    combine: to pass on two, grant two.
 
 `reachableFrom(schema, resource, action)` is that pure-delegation walk: the actions on `resource`
