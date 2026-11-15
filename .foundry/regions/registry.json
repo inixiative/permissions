@@ -1,0 +1,175 @@
+{
+  "version": 1,
+  "project": "permissions",
+  "builtFrom": {
+    "docs": ["README.md", "COMPARISON.md"],
+    "excluded": [
+      {
+        "path": "CHANGELOG.md",
+        "kind": "history",
+        "reason": "Release history: removed arms, options, entry points and old shapes. The breaking changes that matter as legacy are carried as notes instead."
+      },
+      {
+        "path": "README.md#license",
+        "kind": "excluded",
+        "reason": "Boilerplate (MIT), no API content."
+      },
+      {
+        "path": "COMPARISON.md#sources",
+        "kind": "excluded",
+        "reason": "A list of URLs for the other systems' docs, no content about this library."
+      }
+    ],
+    "catalog": "code read through the repo's Atlas map when it has one, else the plan's code scope; described with Foundry's catalog describer prompts",
+    "atlas": ".atlas/concepts.ts",
+    "libraries": {},
+    "method": "three independent model proposals, item-level majority vote (2 of 3), seams to the size ceiling, per-region authoring"
+  },
+  "concepts": [
+    {
+      "tag": "action-rules",
+      "atlas": "primitive:action-rules",
+      "description": "Writing what an action means: the ActionRule algebra (string delegation, { rel, action } walks, { rule } json-rules conditions, any/all, boolean, null), a RebacSchema with the app's own action names, per-record permissionRules that only widen",
+      "region": "permission-rules"
+    },
+    {
+      "tag": "rule-validation",
+      "atlas": "primitive:action-rules",
+      "description": "Keeping rules positive and acyclic: validateActionRule, validateSchema, schemaRuleIssues; a check throws on a schema holding any refused rule",
+      "region": "permission-rules"
+    },
+    {
+      "tag": "actor",
+      "atlas": null,
+      "description": "Rules about who is acting: permix.setActor({ model, record }) read by plain { rule } conditions under __actor, acting on your own row via { rel: 'user' }, person-only rules and null-actor pitfalls",
+      "region": "permission-rules"
+    },
+    {
+      "tag": "bridges",
+      "atlas": "primitive:bridges",
+      "description": "Cross-source rel walks: schema bridges (json-rules Bridge), map:model segments, far rows passed as subject.data, an absent far row denies",
+      "region": "permission-rules"
+    },
+    {
+      "tag": "check-engine",
+      "atlas": "primitive:check",
+      "description": "Deciding allow/deny on one hydrated record: createRebacCheck(map) and check(permix, schema, subject, action), walk order (superadmin, table, schema OR row rule, entitlements), cycle detection, permissions.idField, exact strings",
+      "region": "running-a-check"
+    },
+    {
+      "tag": "admission-paths",
+      "atlas": "primitive:paths",
+      "description": "Explaining or charging a use: createRebacPaths returns every admission as chains of entitlement refs, limit and PathLimitError",
+      "region": "running-a-check"
+    },
+    {
+      "tag": "schema-map",
+      "atlas": "primitive:schema-map",
+      "description": "The SchemaMap every walk, placement and hydrator reads: resources to models, the json-rules/prisma-map fieldMap, the false-polymorphism registry, to-one FK-owning relations",
+      "region": "running-a-check"
+    },
+    {
+      "tag": "hydration",
+      "atlas": "primitive:hydration",
+      "description": "Loading the record a check walks: createHydrator({ map, load }) follows to-one relations recursively through the app's load, /// @permissions(hydrate: false) skips an edge",
+      "region": "running-a-check"
+    },
+    {
+      "tag": "check-performance",
+      "atlas": null,
+      "description": "What a check costs by walk depth and entitlements held; bun run bench and *.bench.ts",
+      "region": "running-a-check"
+    },
+    {
+      "tag": "permix",
+      "atlas": "primitive:permix",
+      "description": "What the actor holds: createPermissions, the grant table, entitlements, superadmin flag and actor, setup(entries, { owner?, replace? }), getJSON, PermixLike",
+      "region": "grants-and-entitlements"
+    },
+    {
+      "tag": "entitlements",
+      "atlas": "primitive:entitlements",
+      "description": "Access anchored on a record and backed by its owner: EntitlementEntry (anchor with path, positive where, actions, ref), polymorphic steps, live owner re-walk, reachableFrom, entitlementProblem, coversEntitlement, withoutRedundantEntitlements",
+      "region": "grants-and-entitlements"
+    },
+    {
+      "tag": "granting",
+      "atlas": "primitive:granting",
+      "description": "Whether a writer may grant an entitlement: createCanGrantEntitlement's two passes, placeEntitlement/placeUnder pseudo records, delegatedWhere narrowing, held entitlements never combine",
+      "region": "grants-and-entitlements"
+    },
+    {
+      "tag": "delegation",
+      "atlas": "primitive:delegation",
+      "description": "Tokens and integrations acting for an owner: delegate (full / ceiling / entitlements), capAtRole, Permissions as data, installPermissions, permixOf, wellFormedEntitlements",
+      "region": "grants-and-entitlements"
+    },
+    {
+      "tag": "tenant-boundaries",
+      "atlas": null,
+      "description": "Modelling tenants: membership (acting as the tenant) versus entitlements the tenant owns (licensing), and what keeps a boundary closed",
+      "region": "grants-and-entitlements"
+    },
+    {
+      "tag": "library-overview",
+      "atlas": null,
+      "description": "What the package is and its vocabulary: one synchronous check over the app's own records covering RBAC, ReBAC, ABAC and delegation, rules as data, no second store",
+      "region": "library-scope"
+    },
+    {
+      "tag": "package-layout",
+      "atlas": null,
+      "description": "Where code belongs: src/core never imports src/helpers (test/layout.test.ts), fetching and role mapping stay in the app",
+      "region": "library-scope"
+    },
+    {
+      "tag": "comparison",
+      "atlas": null,
+      "description": "Use this or another system: comparison with SpiceDB, OpenFGA, Permify, Cedar, Oso, Cerbos, Casbin, CASL, OPA; no tuple store, positive rules only, live delegation, where others are ahead",
+      "region": "library-scope"
+    },
+    {
+      "tag": "roadmap",
+      "atlas": null,
+      "description": "Not built yet: the 1.0 reflection (rules to Prisma where / SQL, listing, reverse lookup); today a check judges one loaded record",
+      "region": "library-scope"
+    }
+  ],
+  "regions": [
+    {
+      "id": "permission-rules",
+      "tokens": 7234,
+      "recogniseTokens": 1145,
+      "concepts": ["action-rules", "rule-validation", "actor", "bridges"],
+      "runsAgreed": 2
+    },
+    {
+      "id": "running-a-check",
+      "tokens": 8620,
+      "recogniseTokens": 1162,
+      "concepts": [
+        "check-engine",
+        "admission-paths",
+        "schema-map",
+        "hydration",
+        "check-performance"
+      ],
+      "runsAgreed": 3
+    },
+    {
+      "id": "grants-and-entitlements",
+      "tokens": 15588,
+      "recogniseTokens": 1756,
+      "concepts": ["permix", "entitlements", "granting", "delegation", "tenant-boundaries"],
+      "runsAgreed": 3
+    },
+    {
+      "id": "library-scope",
+      "tokens": 7580,
+      "recogniseTokens": 658,
+      "concepts": ["library-overview", "package-layout", "comparison", "roadmap"],
+      "runsAgreed": 3
+    }
+  ],
+  "dropped": {}
+}

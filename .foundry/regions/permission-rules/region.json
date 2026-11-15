@@ -1,0 +1,36 @@
+{
+  "id": "permission-rules",
+  "title": "Writing permission rules",
+  "routing": "Is this about writing or validating what an action means: an ActionRule (string delegation, { rel, action } walks, { rule } json-rules conditions, any/all, true/false/null), a RebacSchema's actions, a record's permissionRules, conditions on __actor, cross-source bridges and subject.data, or validateActionRule / validateSchema / schemaRuleIssues; jobs like 'admins of the org can edit its documents', 'only people, not tokens', 'let this one record be public', 'check the stored rule before saving'?",
+  "concepts": ["action-rules", "rule-validation", "actor", "bridges"],
+  "tokens": 7234,
+  "tokenMethod": "chars/4",
+  "files": {
+    "recognise": {
+      "path": "recognise.md",
+      "tokens": 1145,
+      "experimental": true,
+      "note": "a smaller recognise-only document; knowledge.md is the Warden document"
+    },
+    "knowledge": {
+      "path": "knowledge.md",
+      "tokens": 7234
+    }
+  },
+  "runsAgreed": 2,
+  "sources": {
+    "docs": ["README.md"],
+    "docUnits": [
+      "doc:README.md#permission-algebra-actionrule",
+      "doc:README.md#writing-a-schema",
+      "doc:README.md#also-exported",
+      "doc:README.md#the-actor",
+      "doc:README.md#bridges-cross-source-rel-walks"
+    ],
+    "catalogClusters": ["primitive-action-rules", "primitive-bridges", "primitive-granting"],
+    "codeEntries": 5,
+    "docMembers": 13
+  },
+  "bypassLines": 9,
+  "glossaryTerms": 23
+}
