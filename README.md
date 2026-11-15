@@ -66,7 +66,7 @@ Want your own delegation model or your own loading? Skip the helpers and call `c
 | **ceiling** | the action a delegate's role maps to; the owner's grants are kept at it (`capAtRole`) |
 | **actor** | who is acting: a credential kind (`model`, e.g. `User`, `Token`) and its row, set once per request and read by rules as `__actor` |
 | **permix** | the installed form of the actor's permissions that `check` reads |
-| **pseudo record** | the would-be row a create or a grant is checked on |
+| **pseudo record** | the would-be row a create or a grant is checked on; the rows built for it below the anchor, with keys and parents but no ids, are **stand-ins** |
 
 ## Permission algebra (`ActionRule`)
 
@@ -74,6 +74,7 @@ Want your own delegation model or your own loading? Skip the helpers and call `c
 type ActionRule =
   | string                       // rbac: delegate to another action on the same resource
   | { rel: string; action: string }  // rebac: walk a relation, then check `action` on the target
+  | { rel: string; arrayOperator: 'any'; condition: ActionRule } // rebac across a list: some item passes
   | { rule: Condition }          // abac: a json-rules predicate over the record, the actor under `__actor`
   | { any: ActionRule[] }        // OR
   | { all: ActionRule[] }        // AND
@@ -135,6 +136,126 @@ rule **additively** (OR) with the schema rule, so per-record overrides can widen
 `check` validates a row rule before merging it: one that isn't positive, or that delegates back to
 its own action (a cycle), widens nothing. Validate tenant-authored rules with `validateActionRule`
 before persisting them too, so the author hears about it.
+
+## Crossing a list: some item passes
+
+A `{ rel, action }` walk is to-one and never crosses a list. A rule that turns on a row in a list
+(you may chat when you are one of the conversation's participants) uses its own arm:
+
+```ts
+conversation: {
+  actions: {
+    isParticipant: {
+      rel: 'participants', //   one list relation of this resource, no dots
+      arrayOperator: 'any', //  the only operator
+      condition: { //           an ActionRule, judged on each item as the item's own resource
+        all: [
+          { rule: { field: 'leftAt', operator: 'equals', value: null } },
+          { any: [
+            { rel: 'member.fanUser', action: 'operate' },
+            { rel: 'member.staffUser', action: 'operate' },
+          ] },
+        ],
+      },
+    },
+    chat: { all: ['create', 'isParticipant'] },
+  },
+},
+message: { actions: { read: { rel: 'conversation', action: 'isParticipant' } } },
+```
+
+The arm passes when `condition` passes on some item. Inside `condition` a string is an action on
+the item's resource, `rel` walks from the item, and `{ rule }` reads the item, so the item's model
+is a resource in the map (it needs no actions of its own). A record below the list reaches it by
+delegating, as `message.read` does; `rel` in the arm is the list field alone.
+
+The shape is json-rules' array condition, `{ field, arrayOperator, condition }`, with `field`
+renamed `rel` because the list is a relation walked through the table. The third key is
+`condition` and not `rule`: in this language `rule` always holds a json-rules condition, and one
+key with two meanings is what `validateActionRule` would have to guess at.
+
+**The list is declared in the Prisma schema**, on the list field, and the map carries it:
+
+```prisma
+model Conversation {
+  /// @permissions(down: [member.fanUser.user, member.staffUser.user])
+  participants ConversationParticipant[]
+}
+```
+
+`down` is a flat list of dotted paths from an item. Each names a leaf by its full path, and
+everything above a leaf loads with it; `down: []` loads the items and nothing under them. Each
+segment is a to-one relation that owns its foreign key and leads to a resource in the map. The
+item model has exactly one foreign key back to the parent (an implicit many-to-many has none and
+is refused), and a path may not start back up that key. A list that is not declared is never
+crossed.
+
+- **What loads, and what doesn't.** `createHydrator` loads a declared list wherever its model is
+  hydrated, as the record you pass or as a parent of it: one `loadMany` by the items' foreign key,
+  then under each item only the declared paths, through `load`. Nothing else loads from an item:
+  none of its other parents, no second list, nothing above the rows on a declared path. That is
+  what "one jump down" means, and it is why loading never backtracks into the record it came from.
+  Batching the per-item loads is left out until a list is long enough to need it.
+- **One jump in the engine too.** A list arm met under an item denies, whether it is nested in the
+  `condition`, reached by delegating to an action of the item, or passed inline, and whatever the
+  record holds. A bridge hop under an item denies as well.
+- **A field an item does not carry is unknown.** Under an item the check reads with json-rules
+  `absent: 'unknown'`, whatever `absent` the check was built with. `leftAt equals null` passes on a
+  loaded row, which carries its null columns, and fails on an item that came back without the
+  column (a `select`, a projection) and on a read through a relation nothing loaded. Without this
+  a member who left, loaded without `leftAt`, would count as present.
+- **Why only `any`.** Every other array operator (`all`, `none`, `atMost`, `exactly`, `empty`,
+  `notEmpty`, `atLeast`) holds on a list with no rows or counts rows, so it would pass on a record
+  whose list was never loaded, or pass for nobody in particular. They are refused by name (code
+  `arrayOperator`). A `condition` that never walks into the table (`true`, or a bare `{ rule }` on
+  the item) is "the list is not empty" under another spelling; write conditions that reach a
+  person.
+- **A list never passes on a stand-in.** The pseudo record a grant is checked on has no lists:
+  `placeUnder` builds keys and parents, never items, and a `where` cannot pin one (only scalar
+  values are pinned, see [Granting one](#granting-one)). So nobody grants "participant of every
+  conversation in the brand"; a grant that rests on the list is anchored where a real list is (the
+  conversation itself, or a record below it).
+- **Entitlements under an item** work as anywhere: one held on a membership row makes its holder
+  count where that member is a participant, because a delegate of the participant is the
+  participant wherever a rule walks to them. Whoever granted it is judged on the same item, so it
+  stops when the member leaves. In the grant check's first pass nothing met under an item counts
+  (`grantsBelow` is about rows above the granted record, and an item is not one), so the outcome
+  never turns on whether a loader hands the same object to an item and to a parent.
+- **`paths`** reports one admission per admitting item, merged when equal, and the list arm is
+  never pure delegation: `reachableFrom` and `capAtRole` do not pass through it.
+
+**Declare what the rule walks.** `validateSchema` and the run time agree on what a declaration
+must carry: every relation a rule walks or reads under an item, followed through the actions the
+walk lands on, is inside a declared path. A check refuses a schema that breaks this on first use,
+the way it refuses a negated rule, so it cannot go unnoticed in an app that never runs
+`validateSchema`. In the example `operate` on a membership is `{ rel: 'user', action: 'operate' }`,
+so the leaves are `member.fanUser.user` and `member.staffUser.user`: three segments.
+
+Why the stricter reading. With only `member.fanUser` declared, the walk still passes for a person
+whose table holds an id-keyed grant of `operate` on their own membership row, because the table
+answers before the rule is walked. It denies for a person whose `operate` comes through the rule
+(`user.own`), and for a grantor judged the same way, although the same action on the same row
+passes when the row is hydrated from above. One action answering two ways by how its row was
+reached is the under-hydration the hydrator exists to remove, and the library cannot see tables
+from a schema. So the declaration follows the rule. To load less, say less in the rule: an action
+the table alone answers (`self: null`, granted by id on the membership row) needs only
+`member.fanUser`, and validates with two segments.
+
+Rules outside the schema (a record's `permissionRules`, a rule passed to `check`, an entitlement's
+anchor path) are not judged against the declaration. They are bounded by the run time: only the
+declaration is loaded, and a read of what is not there is unknown.
+
+**Rejected on the way** (Aron, 2026-11-14):
+
+- *A plain `rel` through a list.* `{ rel: 'participants', action }` reads as to-one everywhere
+  else; a walk that silently fans out would make "some item" and "the parent" one spelling. A
+  `rel` segment that is a list is now a `validateSchema` error, declared or not.
+- *A json-rules array condition inside `{ rule }`.* It compares each item to whoever is asking, so
+  an entitlement's grantor is never judged on the list, and it holds with nobody acting on an item
+  with no person. As a nested rule it is also refused by "no negative rules".
+- *Deriving what to load from the rules.* Rules also live on rows and in entitlements, and "which
+  relations might some rule read" has no stable answer; a written declaration is explicit, and
+  nothing else loads.
 
 ## The check engine
 
@@ -383,7 +504,9 @@ delegatedWhere({ all: [slack, team] }, general); // { all: [general, slack, team
 
 **No negative rules.** A check throws when any rule of the schema, or a rule passed to it, is one
 `validateActionRule` refuses, negated ones (`notEquals`, `notIn`, …) included; the schema is judged
-whole on first use, so it throws for every caller, a superadmin too. A record's own
+whole on first use, so it throws for every caller, a superadmin too. The same first use refuses
+a schema whose list arm goes outside its declaration (see
+[Crossing a list](#crossing-a-list-some-item-passes)). A record's own
 `permissionRules` that are not positive are ignored, as before. A schema is judged once per object: one changed in
 place after its first check is not judged again. A negated rule passes on a field the record lacks, so in
 the grant walk, where every field the placed record lacks is unknown, it granted what the writer
@@ -400,12 +523,64 @@ field with a literal `value` are checked on each record's kind: a kind a leaf fa
 (`ownerModel in [Organization, Space]` keeps those two). Any other leaf, a leaf reading its value
 from a path, and anything nested narrow nothing: dropping a record loosens the grant, so only the
 kind, which every real record of that kind shares, may drop it. The writer must pass on every
-record left. The root's exact `equals` leaves (`equals null` pins `null`) fill the rest; the path
+record left. The root's exact `equals` leaves (`equals null` pins `null`) fill the rest: scalar
+values only, on fields that are not relations or lists, so a `where` never puts a row or a list
+on the placed record (`equals` on an object admits no hydrated record at read, so nothing real is
+lost). A field two root leaves state with different values is left unknown, since no record holds
+both and the order of conjuncts must not decide a grant. The path
 wins over a pinned foreign key it knows, so a `where` cannot move the record out from under its
 anchor (a pin on a foreign key the path leaves unknown stays, and the rules still walk the placed
-relation). It returns `null` when no kind is left, the anchor row is not the entry's, or the path
+relation). Below the root, a stand-in takes a stated value only on a marked field (next). It returns `null` when no kind is left, the anchor row is not the entry's, or the path
 does not end at the anchor's model through to-one relations. A self
 anchor is the anchor row itself.
+
+**Marks: fields that join a stand-in.** The records `placeUnder` builds below the anchor carry
+keys and parents and nothing else, so a rule that reads a type field on one of them
+(`integrationResource.kind equals 'channel'`) finds it unknown and the grant is refused, however
+exactly the `where` states it. Mark the field in the Prisma schema:
+
+```prisma
+model IntegrationResource {
+  /// @permissions(place: true)
+  kind    String
+  /// @permissions(place: true)
+  enabled Boolean
+}
+```
+
+When an entry's `where` has a root leaf `<the entry's path down to that stand-in>.<field> equals
+<literal>`, the stand-in is built with that value. "Every channel of integration i1" is then one
+row, anchored at the integration by `integrationResource.integration`, `where`
+`integrationResource.kind equals 'channel'` and `integrationResource.enabled equals true`, and the
+surface model needs no copied `resourceKind` column.
+
+- **What the mark means.** "A grant may state this field's value for records it has not seen."
+  It is sound because the stated leaf stays on the stored row: it is required of every copy, and
+  at read it is judged on the real record the anchor path walks. A mark adds no authority; it
+  lets the grant check believe, for the stand-in, what the `where` will enforce.
+- **Its limits.** Root conjuncts only (a leaf inside `any` is not true of every admitted record);
+  a literal `equals` only, with a scalar value; only on the entry's own path, at any depth; only
+  stand-ins strictly below the anchor, each built fresh, so the anchor and the rows above it are
+  real and never written. The path wins: keys, the parent and a polymorphic kind are set after
+  the marks. Two leaves stating one field differently fill nothing, in either order. Under a list
+  item nothing is filled.
+- **Where it is refused**, when the map is first used: an id (the map's `isId`, or the field
+  named by `permissions.idField`; a hand-built map that carries neither is not caught), a
+  relation key, a discriminator, a list, a relation, and any scalar but String, Int and Boolean
+  (so dates, Json, Float, Decimal, BigInt, Bytes). Enums are allowed. The value is `true` or the
+  key is absent. The value's type is not checked against the field: a mistyped pin gives a
+  refused or a dead row.
+- **Rejected on the way** (Aron, 2026-11-14): *inferring the fields from the rules* ("too hard to
+  work out which things should be there"; rules also live on rows and entitlements), and *filling
+  every nested `equals`* (a key, an id or a date stated in a `where` would be believed on a record
+  nobody loaded; the mark is the schema author saying which fields are safe to state).
+
+**`@permissions(...)` is read strictly.** Three keys: `hydrate: false` on a relation, `down:
+[...]` on a list relation, `place: true` on a scalar. On first use of a map every annotation on a
+resource's model is read, and an unknown key, an empty annotation, a malformed value, or `down`
+beside `hydrate: false` throws. prisma-map keeps a malformed value without complaint (`down:
+a.b` arrives as a string, `place: yes` as `'yes'`), so a typo would otherwise be a silently
+missing list or mark. Annotations on models that are not resources are not read.
 
 `canGrantEntitlement` judges each placed record in two passes:
 
@@ -602,7 +777,9 @@ loading artifact.
 `createHydrator` is that pattern over the **same schema map** the checks walk, so the two can't drift.
 Give it the map and `load`, one read of a resource's record by its target columns (`{ id }`, or every
 column of a composite key). `load` is the cache seam: the hydrator de-duplicates loads within one
-hydration, your wrapper caches across calls.
+hydration, your wrapper caches across calls. A map that declares a list
+(`/// @permissions(down: [...])`) also needs `loadMany`, one read of the items by their foreign
+key back to the parent; return every row or throw, since a truncated list denies real members.
 
 ```ts
 import { buildPrismaMapV7 } from '@inixiative/prisma-map';
@@ -619,6 +796,7 @@ const check = createRebacCheck(map);
 const hydrate = createHydrator({
   map,
   load: (resource, where) => cached(resource, where, () => db[resource].findFirst({ where })),
+  loadMany: (resource, where) => db[resource].findMany({ where }), // only if the map declares a list
 });
 
 const doc = await hydrate('document', await db.document.findFirstOrThrow({ where: { id } }));
@@ -626,10 +804,20 @@ check(permix, schema, { resource: 'document', record: doc }, 'manage');
 ```
 
 - **What it follows:** every to-one relation with its foreign key on the record (`fromFields`) that
-  leads to a resource in the map. Lists, back-relations and models outside the map are not followed.
+  leads to a resource in the map, and every declared list, one jump down (see
+  [Crossing a list](#crossing-a-list-some-item-passes)). Other lists, back-relations and models
+  outside the map are not followed.
+- **It owns what it follows.** After hydration a followed relation holds the row the hydrator
+  loaded, or nothing, and a declared list holds the items it loaded (`[]` when the record has no
+  key yet). A value the record already carried there is dropped when the key is missing, loads
+  nothing, or leads back to an ancestor. A request body spread into a record
+  (`hydrate('message', { ...body })`) can therefore not bring its own `conversation` with a
+  participant list in it. Fields the hydrator does not follow are left as given.
 - **Check the schema against the map:** `validateSchema(map, schema)` returns every `{ rel }` that
-  names a missing relation and every action named where it isn't defined, which would otherwise
-  deny forever. Run it in a test or at boot.
+  names a missing relation or goes through a list, every list arm the declarations do not carry,
+  and every action named where it isn't defined, which would otherwise deny forever. Run it in a
+  test or at boot. `declarationIssues(map, schema)` is the list-arm part alone, the part a check
+  enforces on first use.
 - **Composite keys and non-id targets** load by every column the target names (`toFields`); a key with
   one column null loads nothing.
 - **Polymorphic records** get every relation whose columns are set, whatever the kind: hydration does
@@ -641,8 +829,9 @@ check(permix, schema, { resource: 'document', record: doc }, 'manage');
   key or an A to B to A loop terminates; a parent reached on two paths is hydrated on both and loaded
   once.
 
-Records are plain data, so nothing stops you from attaching extra relations or predicate fields by
-hand before checking.
+Records are plain data: `check` trusts the record it is given, lists included, and cannot tell a
+loaded row from one written by hand. Hydrate what came from a request, and attach extra relations
+or predicate fields by hand only after hydrating, from data you loaded yourself.
 
 ## Also exported
 
