@@ -133,8 +133,9 @@ through `record.space.organization`, resolving each hop's model from the schema 
 Records may also carry a `permissionRules` JSON field (`action → ActionRule`): a per-record rule (a
 condition, a relation walk or both), so one record can take a rule its model's schema doesn't. `check` merges a row
 rule **additively** (OR) with the schema rule, so per-record overrides can widen but never revoke.
-`check` validates a row rule before merging it: one that isn't positive, or that delegates back to
-its own action (a cycle), widens nothing. Validate tenant-authored rules with `validateActionRule`
+`check` validates a row rule before merging it: one that isn't positive, that delegates back to
+its own action (a cycle), or that reads outside the [relation lens](#what-a-check-reads-the-relation-lens),
+widens nothing. Validate tenant-authored rules with `validateActionRule`
 before persisting them too, so the author hears about it.
 
 ## Crossing a list: some item passes
@@ -224,14 +225,15 @@ crossed.
   none of its other parents, no second list, nothing above the rows on a declared path. That is
   what "one jump down" means, and it is why loading never backtracks into the record it came from.
   Batching the per-item loads is left out until a list is long enough to need it.
-- **One jump in the engine too.** A list arm met under an item denies, whether it is nested in the
-  `condition`, reached by delegating to an action of the item, or passed inline, and whatever the
-  record holds. A bridge hop under an item denies as well.
-- **A field an item does not carry is unknown.** Under an item the check reads with json-rules
+- **One jump in the engine too.** An item's view holds its columns and its declared paths, no
+  list, so a list arm met under an item finds nothing, whatever the record holds; validation
+  refuses one anyway, nested, delegated or inline. A bridge hop under an item denies as well.
+- **A column an item does not carry is unknown.** Under an item the check reads with json-rules
   `absent: 'unknown'`, whatever `absent` the check was built with. `leftAt equals null` passes on a
   loaded row, which carries its null columns, and fails on an item that came back without the
-  column (a `select`, a projection) and on a read through a relation nothing loaded. Without this
-  a member who left, loaded without `leftAt`, would count as present.
+  column (a `select`, a projection). Without this a member who left, loaded without `leftAt`,
+  would count as present. A read through a relation the declaration does not load is refused
+  before it runs.
 - **Why only `any`.** Every other array operator (`all`, `none`, `atMost`, `exactly`, `empty`,
   `notEmpty`, `atLeast`) holds on a list with no rows or counts rows, so it would pass on a record
   whose list was never loaded, or pass for nobody in particular. They are refused by name (code
@@ -269,9 +271,9 @@ from a schema. So the declaration follows the rule. To load less, say less in th
 the table alone answers (`self: null`, granted by id on the membership row) needs only
 `member.fanUser`, and validates with two segments.
 
-Rules outside the schema (a record's `permissionRules`, a rule passed to `check`, an entitlement's
-anchor path) are not judged against the declaration. They are bounded by the run time: only the
-declaration is loaded, and a read of what is not there is unknown.
+Rules outside the schema are judged against the declaration too, as the
+[relation lens](#what-a-check-reads-the-relation-lens) judges every path: a rule passed to `check`
+throws, a record's `permissionRules` widen nothing, and an entitlement's `where` never holds.
 
 ## The check engine
 
@@ -521,10 +523,9 @@ delegatedWhere({ all: [slack, team] }, general); // { all: [general, slack, team
 **No negative rules.** A check throws when any rule of the schema, or a rule passed to it, is one
 `validateActionRule` refuses, negated ones (`notEquals`, `notIn`, …) included; the schema is judged
 whole on first use, so it throws for every caller, a superadmin too. The same first use refuses
-a schema whose list arm goes outside its declaration (see
-[Crossing a list](#crossing-a-list-some-item-passes)). A record's own
-`permissionRules` that are not positive are ignored, as before. A schema is judged once per object: one changed in
-place after its first check is not judged again. A negated rule passes on a field the record lacks, so in
+a schema that reads outside the [relation lens](#what-a-check-reads-the-relation-lens). A record's own
+`permissionRules` that are not positive are ignored, as before. The first use also freezes the
+schema, deeply, so it is judged once: an edit in place afterwards throws. A negated rule passes on a field the record lacks, so in
 the grant walk, where every field the placed record lacks is unknown, it granted what the writer
 cannot do. Run `validateSchema` and write rules positively (`role in ['member', 'guest']`, not
 `role notIn ['owner', 'admin']`).
@@ -773,6 +774,41 @@ Boundaries compose: distributor to vendor to buyer to member to token is a chain
 re-checked live. `test/boundaries.test.ts`, `test/crossTenant.test.ts` and `test/licensing.test.ts`
 build these scenarios.
 
+## What a check reads: the relation lens
+
+A check reads relations only where hydration loaded them. That is one object, the **lens**, built
+from the schema map the check uses (Kingdom's synthetic surface models included) and cached with
+it. At a model's row it holds every to-one relation that owns its foreign key, leads to a
+resource in the map and is not `hydrate: false`, and every declared list; under a list item it
+holds only that list's `down` paths. Columns (scalars, enums, Json, scalar lists) are not part of
+it and are always read, so ABAC is untouched. Bridges are their own mechanism and stay as they are.
+
+The lens has two uses.
+
+- **On the record, a view.** The engine never reads the record you pass. It reads a view of it:
+  at each row its columns and only the relations of the lens, each through the lens below; at the
+  root also every key the model does not have (computed fields). An undeclared list, a
+  `hydrate: false` relation, a relation keyed on the other side and, below the root, a key the
+  model does not have are not in the view. Your record is never changed. The view is built once
+  per check and costs about 0.4 µs per row it holds (`bun run bench`, S3).
+- **On the rule, a walk.** Every path a `{ rule }`, an entitlement `where` or a row's
+  `permissionRules` reads, on the field side and the value side, in every spelling json-rules
+  reads (`messages.0.id`, `messages[0].id`, `["messages"][0]["id"]`), is walked through the same
+  lens, and so is every `{ rel }`. Refused, each with its fix: a list (cross it with the list arm),
+  a relation outside the lens, an index into a relation, a key the model does not have below the
+  root, and a path that comes back to a model it already passed (hydration stops where a loop
+  closes; a declared `down` path is loaded as written, so it may). Paths at `__actor` are not the
+  lens's. A path into a Json or scalar-list column goes on as ABAC. Codes: `lens` for a `{ rule }`
+  path, `relation` for a `{ rel }` hop, `down` for a read under an item outside its declaration.
+
+Where it runs: on a schema's first use (it throws, and the schema is frozen), on a rule passed to
+`check` (throws), on a row's `permissionRules` (widen nothing), and on an entitlement's `where`
+when it is consulted (never holds, memoised per `where` object; `entitlementProblem(entry, map)`,
+`placeEntitlement` and the grant check refuse it). Why one object for all three: each reported
+leak (a body's list read by index, a bracket spelling, a relation keyed on the other side, a path
+past the hydrator's cycle cut, a `where` read on a list) was a read of something hydration never
+loaded, and a rule checked against a different picture of the record than the one loaded.
+
 ## Helper: hydration (Prisma example)
 
 `check` walks relation **fields on the record you pass in**; it never queries. The dependable pattern
@@ -814,38 +850,36 @@ check(permix, schema, { resource: 'document', record: doc }, 'manage');
   leads to a resource in the map, and every declared list, one jump down (see
   [Crossing a list](#crossing-a-list-some-item-passes)). Other lists, back-relations and models
   outside the map are not followed.
-- **It owns every to-one relation and every declared list.** After hydration a to-one relation
-  holds the row the hydrator loaded, or nothing, and a declared list holds the items it loaded
-  (`[]` when the record has no key yet). A value the record already carried there is dropped,
-  also under a relation the hydrator does not follow (`hydrate: false`, or a to-one whose key is
-  on the other side): a `rel` walks those too. A request body spread into a record
-  (`hydrate('message', { ...body })`) can therefore not bring its own `conversation` with a
-  participant list in it. A list that is not declared is left as given (a holder's
-  `targetEntitlements` the app loaded): no `rel` crosses it. Scalars are left as given.
-- **Hydration protects relations, nothing else.** A `{ rule }` or a `where` reads the record's
-  own fields as given: its scalars, a row's `permissionRules`, and a field path into an
-  undeclared list (`messages.0.id`, or `notEmpty` on the list). Build the record from the stored
-  row, and take from a request body only the fields the caller may set.
-- **Check the schema against the map:** `validateSchema(map, schema)` returns every `{ rel }` that
-  names a missing relation or goes through a list, every list arm the declarations do not carry,
-  and every action named where it isn't defined, which would otherwise deny forever, along with
-  every rule `validateActionRule` refuses (not positive, or a cycle back to its own action). Run
-  it in a test or at boot. `declarationIssues(map, schema)` is the list-arm part alone, the part
-  a check enforces on first use.
+- **It loads the lens, and owns what it loads.** What it follows is the
+  [relation lens](#what-a-check-reads-the-relation-lens), the same object a check reads through,
+  so the load plan and what a rule may read cannot disagree. A followed to-one relation holds the
+  row the hydrator loaded, or nothing, and a declared list holds the items it loaded (`[]` when
+  the record has no key yet): a value the record already carried there is dropped. A request body
+  spread into a record (`hydrate('message', { ...body })`) can therefore not bring its own
+  `conversation` with a participant list in it. Everything else is left as given (a holder's
+  `targetEntitlements` the app loaded, a relation keyed on the other side); the check never reads
+  it. Columns are left as given too: build the record from the stored row, and take from a
+  request body only the fields the caller may set.
+- **Check the schema against the map:** `validateSchema(map, schema)` returns every read outside
+  the lens (`lensIssues(map, schema)`, the part a check enforces on first use) and every action
+  named where it isn't defined, which would otherwise deny forever, along with every rule
+  `validateActionRule` refuses (not positive, or a cycle back to its own action). Run it in a test
+  or at boot.
 - **Composite keys and non-id targets** load by every column the target names (`toFields`); a key with
   one column null loads nothing.
 - **Polymorphic records** get every relation whose columns are set, whatever the kind: hydration does
   not know which check comes next.
 - **Skipping an edge:** a relation tagged `/// @permissions(hydrate: false)` in the Prisma schema (a
-  prisma-map annotation) is not followed. Use it for an edge that is not part of ownership, or to
-  break a loop in the schema.
+  prisma-map annotation) is not followed, and so is outside the lens: no rule reads it and no
+  `rel` walks it. Use it for an edge that is not part of ownership, or to break a loop in the
+  schema.
 - **Cycles:** an edge back to a record already on the path from the root is cut, so a self-referential
   key or an A to B to A loop terminates; a parent reached on two paths is hydrated on both and loaded
   once.
 
-Records are plain data: `check` trusts the record it is given, lists included, and cannot tell a
-loaded row from one written by hand. Hydrate what came from a request, and attach extra relations
-or predicate fields by hand only after hydrating, from data you loaded yourself.
+Records are plain data: `check` reads the lens of the record it is given and cannot tell a loaded
+row from one written by hand under a relation the lens holds. Hydrate what came from a request,
+and add computed fields at the root only after hydrating, from data you loaded yourself.
 
 ## Also exported
 
@@ -855,9 +889,12 @@ or predicate fields by hand only after hydrating, from data you loaded yourself.
   rowRules? }`, it also refuses a rule that delegates back to its own action through the schema or
   the record's other rules. No schema library involved.
 - `validateSchema(map, schema)` checks a whole schema against the map, for a test or boot: every
-  rule as `validateActionRule` checks it (cycles included), every `{ rel }` segment a relation or a
-  bridge, and every action a rule names defined where it lands. Same `{ ok, errors }`, each issue's
-  `path` starting `resource.action`.
+  rule as `validateActionRule` checks it (cycles included), every read inside the lens, and every
+  action a rule names defined where it lands. Same `{ ok, errors }`, each issue's `path` starting
+  `resource.action`. `lensIssues(map, schema)` is the lens part, and
+  `actionRuleLensIssues(map, schema, resource, rule)` the same for one rule (a row's
+  `permissionRules` before you store them). `entitlementProblem(entry, map)` adds the lens to an
+  entry's checks.
 - `schemaRuleIssues(schema)` returns the issues of every schema rule that is not well formed and
   positive, without the map or the cycle check. It is the test a check runs on a schema's first use
   before it throws.
