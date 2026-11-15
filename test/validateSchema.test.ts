@@ -32,7 +32,7 @@ const schema: RebacSchema = {
 
 describe('validateSchema', () => {
   test('a schema whose rels resolve and whose actions exist is valid', () => {
-    expect(validateSchema(map, schema)).toEqual({ ok: true, errors: [] });
+    expect(validateSchema(map, schema)).toEqual({ ok: true, errors: [], warnings: [] });
   });
 
   test('names a relation the map does not have', () => {

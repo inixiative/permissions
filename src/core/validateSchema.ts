@@ -1,6 +1,14 @@
 import type { ValidationIssue, ValidationResult } from '@inixiative/json-rules';
 import { bridgeHop } from './bridgeHop';
-import { conditionMisses, type LensAt, lensAt, relationPathProblem, type Under } from './lens';
+import {
+  conditionMisses,
+  type LensAt,
+  lensAt,
+  lensLimits,
+  lensSize,
+  relationPathProblem,
+  type Under,
+} from './lens';
 import { listOf, relationOf, type SchemaMap } from './schemaMap';
 import type { ActionRule, RebacSchema } from './types';
 import { validateActionRule } from './validateActionRule';
@@ -172,8 +180,29 @@ export const lensIssues = (map: SchemaMap, schema: RebacSchema): ValidationIssue
   ),
 ];
 
-/** A whole schema against the map, for a test or boot: well formed, positive, inside the lens, every action defined. */
-export const validateSchema = (map: SchemaMap, schema: RebacSchema): ValidationResult => {
+// why: a row that hydrates this much is doing too much; it is reported, not refused
+const lensWarnings = (map: SchemaMap, schema: RebacSchema): ValidationIssue[] =>
+  Object.keys(schema.permissions).flatMap((resource) => {
+    const size = lensSize(map, resource);
+    return size > lensLimits.report
+      ? [
+          {
+            path: resource,
+            code: 'lensSize',
+            message: `a \`${resource}\` row hydrates ${size} relations (over ${lensLimits.report}): split the walk, or mark an edge \`hydrate: false\``,
+          },
+        ]
+      : [];
+  });
+
+/**
+ * A whole schema against the map, for a test or boot: well formed, positive, inside the lens,
+ * every action defined (`errors`), and every resource whose row hydrates too much (`warnings`).
+ */
+export const validateSchema = (
+  map: SchemaMap,
+  schema: RebacSchema,
+): ValidationResult & { warnings: ValidationIssue[] } => {
   const errors: ValidationIssue[] = [...unmapped(map, schema)];
   for (const [resource, permission] of Object.entries(schema.permissions)) {
     for (const [action, rule] of Object.entries(permission?.actions ?? {})) {
@@ -186,5 +215,5 @@ export const validateSchema = (map: SchemaMap, schema: RebacSchema): ValidationR
         errors.push(...relIssues(map, schema, lensAt(map, resource), rule, at));
     }
   }
-  return { ok: errors.length === 0, errors };
+  return { ok: errors.length === 0, errors, warnings: lensWarnings(map, schema) };
 };

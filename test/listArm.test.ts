@@ -203,7 +203,7 @@ afterAll(() => engineGlobals.reset());
 
 describe('Zealot’s conversation rule on the list arm', () => {
   test('the schema validates against the map', () => {
-    expect(validateSchema(map, schema)).toEqual({ ok: true, errors: [] });
+    expect(validateSchema(map, schema)).toEqual({ ok: true, errors: [], warnings: [] });
   });
 
   test('a participant chats and reads the chat', async () => {
@@ -1004,7 +1004,7 @@ describe('review: the declaration carries what the rule walks (A-6)', () => {
         'db:brandUsers': { actions: { self: null } },
       },
     };
-    expect(validateSchema(twoSegments, tableOnly)).toEqual({ ok: true, errors: [] });
+    expect(validateSchema(twoSegments, tableOnly)).toEqual({ ok: true, errors: [], warnings: [] });
     const loads: string[] = [];
     const c1 = await c1Over(twoSegments, loads);
     // the only user row loaded is the creator's, by the ordinary upward walk; none under an item

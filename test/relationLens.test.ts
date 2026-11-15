@@ -16,7 +16,7 @@ import {
   validateSchema,
   whereLensProblem,
 } from '../index';
-import { lensAt, lensLimits, lensOf, whereProblemAt } from '../src/core/lens';
+import { lensAt, lensLimits, lensOf, lensSize, whereProblemAt } from '../src/core/lens';
 import { listOf } from '../src/core/schemaMap';
 import { hydrationLimits } from '../src/helpers/hydration/hydrate';
 import { loadModels } from './fixtures/load';
@@ -892,7 +892,7 @@ describe('the starting record: a row is known by resource and id', () => {
 });
 
 describe('the limits throw; nothing is cut', () => {
-  test('the lens refuses a map whose chains outgrow its relation budget, naming the model and path', () => {
+  test('the lens refuses a map whose rows would hydrate past the budget, naming the resource and where', () => {
     const col = column('String');
     const names = Array.from({ length: 9 }, (_, i) => `M${i}`);
     const dense: SchemaMap = {
@@ -917,7 +917,7 @@ describe('the limits throw; nothing is cut', () => {
       },
     };
     expect(() => lensOf(dense, 'm0')).toThrow(
-      `the lens of \`m0\` holds more than ${lensLimits.nodes} relations (at \``,
+      `the lens of \`m0\` hydrates more than ${lensLimits.refuse} relations a row`,
     );
   });
 
@@ -964,6 +964,154 @@ describe('the limits throw; nothing is cut', () => {
     await expect(endless('node', { id: 'n0', parentId: 'n1' })).rejects.toThrow(
       `passed ${hydrationLimits.loads} loads`,
     );
+  });
+});
+
+describe('a record passed with children already fetched', () => {
+  test('a stored rule cannot name what the caller fetched; the hydrator replaces what it loads', async () => {
+    const passed: Row = {
+      id: 'c1',
+      orgId: 'o1',
+      org: {
+        id: 'o1',
+        name: 'forged',
+        creatorId: 'attacker',
+        creator: { id: 'attacker', name: 'Mal' },
+      },
+      messages: [{ id: 'mX', authorId: 'attacker', author: { id: 'attacker', name: 'Mal' } }],
+      drafts: [{ id: 'd1', authorId: 'attacker' }],
+      extra: { note: 'from the caller' },
+    };
+    const before = structuredClone(passed);
+    const hydrated = await hydrate('conversation', passed);
+    expect(passed).toEqual(before);
+    expect((hydrated.org as Row).name).toBe('acme');
+    expect(((hydrated.org as Row).creator as Row).name).toBe('Una');
+    expect((hydrated.messages as Row[]).map((message) => message.id)).toEqual(['m1']);
+    expect(((hydrated.messages as Row[])[0]?.author as Row).name).toBe('Una');
+    expect(hydrated.drafts).toBe(passed.drafts);
+    expect(() =>
+      check(
+        actorAs('attacker'),
+        ruled('conversation', actorWrote('drafts.0.authorId')),
+        { resource: 'conversation', record: hydrated },
+        'act',
+      ),
+    ).toThrow(/`conversation.drafts` is a list/);
+    expect(codes(ruled('conversation', reads('extra.note', 'from the caller')))).toEqual(['lens']);
+    const stored: RebacSchema = {
+      permissions: {
+        conversation: {
+          actions: {
+            act: { rel: 'messages', arrayOperator: 'any', condition: reads('author.name', 'Mal') },
+          },
+        },
+      },
+    };
+    expect(check(actorAs('x'), stored, { resource: 'conversation', record: hydrated }, 'act')).toBe(
+      false,
+    );
+    expect(passed).toEqual(before);
+  });
+});
+
+describe('the actor and the size of a lens', () => {
+  test('a rule reads the actor at its own row only; a where never does', () => {
+    expect(codes(ruled('user', reads('__actor.record.org.creator')))).toEqual([]);
+    expect(codes(ruled('user', reads('org.__actor.record.id')))).toEqual(['lens']);
+    expect(
+      whereLensProblem(map, 'user', {
+        field: '__actor.record.id',
+        operator: 'equals',
+        value: null,
+      }),
+    ).toMatch(/`__actor` is not on it/);
+  });
+
+  test('a resource whose row hydrates more than the report limit is a warning, not an error', () => {
+    const col = column('String');
+    const to = (prefix: string, count: number) =>
+      Object.fromEntries([
+        ['id', col],
+        ...Array.from({ length: count }, (_, i) => [
+          [`${prefix}${i}Id`, col],
+          [`${prefix}${i}`, toOne(`${prefix.toUpperCase()}${i}`, `${prefix}${i}Id`)],
+        ]).flat(),
+      ]);
+    const names = (prefix: string, count: number) =>
+      Array.from({ length: count }, (_, i) => `${prefix}${i}`);
+    const wide: SchemaMap = {
+      resources: Object.fromEntries(
+        ['hub', ...names('s', 40), ...names('l', 30)].map((name) => [
+          name,
+          name[0]?.toUpperCase() + name.slice(1),
+        ]),
+      ),
+      fieldMap: {
+        models: {
+          Hub: { fields: to('s', 40) },
+          ...Object.fromEntries(names('S', 40).map((name) => [name, { fields: to('l', 30) }])),
+          ...Object.fromEntries(names('L', 30).map((name) => [name, { fields: { id: col } }])),
+        },
+      },
+    };
+    const result = validateSchema(wide, { permissions: { hub: { actions: { read: null } } } });
+    expect(result.ok).toBe(true);
+    expect(result.warnings.map((issue) => issue.code)).toEqual(['lensSize']);
+  });
+
+  test('a polymorphic row counts one kind: four kinds of 301 relations are not over the report limit', () => {
+    const col = column('String');
+    const leaves = Array.from({ length: 300 }, (_, i) => `L${i}`);
+    const kinds = ['K0', 'K1', 'K2', 'K3'];
+    const poly: SchemaMap = {
+      resources: Object.fromEntries(
+        ['Hub', ...kinds, ...leaves].map((model) => [model.toLowerCase(), model]),
+      ),
+      fieldMap: {
+        models: {
+          Hub: {
+            fields: Object.fromEntries([
+              ['id', col],
+              ['ownerModel', col],
+              ...kinds.flatMap((kind) => [
+                [`${kind.toLowerCase()}Id`, col],
+                [kind.toLowerCase(), toOne(kind, `${kind.toLowerCase()}Id`)],
+              ]),
+            ]),
+          },
+          ...Object.fromEntries(
+            kinds.map((kind) => [
+              kind,
+              {
+                fields: Object.fromEntries([
+                  ['id', col],
+                  ...leaves.flatMap((leaf) => [
+                    [`${leaf.toLowerCase()}Id`, col],
+                    [leaf.toLowerCase(), toOne(leaf, `${leaf.toLowerCase()}Id`)],
+                  ]),
+                ]),
+              },
+            ]),
+          ),
+          ...Object.fromEntries(leaves.map((leaf) => [leaf, { fields: { id: col } }])),
+        },
+      },
+      polymorphism: {
+        Hub: {
+          axes: [
+            {
+              field: 'ownerModel',
+              fkMap: Object.fromEntries(kinds.map((kind) => [kind, [`${kind.toLowerCase()}Id`]])),
+            },
+          ],
+        },
+      },
+    };
+    expect(lensSize(poly, 'hub')).toBe(301);
+    expect(
+      validateSchema(poly, { permissions: { hub: { actions: { read: null } } } }).warnings,
+    ).toEqual([]);
   });
 });
 

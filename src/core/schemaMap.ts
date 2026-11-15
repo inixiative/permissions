@@ -53,6 +53,7 @@ type MapIndex = {
   lists: Map<string, ListRelation>;
   marks: Map<string, ReadonlySet<string>>;
   lenses: Map<string, LensNarrowing | null>;
+  lensSizes: Map<string, number>;
 };
 
 type Annotated = { annotations?: { permissions?: Record<string, unknown> } };
@@ -85,6 +86,7 @@ export const indexMap = (map: SchemaMap): MapIndex => {
     lists: new Map(),
     marks: new Map(),
     lenses: new Map(),
+    lensSizes: new Map(),
   };
   indexes.set(map, index);
   try {

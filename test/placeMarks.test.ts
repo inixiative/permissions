@@ -134,7 +134,7 @@ const granted = async (
 
 describe('Kingdom’s wide row: every channel of integration i1', () => {
   test('the one-form schema validates', () => {
-    expect(validateSchema(marked, schema)).toEqual({ ok: true, errors: [] });
+    expect(validateSchema(marked, schema)).toEqual({ ok: true, errors: [], warnings: [] });
   });
 
   test('with the marks, the stated values join the stand-in resource', () => {
@@ -426,7 +426,7 @@ describe('Kingdom’s project scope: a grant anchored at the project-resource jo
   });
 
   test('granted once the rule reaches the resource through the link; marks play no part', async () => {
-    expect(validateSchema(marked, linked)).toEqual({ ok: true, errors: [] });
+    expect(validateSchema(marked, linked)).toEqual({ ok: true, errors: [], warnings: [] });
     expect(await granted(marked, linked, atJoinRow, pir1)).toBe(true);
     expect(await granted(unmarked, linked, atJoinRow, pir1)).toBe(true);
     const canGrant = createCanGrantEntitlement(marked);
