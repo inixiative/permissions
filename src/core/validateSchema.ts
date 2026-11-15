@@ -1,7 +1,7 @@
 import type { ValidationIssue, ValidationResult } from '@inixiative/json-rules';
 import { bridgeHop } from './bridgeHop';
-import { conditionMisses, listMessage, notLoaded, outsideMessage, type Under } from './lens';
-import { fieldOf, type LensNode, lensOf, listOf, relationOf, type SchemaMap } from './schemaMap';
+import { conditionMisses, type LensNode, lensOf, stepLens, type Under } from './lens';
+import type { SchemaMap } from './schemaMap';
 import type { ActionRule, RebacSchema } from './types';
 import { validateActionRule } from './validateActionRule';
 
@@ -43,7 +43,7 @@ const relIssues = (
     return rule.all.flatMap((child, i) =>
       relIssues(map, schema, node, child, `${path}.all[${i}]`, under),
     );
-  if ('rule' in rule) return conditionMisses(map, node, rule.rule, path, under);
+  if ('rule' in rule) return conditionMisses(map, node, rule.rule, path, true, under);
   if ('arrayOperator' in rule) {
     if (under)
       return [
@@ -53,7 +53,7 @@ const relIssues = (
           message: `\`${resource}.${rule.rel}\` is a second list under an item of \`${under.list}\`: one list per walk`,
         },
       ];
-    const list = listOf(map, resource, rule.rel);
+    const list = node.lists.get(rule.rel);
     if (!list)
       return [
         {
@@ -84,25 +84,19 @@ const relIssues = (
       current = lensOf(map, hop.farResource);
       continue;
     }
-    const field = fieldOf(map, current.resource, segment);
-    if (field?.kind === 'object' && field.isList)
-      return [{ path, code: 'relation', message: listMessage(map, current.resource, segment) }];
-    if (!current.toOne.has(segment)) {
-      if (under && relationOf(map, current.resource, segment))
-        return [{ path, ...notLoaded(under, [...prefix, segment]) }];
+    const step = stepLens(map, current, segment, under && { ...under, prefix });
+    if ('miss' in step)
+      return [{ path, ...step.miss, code: step.miss.code === 'down' ? 'down' : 'relation' }];
+    if (!('next' in step))
       return [
         {
           path,
           code: 'relation',
-          message:
-            field?.kind === 'object' || field?.kind === 'bridge'
-              ? outsideMessage(map, current.resource, segment)
-              : `\`${current.resource}\` has no relation \`${segment}\``,
+          message: `\`${current.resource}\` has no relation \`${segment}\``,
         },
       ];
-    }
     prefix = [...prefix, segment];
-    current = current.below(segment);
+    current = step.next;
   }
   if (!(rule.action in (schema.permissions[current.resource]?.actions ?? {})))
     return [
@@ -126,13 +120,7 @@ export const schemaRuleIssues = (schema: RebacSchema): ValidationIssue[] =>
     ),
   );
 
-/**
- * Every read of one well-formed action rule at `resource` that leaves the lens: a `{ rel }`
- * segment that is not a relation hydration follows (code `relation`), a path a `{ rule }` reads
- * outside it (code `lens`), and a list arm the declarations do not carry or a walk under an item
- * outside its declared paths (code `down`). An action the rule names but nothing defines is not
- * here (`validateSchema` reports it).
- */
+/** Every read of a well-formed action rule at `resource` outside the lens; a missing action is not one. */
 export const actionRuleLensIssues = (
   map: SchemaMap,
   schema: RebacSchema,
@@ -144,10 +132,7 @@ export const actionRuleLensIssues = (
     (issue) => issue.code !== 'action',
   );
 
-/**
- * Every read of a schema's action rules that leaves the lens, by `resource.action`
- * ({@link actionRuleLensIssues}). A check refuses a schema that has one, on first use.
- */
+/** Every read of a schema's action rules outside the lens, by `resource.action`. */
 export const lensIssues = (map: SchemaMap, schema: RebacSchema): ValidationIssue[] =>
   Object.entries(schema.permissions).flatMap(([resource, permission]) =>
     Object.entries(permission?.actions ?? {}).flatMap(([action, rule]) =>
@@ -157,12 +142,7 @@ export const lensIssues = (map: SchemaMap, schema: RebacSchema): ValidationIssue
     ),
   );
 
-/**
- * A whole schema checked against the map, for a test or boot: every action rule well formed and
- * positive (`validateActionRule`), every read inside the lens ({@link lensIssues}), and every
- * action a rule names defined where it lands. A rule that names a relation the map doesn't have
- * otherwise denies forever without saying why.
- */
+/** A whole schema against the map, for a test or boot: well formed, positive, inside the lens, every action defined. */
 export const validateSchema = (map: SchemaMap, schema: RebacSchema): ValidationResult => {
   const errors: ValidationIssue[] = [];
   for (const [resource, permission] of Object.entries(schema.permissions)) {

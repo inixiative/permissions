@@ -1,7 +1,5 @@
 import { validateRule } from '@inixiative/json-rules';
-import { conditionMisses } from './lens';
 import type { EntitlementEntry } from './permix';
-import { lensOf, type SchemaMap } from './schemaMap';
 import type { Anchor } from './types';
 
 const isAnchor = (value: unknown): value is Anchor =>
@@ -14,11 +12,8 @@ const isAnchor = (value: unknown): value is Anchor =>
   ((value as Anchor).path === undefined ||
     (typeof (value as Anchor).path === 'string' && (value as Anchor).path !== ''));
 
-/**
- * What is wrong with an entitlement entry, or null: the rules `setup` and `placeEntitlement`
- * share. Given the map, also every path its `where` reads outside the lens at its resource.
- */
-export const entitlementProblem = (entry: EntitlementEntry, map?: SchemaMap): string | null => {
+/** What is wrong with an entitlement entry, or null: the rules `setup` and `placeEntitlement` share. */
+export const entitlementProblem = (entry: EntitlementEntry): string | null => {
   if (!isAnchor(entry.anchor)) return '`anchor` is { resource, id, path? }, non-empty strings';
   if ((entry.anchor.path === undefined) !== (entry.anchor.resource === entry.resource))
     return '`anchor.path` reaches the anchor from the record: none at the record itself';
@@ -44,9 +39,6 @@ export const entitlementProblem = (entry: EntitlementEntry, map?: SchemaMap): st
     const result = validateRule(entry.where, { positive: true });
     if (!result.ok)
       return `invalid entitlement \`where\`: ${result.errors.map((issue) => `${issue.path}: ${issue.message}`).join('; ')}`;
-    const outside = map ? conditionMisses(map, lensOf(map, entry.resource), entry.where, '$') : [];
-    if (outside.length)
-      return `entitlement \`where\` reads outside the lens: ${outside.map((issue) => issue.message).join('; ')}`;
   }
   return null;
 };

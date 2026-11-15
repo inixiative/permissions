@@ -8,11 +8,11 @@ import {
   type EntitlementEntry,
   entitlementProblem,
   type PermixLike,
-  placeEntitlement,
   type RebacSchema,
   type Row,
   type SchemaMap,
   validateSchema,
+  whereLensProblem,
 } from '../index';
 import { loadModels } from './fixtures/load';
 
@@ -259,10 +259,9 @@ describe('the review probes: each returned true on 0.22.0', () => {
       check(actorAs('attacker', [entry]), schema, { resource: 'conversation', record }, 'act'),
     ).toBe(false);
     expect(entitlementProblem(entry)).toBeNull();
-    expect(entitlementProblem(entry, map)).toMatch(
+    expect(whereLensProblem(map, entry.resource, entry.where)).toMatch(
       /reads outside the lens: `conversation.drafts` is a list/,
     );
-    expect(placeEntitlement(map, entry, record)).toBeNull();
     const writer: PermixLike = { check: () => true, getActor: () => null };
     expect(createCanGrantEntitlement(map)(writer, schema, entry, record)).toBe(false);
   });
@@ -274,6 +273,58 @@ describe('the review probes: each returned true on 0.22.0', () => {
     expect(() =>
       check(actorAs('attacker'), schema, { resource: 'user', record: attacker }, 'act'),
     ).toThrow(/`org.creator.org.name` comes back to `user`/);
+  });
+});
+
+describe('the second review: each returned true on the first build', () => {
+  test('A: a relation held as a class instance is read, not dropped', () => {
+    class OrgRow {
+      id = 'o1';
+      name = 'acme';
+    }
+    const record = { id: 'u1', orgId: 'o1', org: new OrgRow() };
+    const at = (value: unknown) =>
+      check(
+        actorAs('x'),
+        ruled('user', reads('org.name', value)),
+        { resource: 'user', record },
+        'act',
+      );
+    expect(at(null)).toBe(false);
+    expect(at('acme')).toBe(true);
+  });
+
+  test('B: an entitlement where is frozen when first judged; an edit afterwards throws', () => {
+    const where: Condition = { field: 'name', operator: 'equals', value: 'Una' };
+    const entry: EntitlementEntry = {
+      resource: 'user',
+      anchor: { resource: 'user', id: 'u1' },
+      where,
+      actions: { act: true },
+    };
+    const record = { id: 'u1', name: 'Una', orgId: 'o1' };
+    const ask = () =>
+      check(actorAs('x', [entry]), ruled('user', null), { resource: 'user', record }, 'act');
+    expect(ask()).toBe(true);
+    expect(() => {
+      (where as { field: string }).field = 'profile.bannedAt';
+    }).toThrow();
+    expect(ask()).toBe(true);
+  });
+
+  test('C: a where reads the record alone, so an `__actor` path in it is refused', () => {
+    const entry: EntitlementEntry = {
+      resource: 'user',
+      anchor: { resource: 'user', id: 'u1' },
+      where: { field: '__actor.record.id', operator: 'equals', value: null },
+      actions: { act: true },
+    };
+    const record = { id: 'u1', orgId: 'o1' };
+    expect(
+      check(actorAs('u1', [entry]), ruled('user', null), { resource: 'user', record }, 'act'),
+    ).toBe(false);
+    expect(whereLensProblem(map, 'user', entry.where)).toMatch(/`__actor` is not on it/);
+    expect(codes(ruled('user', actorWrote('id')))).toEqual([]);
   });
 });
 
@@ -317,7 +368,7 @@ describe('what the lens keeps', () => {
       where: { field: 'mentions', operator: 'contains', value: 'aron' },
       actions: { act: true },
     };
-    expect(entitlementProblem(entry, map)).toBeNull();
+    expect(whereLensProblem(map, entry.resource, entry.where)).toBeNull();
     const message = await hydrate('message', db.message?.m1 as Row);
     expect(
       check(
@@ -347,8 +398,7 @@ describe('what the lens keeps', () => {
     expect(codes(ruled('message', reads('author.org.creator.name')))).toEqual(['lens']);
   });
 
-  test('a cycle at the root is refused; a key the model does not have, below the root only', () => {
-    expect(codes(ruled('user', reads('org.creator.name')))).toEqual(['lens']);
+  test('a key the model does not have and an index are refused below the root only', () => {
     expect(validateSchema(map, ruled('user', reads('org.plann'))).errors[0]?.message).toBe(
       '`org` has no field `plann` (`org.plann`)',
     );
@@ -417,7 +467,7 @@ describe('the apps’ own maps', () => {
     },
   });
 
-  test('Zealot: under a participant, a declared path reads; one outside `down` is refused', () => {
+  test('Zealot: under a participant, a declared path reads (outside `down`: listArm A-2)', () => {
     const ask = createRebacCheck(zealot);
     const record = {
       uuid: 'c1',
@@ -430,11 +480,6 @@ describe('the apps’ own maps', () => {
     const declared = participantReads('forumUser.fanUser.userUuid');
     expect(validateSchema(zealot, declared).ok).toBe(true);
     expect(ask(fay, declared, { resource: 'db:conversation', record }, 'act')).toBe(true);
-    const outside = participantReads('forumUser.brand.uuid');
-    expect(validateSchema(zealot, outside).errors.map((issue) => issue.code)).toEqual(['down']);
-    expect(() => ask(fay, outside, { resource: 'db:conversation', record }, 'act')).toThrow(
-      /loads no `forumUser.brand` under an item/,
-    );
   });
 
   test('Kingdom: a surface rule reads through its synthetic integrationResource relation', () => {

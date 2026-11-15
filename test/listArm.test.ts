@@ -339,8 +339,8 @@ describe('the grant check', () => {
       ...underBrand,
       where: { field: 'participants', operator: 'equals', value: forged },
     } as EntitlementEntry;
-    expect(placeEntitlement(map, entry, { uuid: 'b1' })).toBeNull();
-    const [placed] = placeEntitlement(map, underBrand, { uuid: 'b1' }) as Row[];
+    const [placed] = placeEntitlement(map, entry, { uuid: 'b1' }) as Row[];
+    expect(placed).not.toHaveProperty('participants');
     expect(canGrant(await person('u-fay'), schema, entry, placed as Row)).toBe(false);
   });
 

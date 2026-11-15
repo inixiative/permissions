@@ -1,10 +1,9 @@
 import { type Absent, type Condition, check as checkRule } from '@inixiative/json-rules';
 import { evaluate, type Walk } from './evaluate';
 import { asOwner, nodeId, permixId } from './identity';
-import { whereInLens } from './lens';
+import { lensOf, whereLensProblem } from './lens';
 import { reachableFrom } from './reachableFrom';
 import { recordId } from './recordId';
-import { relationOf } from './schemaMap';
 import type { Anchor, PermixLike, Row } from './types';
 
 const holds = (where: Condition, record: Row, absent: Absent): boolean =>
@@ -19,7 +18,7 @@ const reaches = <R extends string, T>(
   let currentResource: R = resource;
   let current: Row = record;
   for (const segment of anchor.path?.split('.') ?? []) {
-    const relation = relationOf(walk.map, currentResource, segment);
+    const relation = lensOf(walk.map, currentResource).toOne.get(segment);
     const related = current[segment] as Row | null | undefined;
     if (!relation || !related || Array.isArray(related)) return false;
     if (relation.kinds && !relation.kinds.values.includes(current[relation.kinds.field] as string))
@@ -63,7 +62,7 @@ export const entitled = <R extends string, T>(
           (above
             ? grantsBelow === true && where === undefined
             : where === undefined ||
-              (whereInLens(walk.map, resource, where) &&
+              (whereLensProblem(walk.map, resource, where) === null &&
                 (walk.ignoreWheres || holds(where, record, walk.absent)))) &&
           reaches(walk, resource, record, anchor)
             ? walk.algebra.through(

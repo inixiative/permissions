@@ -4,8 +4,9 @@ import type { Algebra } from './algebra';
 import { bridgeHop, lookupFar } from './bridgeHop';
 import { entitled } from './entitled';
 import { nodeId, permixId } from './identity';
+import { lensOf } from './lens';
 import { recordId } from './recordId';
-import { listOf, relationOf, type SchemaMap } from './schemaMap';
+import type { SchemaMap } from './schemaMap';
 import type { ActionRule, PermixLike, RebacSchema, Row } from './types';
 import { validateActionRule } from './validateActionRule';
 import { actionRuleLensIssues } from './validateSchema';
@@ -105,7 +106,7 @@ const walkRule = <R extends string, T>(
   const { algebra } = walk;
   // why: `visited` is forked per item, since two items reaching one row are parallel paths, not a cycle
   if ('arrayOperator' in rule) {
-    const list = listOf(walk.map, resource, rule.rel);
+    const list = lensOf(walk.map, resource).lists.get(rule.rel);
     const items = record[rule.rel];
     if (!list || !Array.isArray(items)) return algebra.none;
     const under: Walk<R, T> = {
@@ -140,7 +141,7 @@ const walkRule = <R extends string, T>(
       } else {
         const related = current[segment] as Row | null | undefined;
         if (!related || Array.isArray(related)) return algebra.none;
-        const next = relationOf(walk.map, currentResource, segment);
+        const next = lensOf(walk.map, currentResource).toOne.get(segment);
         if (!next) return algebra.none;
         current = related;
         currentResource = next.resource;

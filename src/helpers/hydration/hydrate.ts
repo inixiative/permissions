@@ -1,12 +1,6 @@
+import { type LensNode, lensOf } from '../../core/lens';
 import { idField } from '../../core/recordId';
-import {
-  indexMap,
-  keysFrom,
-  type LensNode,
-  lensOf,
-  type Relation,
-  type SchemaMap,
-} from '../../core/schemaMap';
+import { indexMap, keysFrom, type Relation, type SchemaMap } from '../../core/schemaMap';
 import type { Row } from '../../core/types';
 /**
  * What the hydrator needs: the schema map the checks walk, and `load`, one read of a `resource`'s

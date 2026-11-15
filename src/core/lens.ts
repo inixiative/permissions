@@ -6,67 +6,150 @@ import {
 } from '@inixiative/json-rules';
 import {
   fieldOf,
+  indexMap,
   isColumn,
-  type LensNode,
-  lensOf,
+  type ListRelation,
   listOf,
-  relationOf,
+  listsOf,
+  type Relation,
   type SchemaMap,
-  skipsHydration,
+  toOneOf,
 } from './schemaMap';
+import type { Row } from './types';
 
-/** Where a walk stands under a list item: the list, and the declared path walked so far. */
+/** What hydration loads at one row, so all a check reads there: a model's node, or a list item's (`down`). */
+export type LensNode<R extends string = string> = {
+  resource: R;
+  down: boolean;
+  toOne: ReadonlyMap<string, Relation<R>>;
+  lists: ReadonlyMap<string, ListRelation<R>>;
+  below: (name: string) => LensNode<R>;
+};
+
+/** The lens at a row of `resource`, its model's own node. */
+export const lensOf = <R extends string>(map: SchemaMap<R>, resource: R): LensNode<R> => {
+  const index = indexMap(map as SchemaMap);
+  const known = index.lenses.get(resource);
+  if (known) return known as LensNode<R>;
+  const toOne = new Map<string, Relation<R>>();
+  for (const name of Object.keys(map.fieldMap.models[map.resources[resource]]?.fields ?? {})) {
+    const relation = toOneOf(map, resource, name);
+    if (typeof relation !== 'string') toOne.set(name, relation);
+  }
+  const lists = new Map(listsOf(map, resource));
+  const below = (name: string): LensNode<R> =>
+    lists.get(name)?.item ?? lensOf(map, (toOne.get(name) as Relation<R>).resource);
+  const node: LensNode<R> = { resource, down: false, toOne, lists, below };
+  index.lenses.set(resource, node as LensNode);
+  return node;
+};
+
+const isObject = (value: unknown): value is Row =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+/** The view of `record` a check reads: columns, the lens's relations, and computed keys at the root. */
+export const projectRecord = <R extends string>(
+  map: SchemaMap<R>,
+  resource: R,
+  record: Row,
+): Row => {
+  const made = new Map<LensNode<R>, WeakMap<Row, Row>>();
+  const view = (node: LensNode<R>, row: Row, root: boolean): Row => {
+    const seen = made.get(node) ?? new WeakMap<Row, Row>();
+    made.set(node, seen);
+    const known = root ? undefined : seen.get(row);
+    if (known) return known;
+    const out: Row = {};
+    if (!root) seen.set(row, out);
+    const fields = map.fieldMap.models[map.resources[node.resource]]?.fields ?? {};
+    for (const [key, value] of Object.entries(row)) {
+      const field = Object.hasOwn(fields, key) ? fields[key] : undefined;
+      if (!field) {
+        if (root) out[key] = value;
+      } else if (isColumn(field)) out[key] = value;
+      else if (node.toOne.has(key)) {
+        if (value === null) out[key] = null;
+        else if (isObject(value)) out[key] = view(node.below(key), value, false);
+      } else if (node.lists.has(key) && Array.isArray(value)) {
+        const item = node.below(key);
+        out[key] = value.filter(isObject).map((entry) => view(item, entry, false));
+      }
+    }
+    return out;
+  };
+  return view(lensOf(map, resource), record, true);
+};
+
+/** Freezes `value` and everything in it. */
+export const freeze = (value: unknown, seen = new WeakSet<object>()): void => {
+  if (typeof value !== 'object' || value === null || seen.has(value)) return;
+  seen.add(value);
+  Object.freeze(value);
+  for (const child of Object.values(value)) freeze(child, seen);
+};
+
 export type Under = { list: string; prefix: readonly string[] };
 
-/** Why a read leaves the lens: `lens` for the map, `down` for what a list's declaration loads. */
 export type LensMiss = { code: 'lens' | 'down'; message: string };
+
+const lens = (message: string): LensMiss => ({ code: 'lens', message });
 
 export const notLoaded = (under: Under, prefix: readonly string[]): LensMiss => ({
   code: 'down',
   message: `\`${under.list}\` loads no \`${prefix.join('.')}\` under an item: name it in \`/// @permissions(down: [...])\``,
 });
 
-export const listMessage = (map: SchemaMap, resource: string, segment: string): string =>
-  listOf(map, resource, segment)
-    ? `\`${resource}.${segment}\` is a list: no path reads into one; cross it with { rel: '${segment}', arrayOperator: 'any', condition }`
-    : `\`${resource}.${segment}\` is a list: no path reads into one; declare it (\`/// @permissions(down: [...])\`) and cross it with { rel: '${segment}', arrayOperator: 'any', condition }`;
+const listMessage = (map: SchemaMap, resource: string, segment: string): string =>
+  `\`${resource}.${segment}\` is a list: no path reads into one; ${
+    listOf(map, resource, segment) ? '' : 'declare it (`/// @permissions(down: [...])`) and '
+  }cross it with { rel: '${segment}', arrayOperator: 'any', condition }`;
 
-/** Why a to-one relation of the model is outside the lens: nothing hydrates it. */
-export const outsideMessage = (map: SchemaMap, resource: string, segment: string): string => {
-  const field = fieldOf(map, resource, segment);
-  const at = `\`${resource}.${segment}\``;
-  if (field?.kind === 'bridge') return `${at} is a bridge: cross it with { rel, action }`;
-  if (skipsHydration(field))
-    return `${at} is \`hydrate: false\`: nothing loads it, so no rule reads it; drop the annotation or read it from \`${field?.type}\``;
-  if (!field?.fromFields?.length)
-    return `${at} keeps its foreign key on \`${field?.type}\`: nothing loads it; write the rule on \`${field?.type}\`, or hold the key on this model`;
-  return `${at} leads to \`${field.type}\`, which is not a resource in the map: nothing loads it`;
+/** One key read at `node`: the node below a lens relation, a column, a key the model lacks, or why it leaves the lens. */
+export type LensStep<R extends string = string> =
+  | { next: LensNode<R> }
+  | { column: true }
+  | { absent: true }
+  | { miss: LensMiss };
+
+export const stepLens = <R extends string>(
+  map: SchemaMap<R>,
+  node: LensNode<R>,
+  segment: string,
+  under?: Under,
+): LensStep<R> => {
+  const field = fieldOf(map, node.resource, segment);
+  if (!field) return { absent: true };
+  if (isColumn(field)) return { column: true };
+  if (field.kind === 'object' && field.isList)
+    return { miss: lens(listMessage(map as SchemaMap, node.resource, segment)) };
+  if (node.toOne.has(segment)) return { next: node.below(segment) };
+  const relation = toOneOf(map, node.resource, segment);
+  if (typeof relation === 'string') return { miss: lens(relation) };
+  const at = under ?? { list: node.resource, prefix: [] };
+  return { miss: notLoaded(at, [...at.prefix, segment]) };
 };
 
-const lens = (message: string): LensMiss => ({ code: 'lens', message });
-
-/**
- * Why one path a rule reads from a row at `start` leaves the lens, or null. A path at `__actor`,
- * a first key the model does not have (the root's computed field) and anything past a column
- * (a Json sub-path, an index into a scalar list) are not the lens's. Otherwise each key is a
- * column or a to-one relation of the node it stands on; a list, a relation outside the lens, an
- * index into a relation and a key the model does not have are refused, and so is coming back to
- * a model the path already passed, except on a declared `down` path, which is loaded as written.
- */
-export const pathMiss = (
+const pathMiss = (
   map: SchemaMap,
   start: LensNode,
   path: string,
+  actor: boolean,
   under?: Under,
 ): LensMiss | null => {
   const segments = pathSegments(path);
-  if (segments[0] === '__actor') return null;
+  if (segments[0] === '__actor')
+    return actor
+      ? null
+      : lens(`\`${path}\`: a \`where\` reads the record alone; \`__actor\` is not on it`);
   let node = start;
   const passed = new Set([start.resource]);
   const walked: string[] = [];
   for (const [index, segment] of segments.entries()) {
-    const field = fieldOf(map, node.resource, segment);
-    if (!field) {
+    const at = under && { ...under, prefix: [...under.prefix, ...walked] };
+    const step = stepLens(map, node, segment, at);
+    if ('column' in step) return null;
+    if ('miss' in step) return step.miss;
+    if ('absent' in step) {
       if (index === 0) return null;
       return lens(
         /^\d+$/.test(segment)
@@ -74,50 +157,51 @@ export const pathMiss = (
           : `\`${node.resource}\` has no field \`${segment}\` (\`${path}\`)`,
       );
     }
-    if (isColumn(field)) return null;
-    if (field.isList) return lens(listMessage(map, node.resource, segment));
-    if (!node.toOne.has(segment)) {
-      if (under && relationOf(map, node.resource, segment))
-        return notLoaded(under, [...under.prefix, ...walked, segment]);
-      return lens(outsideMessage(map, node.resource, segment));
-    }
     walked.push(segment);
-    const next = node.below(segment);
-    if (!node.down && passed.has(next.resource))
+    if (!node.down && passed.has(step.next.resource))
       return lens(
-        `\`${path}\` comes back to \`${next.resource}\`: a path passes each model once, and hydration stops where a loop closes; read it from \`${next.resource}\` itself`,
+        `\`${path}\` comes back to \`${step.next.resource}\`: a path passes each model once, and hydration stops where a loop closes; read it from \`${step.next.resource}\` itself`,
       );
-    passed.add(next.resource);
-    node = next;
+    passed.add(step.next.resource);
+    node = step.next;
   }
   return null;
 };
 
-/** Every path a json-rules condition reads from a row at `node` that leaves the lens. */
+/** Every path a `{ rule }` (`actor`: `__actor` is injected) or a `where` reads at `node` that leaves the lens. */
 export const conditionMisses = (
   map: SchemaMap,
   node: LensNode,
   condition: Condition,
   at: string,
+  actor: boolean,
   under?: Under,
 ): ValidationIssue[] =>
   listFields(condition).flatMap((field) => {
-    const miss = pathMiss(map, node, field, under);
+    const miss = pathMiss(map, node, field, actor, under);
     return miss ? [{ path: at, ...miss }] : [];
   });
 
-const judgedWheres = new WeakMap<SchemaMap, WeakMap<object, Map<string, boolean>>>();
+const judgedWheres = new WeakMap<SchemaMap, WeakMap<object, Map<string, string | null>>>();
 
-/** Whether every path an entitlement's `where` reads at `resource` stays in the lens, memoised. */
-export const whereInLens = (map: SchemaMap, resource: string, where: Condition): boolean => {
-  if (typeof where !== 'object' || where === null) return true;
-  const byWhere = judgedWheres.get(map) ?? new WeakMap<object, Map<string, boolean>>();
+/** Why an entitlement `where` at `resource` reads outside the lens, or null. Frozen on first use. */
+export const whereLensProblem = (
+  map: SchemaMap,
+  resource: string,
+  where: Condition | undefined,
+): string | null => {
+  if (typeof where !== 'object' || where === null) return null;
+  const byWhere = judgedWheres.get(map) ?? new WeakMap<object, Map<string, string | null>>();
   judgedWheres.set(map, byWhere);
-  const byResource = byWhere.get(where) ?? new Map<string, boolean>();
+  const byResource = byWhere.get(where) ?? new Map<string, string | null>();
   byWhere.set(where, byResource);
   const known = byResource.get(resource);
   if (known !== undefined) return known;
-  const ok = conditionMisses(map, lensOf(map, resource), where, '$').length === 0;
-  byResource.set(resource, ok);
-  return ok;
+  freeze(where);
+  const misses = conditionMisses(map, lensOf(map, resource), where, '$', false);
+  const problem = misses.length
+    ? `entitlement \`where\` reads outside the lens: ${misses.map((miss) => miss.message).join('; ')}`
+    : null;
+  byResource.set(resource, problem);
+  return problem;
 };

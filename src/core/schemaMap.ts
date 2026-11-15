@@ -1,7 +1,7 @@
 import { type Condition, check as checkRule, type FieldMap } from '@inixiative/json-rules';
-import { isPlainObject } from 'lodash-es';
 import { entitlementProblem } from './entitlementProblem';
 import { withExactStrings } from './exactStrings';
+import type { LensNode } from './lens';
 import type { EntitlementEntry } from './permix';
 import { idField, recordId } from './recordId';
 import type { Row } from './types';
@@ -23,11 +23,7 @@ export type SchemaMap<R extends string = string> = {
   polymorphism?: Polymorphism;
 };
 
-/**
- * A to-one relation that owns its foreign key, leads to a resource in the map and is not
- * `hydrate: false` (one the hydrator follows): where it leads, its columns, and on a polymorphic
- * record the kinds it admits (every kind whose registry columns hold the relation's columns).
- */
+/** A to-one relation the hydrator follows: where it leads, its key, and on a polymorphic record the kinds it admits. */
 export type Relation<R extends string = string> = {
   resource: R;
   from: readonly string[];
@@ -35,11 +31,7 @@ export type Relation<R extends string = string> = {
   kinds: { field: string; values: string[] } | null;
 };
 
-/**
- * A list relation the walk may cross, declared `/// @permissions(down: [...])` on the list field:
- * the items' resource, the items' foreign key back to the parent (`from` on the item, `to` on the
- * parent), and the lens of an item: the declared to-one paths loaded under each.
- */
+/** A list declared `/// @permissions(down: [...])`: the items' resource, their key back to the parent, and an item's lens. */
 export type ListRelation<R extends string = string> = {
   resource: R;
   from: readonly string[];
@@ -47,23 +39,9 @@ export type ListRelation<R extends string = string> = {
   item: LensNode<R>;
 };
 
-/**
- * The relation lens at one row: what hydration loads under it, and so all a check reads there.
- * A model's own node (one per resource) holds every to-one relation that owns its key, leads to a
- * resource and is not `hydrate: false`, and every declared list. An item's node (`down`) holds
- * only the declared paths below it, and no list. `below` is the node under a relation or an item.
- */
-export type LensNode<R extends string = string> = {
-  resource: R;
-  down: boolean;
-  toOne: ReadonlyMap<string, Relation<R>>;
-  lists: ReadonlyMap<string, ListRelation<R>>;
-  below: (name: string) => LensNode<R>;
-};
-
 type MapIndex = {
   resources: Map<string, string>;
-  relations: Map<string, Relation | null>;
+  relations: Map<string, Relation | string>;
   lists: Map<string, ListRelation>;
   marks: Map<string, ReadonlySet<string>>;
   lenses: Map<string, LensNode>;
@@ -95,7 +73,7 @@ export const indexMap = (map: SchemaMap): MapIndex => {
   }
   const index: MapIndex = {
     resources,
-    relations: new Map<string, Relation | null>(),
+    relations: new Map<string, Relation | string>(),
     lists: new Map(),
     marks: new Map(),
     lenses: new Map(),
@@ -182,124 +160,40 @@ const listFor = (map: SchemaMap, resource: string, name: string, down: unknown):
     throw new Error(
       `${at}: \`down\` is a list of dotted relation paths, \`[forumUser.fanUser, forumUser.brandUser]\`, got ${JSON.stringify(down)}`,
     );
-  type Tree = Map<string, Tree>;
-  const tree: Tree = new Map();
+  type Building = { node: LensNode; toOne: Map<string, Relation>; children: Map<string, Building> };
+  const building = (resource: string): Building => {
+    const toOne = new Map<string, Relation>();
+    const children = new Map<string, Building>();
+    const below = (child: string) => (children.get(child) as Building).node;
+    return { toOne, children, node: { resource, down: true, toOne, lists: new Map(), below } };
+  };
+  const root = building(item);
   for (const path of (down as string[]).map((dotted) => dotted.split('.'))) {
-    let current = item;
-    let branch = tree;
+    let branch = root;
     for (const [depth, segment] of path.entries()) {
-      if (skipsHydration(fieldOf(map, current, segment)))
-        throw new Error(`${at}: \`${path.join('.')}\`: \`${segment}\` is \`hydrate: false\``);
-      const relation = relationOf(map, current, segment);
-      if (!relation)
-        throw new Error(
-          `${at}: \`${path.join('.')}\`: \`${segment}\` is not a to-one relation of \`${current}\` that owns its foreign key and leads to a resource`,
-        );
+      const relation = toOneOf(map, branch.node.resource, segment);
+      if (typeof relation === 'string')
+        throw new Error(`${at}: \`${path.join('.')}\`: ${relation}`);
       if (depth === 0 && segment === inverse[0])
         throw new Error(`${at}: \`${path.join('.')}\` goes back up the list it came down`);
-      const next: Tree = branch.get(segment) ?? new Map();
-      branch.set(segment, next);
-      branch = next;
-      current = relation.resource;
+      if (!branch.children.has(segment)) {
+        branch.toOne.set(segment, relation);
+        branch.children.set(segment, building(relation.resource));
+      }
+      branch = branch.children.get(segment) as Building;
     }
   }
-  const nodeOf = (resource: string, below: Tree): LensNode => {
-    const toOne = new Map(
-      [...below.keys()].map((name) => [name, relationOf(map, resource, name) as Relation]),
-    );
-    const children = new Map(
-      [...below].map(([name, tree]) => [
-        name,
-        nodeOf((toOne.get(name) as Relation).resource, tree),
-      ]),
-    );
-    return {
-      resource,
-      down: true,
-      toOne,
-      lists: new Map(),
-      below: (name) => children.get(name) as LensNode,
-    };
-  };
   return {
     resource: item,
     from: inverse[1].fromFields ?? [],
     to: inverse[1].toFields ?? [],
-    item: nodeOf(item, tree),
+    item: root.node,
   };
 };
 
-/** The lens at a row of `resource`: its model's own node (see {@link LensNode}). */
-export const lensOf = <R extends string>(map: SchemaMap<R>, resource: R): LensNode<R> => {
-  const index = indexMap(map as SchemaMap);
-  const known = index.lenses.get(resource);
-  if (known) return known as LensNode<R>;
-  const toOne = new Map<string, Relation<R>>();
-  for (const name of relationNames(map, resource)) {
-    const relation = relationOf(map, resource, name);
-    if (relation) toOne.set(name, relation);
-  }
-  const lists = new Map(listsOf(map, resource));
-  const node: LensNode<R> = {
-    resource,
-    down: false,
-    toOne,
-    lists,
-    below: (name) => {
-      const list = lists.get(name);
-      if (list) return list.item;
-      return lensOf(map, (toOne.get(name) as Relation<R>).resource);
-    },
-  };
-  index.lenses.set(resource, node as LensNode);
-  return node;
-};
-
-/** A column of its model: a scalar or an enum (Json and scalar lists included), not a relation. */
+/** A column of its model (a scalar or an enum, Json and scalar lists included), not a relation. */
 export const isColumn = (field: { kind: string }): boolean =>
   field.kind === 'scalar' || field.kind === 'enum';
-
-/**
- * What a check reads of `record`: a view through the lens, never the record itself. At each row
- * its columns (scalars, enums, Json, scalar lists, as given) and only the relations of its lens
- * node, each through the node below; at the root also every key its model does not have (a
- * computed field). An undeclared list, a `hydrate: false` relation, a relation keyed on the other
- * side, and below the root a key the model does not have are left out. A row met twice at one
- * node is one view, so a cyclic record is a cyclic view.
- */
-export const projectRecord = <R extends string>(
-  map: SchemaMap<R>,
-  resource: R,
-  record: Row,
-): Row => {
-  const made = new Map<LensNode<R>, WeakMap<Row, Row>>();
-  const view = (node: LensNode<R>, row: Row, root: boolean): Row => {
-    const seen = made.get(node) ?? new WeakMap<Row, Row>();
-    made.set(node, seen);
-    const known = root ? undefined : seen.get(row);
-    if (known) return known;
-    const out: Row = {};
-    if (!root) seen.set(row, out);
-    const fields = map.fieldMap.models[map.resources[node.resource]]?.fields ?? {};
-    for (const [key, value] of Object.entries(row)) {
-      const field = Object.hasOwn(fields, key) ? fields[key] : undefined;
-      if (!field) {
-        if (root) out[key] = value;
-      } else if (isColumn(field)) out[key] = value;
-      else if (node.toOne.has(key)) {
-        if (value === null) out[key] = null;
-        else if (isPlainObject(value)) out[key] = view(node.below(key), value as Row, false);
-      } else if (node.lists.has(key) && Array.isArray(value)) {
-        const item = node.below(key);
-        out[key] = value
-          .filter((entry): entry is Row => isPlainObject(entry))
-          .map((entry) => view(item, entry, false));
-      }
-    }
-    return out;
-  };
-  return view(lensOf(map, resource), record, true);
-};
 
 /** The declared list `segment` of `resource`, or null: an undeclared list is never crossed. */
 export const listOf = <R extends string>(
@@ -342,27 +236,43 @@ const kindsOf = (axes: readonly PolymorphicAxis[], columns: readonly string[]) =
   return null;
 };
 
+/** `segment` of `resource` as a relation the hydrator follows, or why it is not one. */
+export const toOneOf = <R extends string>(
+  map: SchemaMap<R>,
+  resource: R,
+  segment: string,
+): Relation<R> | string => {
+  const cache = indexMap(map as SchemaMap).relations;
+  const key = `${resource}\u0000${segment}`;
+  if (!cache.has(key)) cache.set(key, toOneFor(map, resource, segment));
+  return cache.get(key) as Relation<R> | string;
+};
+
 export const relationOf = <R extends string>(
   map: SchemaMap<R>,
   resource: R,
   segment: string,
 ): Relation<R> | null => {
-  const cache = indexMap(map as SchemaMap).relations;
-  const key = `${resource}\u0000${segment}`;
-  if (!cache.has(key)) cache.set(key, relationFor(map, resource, segment));
-  return (cache.get(key) as Relation<R> | null | undefined) ?? null;
+  const relation = toOneOf(map, resource, segment);
+  return typeof relation === 'string' ? null : relation;
 };
 
-const relationFor = <R extends string>(
+const toOneFor = <R extends string>(
   map: SchemaMap<R>,
   resource: R,
   segment: string,
-): Relation<R> | null => {
+): Relation<R> | string => {
   const field = fieldOf(map, resource, segment);
-  if (field?.kind !== 'object' || field.isList || !field.fromFields?.length) return null;
-  if (skipsHydration(field)) return null;
+  const at = `\`${resource}.${segment}\``;
+  if (field?.kind === 'bridge') return `${at} is a bridge: cross it with { rel, action }`;
+  if (field?.kind !== 'object' || field.isList) return `${at} is not a to-one relation`;
+  if (skipsHydration(field))
+    return `${at} is \`hydrate: false\`: nothing loads it; drop the annotation or read it from \`${field.type}\``;
+  if (!field.fromFields?.length)
+    return `${at} keeps its foreign key on \`${field.type}\`: nothing loads it; write the rule on \`${field.type}\`, or hold the key on this model`;
   const target = resourceOf(map, field.type);
-  if (!target) return null;
+  if (!target)
+    return `${at} leads to \`${field.type}\`, which is not a resource in the map: nothing loads it`;
   const axes = map.polymorphism?.[map.resources[resource]]?.axes ?? [];
   return {
     resource: target,
@@ -419,7 +329,7 @@ const statedAt = (leaves: Leaf[], prefix: string, accepts: (field: string) => bo
 const pinned = <R extends string>(map: SchemaMap<R>, resource: R, leaves: Leaf[]): Row =>
   statedAt(leaves, '', (name) => {
     const field = fieldOf(map, resource, name);
-    return !name.includes('.') && field?.kind !== 'object' && !field?.isList;
+    return !name.includes('.') && (!field || (isColumn(field) && !field.isList));
   });
 
 const admits = (leaves: Leaf[], field: string, value: string) =>
@@ -571,8 +481,7 @@ export const placeEntitlement = <R extends string>(
   entry: EntitlementEntry,
   anchor: Row,
 ): Row[] | null => {
-  if (entitlementProblem(entry, map as SchemaMap) !== null || recordId(anchor) !== entry.anchor.id)
-    return null;
+  if (entitlementProblem(entry) !== null || recordId(anchor) !== entry.anchor.id) return null;
   if (entry.anchor.path === undefined) return [anchor];
   const pins = pinned(map, entry.resource as R, rootLeaves(entry.where));
   const placed = placeUnder(

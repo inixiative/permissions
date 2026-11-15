@@ -2,7 +2,8 @@ import { type BridgeDictionary, indexBridges } from '@inixiative/json-rules';
 import type { Algebra } from './algebra';
 import { evaluate } from './evaluate';
 import { withExactStrings } from './exactStrings';
-import { indexMap, projectRecord, type SchemaMap } from './schemaMap';
+import { freeze, projectRecord } from './lens';
+import { indexMap, type SchemaMap } from './schemaMap';
 import type { ActionRule, CheckOptions, PermixLike, RebacSchema, Row, Subject } from './types';
 import { validateActionRule } from './validateActionRule';
 import { actionRuleLensIssues, lensIssues, schemaRuleIssues } from './validateSchema';
@@ -18,13 +19,6 @@ const outsideLens = ({ path, message }: { path: string; message: string }) => {
 };
 
 const judged = new WeakMap<object, WeakSet<object>>();
-
-const freeze = (value: unknown, seen = new WeakSet<object>()): void => {
-  if (typeof value !== 'object' || value === null || seen.has(value)) return;
-  seen.add(value);
-  Object.freeze(value);
-  for (const child of Object.values(value)) freeze(child, seen);
-};
 
 // why: a negated rule, or a read outside the lens, answers on what nothing loaded
 const assertSchema = (map: SchemaMap, schema: RebacSchema) => {
