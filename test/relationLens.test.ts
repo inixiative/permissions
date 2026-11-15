@@ -16,12 +16,13 @@ import {
   validateSchema,
   whereLensProblem,
 } from '../index';
-import { lensAt, whereProblemAt } from '../src/core/lens';
+import { lensAt, lensLimits, lensOf, whereProblemAt } from '../src/core/lens';
 import { listOf } from '../src/core/schemaMap';
+import { hydrationLimits } from '../src/helpers/hydration/hydrate';
 import { loadModels } from './fixtures/load';
 
-// One lens decides what hydration loads, what a check reads of a record, and which paths a rule
-// may name. Each case below returned true on 0.22.0 (the adversarial review's probes, T1–T8).
+// json-rules' own lens, spelled in the root, decides which paths a rule may name; the hydrator
+// loads every row it can reach. Each case below returned true on 0.22.0 (the adversarial review's probes, T1–T8).
 
 const column = (type: string, extra: Partial<FieldMapEntry> = {}): FieldMapEntry => ({
   kind: 'scalar',
@@ -724,6 +725,245 @@ describe('the second review of the final build', () => {
     });
     expect(whereProblemAt(map, lensAt(map, 'message'), where)).toBeNull();
     expect(whereProblemAt(map, item, where)).toMatch(/loads no `conversation` under an item/);
+  });
+});
+
+describe('the starting record: a row is known by resource and id', () => {
+  const loads: string[] = [];
+  const counting = createHydrator({
+    map,
+    load: async (resource, where) => {
+      loads.push(`${resource}:${where.id}`);
+      const row = db[resource]?.[where.id as string] ?? null;
+      return row && row.deletedAt ? null : row;
+    },
+    loadMany: async () => [],
+  });
+  const loopy: RebacSchema = {
+    permissions: {
+      user: { actions: { read: { any: [reads('name', 'Una'), { rel: 'org', action: 'read' }] } } },
+      org: { actions: { read: { rel: 'creator', action: 'read' } } },
+    },
+  };
+
+  test('a forged root: the loop holds the stored row, the root keeps what the caller gave', async () => {
+    loads.length = 0;
+    const forged = await counting('user', { id: 'u1', name: 'EVIL', orgId: 'o1' });
+    const creator = (forged.org as Row).creator as Row;
+    expect(creator).not.toBe(forged);
+    expect([creator.name, forged.name]).toEqual(['Una', 'EVIL']);
+    expect(creator.org).toBe(forged.org);
+    expect(loads).toEqual(['org:o1', 'user:u1']);
+  });
+
+  test('after-state around the loop: the stored copy of the root is the root, so the loop denies', async () => {
+    const forged = await counting('user', { id: 'u1', name: 'EVIL', orgId: 'o1' });
+    expect(check(actorAs('x'), loopy, { resource: 'user', record: forged }, 'read')).toBe(false);
+    const stored = await counting('user', db.user?.u1 as Row);
+    expect(check(actorAs('x'), loopy, { resource: 'user', record: stored }, 'read')).toBe(true);
+  });
+
+  test('the grant check’s first pass never counts the granted row met again around a loop', async () => {
+    const owner: PermixLike = { check: () => true, getActor: () => null };
+    const held = (grantsBelow: boolean): PermixLike => ({
+      check: () => false,
+      getActor: () => null,
+      entitlements: (resource, action) =>
+        resource === 'user' && action === 'y'
+          ? [
+              {
+                anchor: { resource: 'user', id: 'u1' },
+                actions: { y: true },
+                owner,
+                ...(grantsBelow ? { grantsBelow: true as const } : {}),
+              },
+            ]
+          : [],
+    });
+    const schema: RebacSchema = {
+      permissions: {
+        user: { actions: { x: { rel: 'org', action: 'read' }, y: null } },
+        org: { actions: { read: { rel: 'creator', action: 'y' } } },
+      },
+    };
+    const entry: EntitlementEntry = {
+      resource: 'user',
+      anchor: { resource: 'user', id: 'u1' },
+      actions: { x: true },
+    };
+    const grants = (writer: PermixLike, user: Row) =>
+      (placeEntitlement(map, entry, user) ?? []).every((placed) =>
+        createCanGrantEntitlement(map)(writer, schema, entry, placed),
+      );
+    const u1 = await counting('user', db.user?.u1 as Row);
+    expect(grants(held(true), u1)).toBe(false);
+    expect(grants(held(false), u1)).toBe(false);
+    db.org = { ...db.org, o2: { id: 'o2', name: 'beta', creatorId: 'attacker' } };
+    const elsewhere = await counting('user', { ...(db.user?.u1 as Row), orgId: 'o2' });
+    expect(grants(held(true), elsewhere)).toBe(false);
+  });
+
+  test('a partial root, a root with no id or an empty one: the loop loads the stored row', async () => {
+    for (const root of [
+      { id: 'u1', orgId: 'o1' },
+      { orgId: 'o1' },
+      { id: '', orgId: 'o1', name: 'New' },
+    ]) {
+      loads.length = 0;
+      const user = await counting('user', root);
+      expect(((user.org as Row).creator as Row).name).toBe('Una');
+      expect(loads).toEqual(['org:o1', 'user:u1']);
+    }
+  });
+
+  test('a self-referential key: the stored row once, holding itself', async () => {
+    const col = column('String');
+    const nodes: SchemaMap = {
+      resources: { node: 'Node' },
+      fieldMap: {
+        models: {
+          Node: {
+            fields: {
+              id: col,
+              name: col,
+              parentId: col,
+              parent: toOne('Node', 'parentId', { relationName: 'P' }),
+            },
+          },
+        },
+      },
+    };
+    const seen: string[] = [];
+    const load = createHydrator({
+      map: nodes,
+      load: async (_resource, where) => {
+        seen.push(String(where.id));
+        return { id: 'n1', name: 'stored', parentId: 'n1' };
+      },
+    });
+    const node = await load('node', { id: 'n1', name: 'caller', parentId: 'n1' });
+    const parent = node.parent as Row;
+    expect([parent === node, parent.parent === parent, parent.name, seen]).toEqual([
+      false,
+      true,
+      'stored',
+      ['n1'],
+    ]);
+  });
+
+  test('a root key the caller changed loads the row it names, and nothing for a missing one', async () => {
+    loads.length = 0;
+    const moved = await counting('user', { id: 'u1', name: 'Una', orgId: 'o9' });
+    expect(moved.org).toBeUndefined();
+    expect(loads).toEqual(['org:o9']);
+  });
+
+  test('a stand-in and a hand-built surface record have no id: each is its own row', () => {
+    const entry: EntitlementEntry = {
+      resource: 'message',
+      anchor: { resource: 'conversation', id: 'c1', path: 'conversation' },
+      actions: { act: true },
+    };
+    const [a, b] = [
+      placeEntitlement(map, entry, db.conversation?.c1 as Row),
+      placeEntitlement(map, entry, db.conversation?.c1 as Row),
+    ];
+    expect(a?.[0]).not.toBe(b?.[0]);
+    const walk: RebacSchema = {
+      permissions: {
+        message: { actions: { act: { rel: 'conversation', action: 'see' } } },
+        conversation: { actions: { see: reads('orgId', 'o1') } },
+      },
+    };
+    expect(check(actorAs('x'), walk, { resource: 'message', record: a?.[0] as Row }, 'act')).toBe(
+      true,
+    );
+  });
+
+  test('a soft-deleted root: the loop finds no stored row, so nothing is read there', async () => {
+    db.user = {
+      ...db.user,
+      gone: { id: 'gone', name: 'Gone', orgId: 'og', deletedAt: '2026-11-01' },
+    };
+    db.org = { ...db.org, og: { id: 'og', name: 'ghost org', creatorId: 'gone' } };
+    const gone = await counting('user', { id: 'gone', name: 'Gone', orgId: 'og' });
+    expect((gone.org as Row).creator).toBeUndefined();
+  });
+});
+
+describe('the limits throw; nothing is cut', () => {
+  test('the lens refuses a map whose chains outgrow its relation budget, naming the model and path', () => {
+    const col = column('String');
+    const names = Array.from({ length: 9 }, (_, i) => `M${i}`);
+    const dense: SchemaMap = {
+      resources: Object.fromEntries(names.map((name) => [name.toLowerCase(), name])),
+      fieldMap: {
+        models: Object.fromEntries(
+          names.map((name) => [
+            name,
+            {
+              fields: Object.fromEntries([
+                ['id', col],
+                ...names
+                  .filter((other) => other !== name)
+                  .flatMap((other) => [
+                    [`${other.toLowerCase()}Id`, col],
+                    [other.toLowerCase(), toOne(other, `${other.toLowerCase()}Id`)],
+                  ]),
+              ]),
+            },
+          ]),
+        ),
+      },
+    };
+    expect(() => lensOf(dense, 'm0')).toThrow(
+      `the lens of \`m0\` holds more than ${lensLimits.nodes} relations (at \``,
+    );
+  });
+
+  test('a chain longer than the depth cap throws, naming where', () => {
+    const col = column('String');
+    const length = lensLimits.depth + 2;
+    const chain: SchemaMap = {
+      resources: Object.fromEntries(Array.from({ length }, (_, i) => [`c${i}`, `C${i}`])),
+      fieldMap: {
+        models: Object.fromEntries(
+          Array.from({ length }, (_, i) => [
+            `C${i}`,
+            {
+              fields: {
+                id: col,
+                nextId: col,
+                ...(i + 1 < length ? { next: toOne(`C${i + 1}`, 'nextId') } : {}),
+              },
+            },
+          ]),
+        ),
+      },
+    };
+    expect(() => lensOf(chain, 'c0')).toThrow(
+      `the lens of \`c0\` goes past ${lensLimits.depth} relations`,
+    );
+  });
+
+  test('a hydration past its load budget throws', async () => {
+    const col = column('String');
+    const nodes: SchemaMap = {
+      resources: { node: 'Node' },
+      fieldMap: {
+        models: { Node: { fields: { id: col, parentId: col, parent: toOne('Node', 'parentId') } } },
+      },
+    };
+    const endless = createHydrator({
+      map: nodes,
+      load: async (_resource, where) => {
+        const i = Number(String(where.id).slice(1));
+        return { id: `n${i}`, parentId: `n${i + 1}` };
+      },
+    });
+    await expect(endless('node', { id: 'n0', parentId: 'n1' })).rejects.toThrow(
+      `passed ${hydrationLimits.loads} loads`,
+    );
   });
 });
 
