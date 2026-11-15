@@ -36,27 +36,38 @@ export const createWalker = <R extends string, T>(
   ignoreWheres = false,
 ) => {
   indexMap(map as SchemaMap);
+  // why: an inline rule passed again as the same object is judged once (and frozen); a fresh literal each call is judged each time
+  const inlineKeys = new WeakMap<object, Map<string, object>>();
+  const inlineKey = (schema: object, resource: string): object => {
+    const byResource = inlineKeys.get(schema) ?? new Map<string, object>();
+    inlineKeys.set(schema, byResource);
+    const key = byResource.get(resource) ?? {};
+    byResource.set(resource, key);
+    return key;
+  };
   return (
     permix: PermixLike,
     schema: RebacSchema<R>,
     subject: Subject<R>,
     actionOrRule: ActionRule,
     visited: Set<string> = new Set(),
-    above?: (record: Row) => ReadonlySet<Row>,
+    above?: ReadonlySet<Row>,
   ): T => {
     assertSchema(map as SchemaMap, schema);
-    if (typeof actionOrRule === 'object' && actionOrRule !== null) {
-      if (!validateActionRule(actionOrRule).ok) refuse('the rule asked');
-      const [outside] = actionRuleLensIssues(
-        map as SchemaMap,
-        schema as RebacSchema,
-        subject.resource,
-        actionOrRule,
-        '$',
-        true,
-      );
-      if (outside) outsideLens(outside);
-    }
+    if (typeof actionOrRule === 'object' && actionOrRule !== null)
+      judgeOnce(actionOrRule, inlineKey(schema, subject.resource), () => {
+        if (!validateActionRule(actionOrRule).ok) refuse('the rule asked');
+        const [outside] = actionRuleLensIssues(
+          map as SchemaMap,
+          schema as RebacSchema,
+          subject.resource,
+          actionOrRule,
+          '$',
+          true,
+        );
+        if (outside) outsideLens(outside);
+        return true;
+      });
     const record = subject.record;
     // Built lazily on the first bridge hop: a check that never crosses a bridge must not pay for —
     // or be crashed by (indexBridges throws on malformed `data`) — a dictionary it never reads.
@@ -81,7 +92,7 @@ export const createWalker = <R extends string, T>(
           algebra,
           ignoreWheres,
           idField: idField(),
-          ...(above ? { above: above(record) } : {}),
+          ...(above ? { above } : {}),
         },
         permix,
         subject.resource,

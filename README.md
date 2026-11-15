@@ -781,11 +781,9 @@ built from the schema map the check uses (synthetic models such as Kingdom's sur
 on first use, and cached with the map. Lists are not spelled in it. Columns (Json and scalar
 lists included) are always readable, so ABAC is untouched; bridges are their own mechanism.
 
-- **How deep, and the limits.** Every chain is spelled up to 20 relations; a longer one throws,
-  naming the resource and the path. A row of a false-polymorphic model hydrates one kind, so the
-  size of a lens is counted one kind per polymorphic model (Kingdom's largest: 444 relations):
-  `validateSchema` warns over 1,000 (`warnings`, code `lensSize`), and building throws over
-  10,000. Nothing is ever cut silently.
+- **How deep, and the limits.** Chains of up to 20 relations; a row's lens is counted one kind per
+  false-polymorphic model, warned over 1,000 (`validateSchema` `warnings`, `lensSize`) and refused
+  over 10,000. Each limit throws or warns, naming the resource; nothing is cut.
 - **Judged with json-rules.** Every path a stored rule reads (field and value side, every spelling
   json-rules reads) is judged with `validateRuleInLens`; a `{ rel }` path with `walkLensPath`.
   Refused, each with its fix: a list (use the list arm), a relation outside the lens (keyed on the
@@ -801,23 +799,23 @@ lists included) are always readable, so ABAC is untouched; bridges are their own
   `__actor.*` is not checked against the actor's model yet. A `where` reads the record alone, so
   an `__actor` path there is refused.
 
-**Where it runs.** A schema on first use: it throws, and the schema is frozen so it is judged once.
-A rule passed to `check`: it throws. A row's `permissionRules`: they widen nothing. An
-entitlement's `where`, when consulted, at the row it is consulted on: it never holds, and it is
-frozen when first judged (`whereLensProblem(map, resource, where)` says why; the grant check
-refuses it). A schema resource missing from `resources` (and not a bridge's far end) is refused.
-`setup` and `wellFormedEntitlements` have no map, so they cannot. `check()` reads the hydrated row
-itself; with every read judged, there is nothing to project.
+**Where it runs.** A schema on first use: it throws, and the schema is frozen so it is judged once;
+the list arm's `condition` and the actions it follows are judged against the declared `down`
+paths. A rule passed to `check`: it throws (judged once per rule object). A row's
+`permissionRules` and an entitlement's `where` are judged at their own resource, as when the row is
+reached directly: one that reads outside the lens widens nothing, or never holds (a `where` is
+frozen when first judged; `whereLensProblem(map, resource, where)` says why, for an app that
+validates a row before saving it, as Kingdom's `validateEntitlementGrants` can). On a list item
+only the declared paths are loaded, so an arm reading anything else is unknown there and its
+siblings still decide. A schema resource missing from `resources` (and not a bridge's far end) is
+refused. `validateSchema` also reports an operator json-rules' gate finds unfit for its field
+(`operator_kind_mismatch`). `setup` and `wellFormedEntitlements` have no map, so they cannot.
+`check()` reads the hydrated row itself.
 
 **A path back to a model** (`org.creator.org.name` from a user, `rel: 'org.creator'` from a user)
 is not in the lens: a rule reads it from the row it reaches instead, by two hops. Nothing needs one
 yet. If a rule ever does, it would be declared on the Prisma relation, as `down` declares a list,
 and the lens builder would spell that leaf.
-
-Why one lens: every reported leak (a request body's list read by index or in brackets, a relation
-keyed on the other side read as null, a path past the hydrator's old cycle cut, a `where` read on
-a list) was a rule reading something hydration never loaded, and json-rules' lens already judges
-paths; spelling the tree in the root is how it reaches every chain.
 
 ## Helper: hydration (Prisma example)
 
@@ -868,6 +866,8 @@ check(permix, schema, { resource: 'document', record: doc }, 'manage');
   app loaded, a relation keyed on the other side); no stored rule may name it
   ([the lens](#what-a-rule-may-read-the-relation-lens)). Columns are left as given too: build the
   record from the stored row, and take from a request body only the fields the caller may set.
+  Under a list item every to-one the declaration does not load is dropped, whatever `loadMany`
+  returned.
 - **Check the schema against the map:** `validateSchema(map, schema)` returns every read outside
   the lens and every action named where it isn't defined, which would otherwise deny forever,
   along with every rule `validateActionRule` refuses. Run it in a test or at boot.

@@ -5,7 +5,7 @@ import {
   validateRule,
 } from '@inixiative/json-rules';
 import { isPlainObject } from 'lodash-es';
-import { delegatesOf, delegationReach } from './reachableFrom';
+import { allDelegates, delegationReach } from './reachableFrom';
 import type { RebacSchema } from './types';
 
 const hasOnly = (node: Record<string, unknown>, keys: string[]): boolean =>
@@ -66,9 +66,9 @@ export type ActionRuleContext = {
 const cycles = (rule: unknown, { schema, resource, action, rowRules }: ActionRuleContext) => {
   const actions = schema.permissions[resource]?.actions ?? {};
   const reached = delegationReach(
-    delegatesOf(rule, false),
+    allDelegates(rule),
     (next) => [actions[next], rowRules?.[next]],
-    false,
+    allDelegates,
   );
   return reached.has(action)
     ? [{ path: '$', code: 'cycle', message: `\`${action}\` delegates back to itself` }]

@@ -17,12 +17,10 @@ import {
   type SchemaMap,
   type Spelled,
   toOneOf,
+  toOnesOf,
 } from './schemaMap';
 
-/**
- * How far a resource's lens goes: chains of at most `depth` relations; `report` and `refuse` bound
- * the relations one row hydrates, counting one kind of a polymorphic model (a row has one).
- */
+/** Chains of at most `depth` relations; a row's lens (one kind per polymorphic model) is reported over `report`, refused over `refuse`. */
 export const lensLimits = { depth: 20, report: 1_000, refuse: 10_000 };
 
 /** Where a walk stands under a list item: the list (`resource.field`), and the declared path walked so far. */
@@ -68,11 +66,8 @@ const spellFrom = (map: SchemaMap, resource: string): { tree: Spelled; size: num
     const tree: Spelled = {};
     const always: number[] = [];
     const byKind = new Map<string, number>();
-    for (const name of Object.keys(
-      map.fieldMap.models[map.resources[at] as string]?.fields ?? {},
-    )) {
-      const relation = relationOf(map, at, name);
-      if (!relation || passed.includes(relation.resource)) continue;
+    for (const [name, relation] of toOnesOf(map, at)) {
+      if (passed.includes(relation.resource)) continue;
       const where = [...path, name].join('.');
       if (path.length >= lensLimits.depth)
         throw new Error(
@@ -119,16 +114,12 @@ const built = (map: SchemaMap, resource: string) => {
   };
 };
 
-/** A resource's lens: every chain of to-one relations the hydrator follows, never one model twice on a chain. */
-export const lensOf = (map: SchemaMap, resource: string): LensNarrowing | null =>
-  built(map, resource)?.lens ?? null;
-
 /** The relations one row of `resource` hydrates, one kind of each polymorphic model counted. */
 export const lensSize = (map: SchemaMap, resource: string): number =>
   built(map, resource)?.size ?? 0;
 
 /** The lenses at a landing under a list item: the rest of the list's declared paths below `prefix`. */
-export const itemLensAt = (map: SchemaMap, under: Under): LensAt => {
+const itemLensAt = (map: SchemaMap, under: Under): LensAt => {
   const { lenses } = indexMap(map);
   const key = `${under.list}\u0000${under.prefix.join('.')}`;
   let resource = under.listRelation.resource;
@@ -161,11 +152,11 @@ const listMessage = (map: SchemaMap, resource: string, segment: string): string 
     listOf(map, resource, segment) ? '' : 'declare it (`/// @permissions(down: [...])`) and '
   }cross it with { rel: '${segment}', arrayOperator: 'any', condition }`;
 
-export const notLoaded = (under: Under, prefix: readonly string[]) =>
+const notLoaded = (under: Under, prefix: readonly string[]) =>
   `\`${under.list}\` loads no \`${prefix.join('.')}\` under an item: name it in \`/// @permissions(down: [...])\``;
 
 /** Why `path` leaves the lens at `at`, as `walkLensPath` resolves it, in the map's own words. */
-export const explain = (
+const explain = (
   map: SchemaMap,
   at: LensAt,
   path: string,
@@ -204,11 +195,7 @@ export const explain = (
   };
 };
 
-/**
- * Why a to-one `path` from `at` is not a run of relations it may walk, or null. One hop off an
- * item's declared paths is judged like any rule; one hop elsewhere lands on a row the hydrator
- * loads (a self-relation included), and the rule there is judged from that row.
- */
+/** Why a `{ rel }` path from `at` is not one it may walk, or null; one hop off an item lands on any row the hydrator loads. */
 export const relationPathProblem = (
   map: SchemaMap,
   at: LensAt,
@@ -237,11 +224,13 @@ export const relationPathProblem = (
 };
 
 const pathCodes = new Set(['not_in_lens', 'scope_out_of_bounds']);
+// why: json-rules' fit check is reported by validateSchema; it never refuses a check (invalid_value waits on typed fixtures)
+const fitCodes = new Set(['operator_kind_mismatch']);
 
-/**
- * Every path a condition reads at `at` that leaves the lens. `actor`: `__actor` is injected (a
- * `{ rule }`); `computed`: the caller built the root (an inline rule at the subject).
- */
+/** A miss that refuses a read: out of the lens, a relation hop, or past a declaration; not an operator fit. */
+export const refuses = (issue: ValidationIssue): boolean => !fitCodes.has(issue.code);
+
+/** Every path a condition reads at `at` outside the lens, and every operator that does not fit its field. */
 export const conditionMisses = (
   map: SchemaMap,
   at: LensAt,
@@ -251,25 +240,25 @@ export const conditionMisses = (
 ): ValidationIssue[] => {
   const lens = actor ? at.rule : at.lens;
   if (!lens) return [];
-  return validateRuleInLens(condition, lens)
-    .errors.filter((issue) => pathCodes.has(issue.code))
-    .flatMap((issue) => {
-      const resolution = walkLensPath(lens, issue.path);
-      if (computed && resolution.outcome === 'missing' && resolution.index === 0) return [];
-      if (pathSegments(issue.path)[0] === '__actor')
-        return [
-          {
-            path,
-            code: 'lens',
-            message: `\`${issue.path}\`: a \`where\` reads the record alone; \`__actor\` is not on it`,
-          },
-        ];
-      return [{ path, ...explain(map, at, issue.path, resolution) }];
-    });
+  return validateRuleInLens(condition, lens).errors.flatMap((issue) => {
+    if (fitCodes.has(issue.code)) return [{ path, code: issue.code, message: issue.message }];
+    if (!pathCodes.has(issue.code)) return [];
+    const resolution = walkLensPath(lens, issue.path);
+    if (computed && resolution.outcome === 'missing' && resolution.index === 0) return [];
+    if (pathSegments(issue.path)[0] === '__actor')
+      return [
+        {
+          path,
+          code: 'lens',
+          message: `\`${issue.path}\`: a \`where\` reads the record alone; \`__actor\` is not on it`,
+        },
+      ];
+    return [{ path, ...explain(map, at, issue.path, resolution) }];
+  });
 };
 
 /** Freezes `value` and everything in it. */
-export const freeze = (value: unknown, seen = new WeakSet<object>()): void => {
+const freeze = (value: unknown, seen = new WeakSet<object>()): void => {
   if (typeof value !== 'object' || value === null || seen.has(value)) return;
   seen.add(value);
   Object.freeze(value);
@@ -297,7 +286,7 @@ export const whereProblemAt = (
 ): string | null => {
   if (typeof where !== 'object' || where === null || !at.lens) return null;
   return judgeOnce(where, at.lens, () => {
-    const misses = conditionMisses(map, at, where, '$', { actor: false });
+    const misses = conditionMisses(map, at, where, '$', { actor: false }).filter(refuses);
     return misses.length
       ? `entitlement \`where\` reads outside the lens: ${misses.map((miss) => miss.message).join('; ')}`
       : null;

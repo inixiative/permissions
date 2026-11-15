@@ -6,6 +6,7 @@ import {
   lensAt,
   lensLimits,
   lensSize,
+  refuses,
   relationPathProblem,
   type Under,
 } from './lens';
@@ -132,7 +133,7 @@ export const schemaRuleIssues = (schema: RebacSchema): ValidationIssue[] =>
     ),
   );
 
-/** Every read of a well-formed action rule at `resource` (under an item: at its landing) outside the lens. */
+/** Every read of a well-formed action rule at `resource` outside the lens (`computed`: the caller built the root). */
 export const actionRuleLensIssues = (
   map: SchemaMap,
   schema: RebacSchema,
@@ -142,7 +143,7 @@ export const actionRuleLensIssues = (
   computed = false,
 ): ValidationIssue[] =>
   relIssues(map, schema, lensAt(map, resource), rule, at, undefined, computed).filter(
-    (issue) => issue.code !== 'action',
+    (issue) => issue.code !== 'action' && refuses(issue),
   );
 
 // why: a resource with no model in the map has no lens, so nothing it reads could be refused
@@ -161,17 +162,21 @@ const unmapped = (map: SchemaMap, schema: RebacSchema): ValidationIssue[] => {
     }));
 };
 
-/** Every read of a schema's action rules outside the lens, by `resource.action`. */
-export const lensIssues = (map: SchemaMap, schema: RebacSchema): ValidationIssue[] => [
+// Every read, action and operator issue of a schema's well-formed rules, by `resource.action`.
+const readIssues = (map: SchemaMap, schema: RebacSchema): ValidationIssue[] => [
   ...unmapped(map, schema),
   ...Object.entries(schema.permissions).flatMap(([resource, permission]) =>
     Object.entries(permission?.actions ?? {}).flatMap(([action, rule]) =>
       validateActionRule(rule).ok
-        ? actionRuleLensIssues(map, schema, resource, rule, `${resource}.${action}`)
+        ? relIssues(map, schema, lensAt(map, resource), rule, `${resource}.${action}`)
         : [],
     ),
   ),
 ];
+
+/** Every read of a schema's action rules outside the lens, by `resource.action`. */
+export const lensIssues = (map: SchemaMap, schema: RebacSchema): ValidationIssue[] =>
+  readIssues(map, schema).filter((issue) => issue.code !== 'action' && refuses(issue));
 
 // why: a row that hydrates this much is doing too much; it is reported, not refused
 const lensWarnings = (map: SchemaMap, schema: RebacSchema): ValidationIssue[] =>
@@ -196,17 +201,16 @@ export const validateSchema = (
   map: SchemaMap,
   schema: RebacSchema,
 ): ValidationResult & { warnings: ValidationIssue[] } => {
-  const errors: ValidationIssue[] = [...unmapped(map, schema)];
-  for (const [resource, permission] of Object.entries(schema.permissions)) {
-    for (const [action, rule] of Object.entries(permission?.actions ?? {})) {
-      const at = `${resource}.${action}`;
-      const shape = validateActionRule(rule, { schema, resource, action });
-      errors.push(
-        ...shape.errors.map((issue) => ({ ...issue, path: `${at}${issue.path.slice(1)}` })),
-      );
-      if (shape.errors.every((issue) => issue.code === 'cycle'))
-        errors.push(...relIssues(map, schema, lensAt(map, resource), rule, at));
-    }
-  }
+  const errors = [
+    ...Object.entries(schema.permissions).flatMap(([resource, permission]) =>
+      Object.entries(permission?.actions ?? {}).flatMap(([action, rule]) =>
+        validateActionRule(rule, { schema, resource, action }).errors.map((issue) => ({
+          ...issue,
+          path: `${resource}.${action}${issue.path.slice(1)}`,
+        })),
+      ),
+    ),
+    ...readIssues(map, schema),
+  ];
   return { ok: errors.length === 0, errors, warnings: lensWarnings(map, schema) };
 };

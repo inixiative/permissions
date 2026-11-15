@@ -62,7 +62,7 @@ export const createCanGrantEntitlement = <R extends string = string>(
       .filter(([, held]) => held === true)
       .map(([action]) => action);
     const table = asOwner(permix, null);
-    const above = (view: Row) => rowsAbove(map, entry, view);
+    const above = rowsAbove(map, entry, placed);
     const subject = { resource, record: placed };
     if (actions.every((action) => check(table, schema, subject, action, new Set(), above)))
       return true;
@@ -71,7 +71,8 @@ export const createCanGrantEntitlement = <R extends string = string>(
       (action) => permix.entitlements?.(resource, action) ?? [],
     );
     return candidates.some((held) => {
-      const lowers = (up: Set<string>) => [...up].some((action) => held.actions[action] === true);
+      const lowers = (up: ReadonlySet<string>) =>
+        [...up].some((action) => held.actions[action] === true);
       const owner = asOwner(held.owner, null);
       const backed = (action: string) => backs(owner, schema, { resource, record: placed }, action);
       return (

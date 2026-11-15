@@ -21,16 +21,28 @@ fits Kingdom's 313 rule reads and 368 rel hops.
   (`warnings`, `lensSize`), building throws over 10,000. A hydration throws past 10,000 loads.
 - **A loop made by data denies; it never throws.** Back at the same row and action after a
   relation hop, that branch counts as nothing; with no hop between, it is a schema naming itself
-  and throws. A row is known by resource and id (an id-less stand-in by object), so the stored
-  copy of the starting record is that record: a forged root does not pass by reaching itself, and
-  the grant check's first pass never counts the granted row met again.
+  and throws. The stored copy of the starting record is that record, so a forged root does not
+  pass by reaching itself.
 - **The caller's record is never registered**: a loop back to it loads the stored row. Under a list
-  item a declared path is loaded as written and never linked.
+  item only the declared paths exist: every other to-one on an item is dropped, whatever
+  `loadMany` returned, and a declared path is loaded as written, never linked.
+- **Stored rules are judged at their own resource.** A row's `permissionRules` and an entitlement
+  `where` are general rules, valid where the row is reached directly; on a list item what they
+  read outside the declaration is unknown, so that arm fails and siblings still decide. The list
+  arm's own `condition` keeps the strict check against `down`.
+- **The grant check's first pass is main's**: a data loop can place a row above itself (u1 created
+  its own org), and the writer holds the action there by the schema.
+- **Rows are known by their key**: the model's id columns (`isId`, or a composite `@@id`), else
+  the engine's id field; an id-less row (a stand-in) by its object.
+- `validateSchema` reports json-rules' `operator_kind_mismatch` (a check never refuses on it).
+  `invalid_value` is left off: it would fail 64 of this repo's tests only because the fixture
+  helper types every column `String` (`test/schemaMaps.ts`); the owner decides later.
+- The freeze costs about 15% in json-rules' evaluator; it stays.
 - The list arm's `arrayOperator === 'any'` guard is gone (a frozen, judged schema cannot carry
   another). The bridge guard and `absent: 'unknown'` under an item stay.
 - One anchor-path walk (`rowsAlong`) replaces `reaches`, `chainOf` and the start of `rowsAbove`;
-  one delegation walker (`delegatesOf`, `delegationReach`) replaces the cycle test's and
-  `reachableFrom`'s.
+  one delegation walker (`delegationReach`, with `pureDelegates` or `allDelegates`) replaces the
+  cycle test's and `reachableFrom`'s, which is cached per frozen schema.
 
 ### Breaking
 

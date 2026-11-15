@@ -16,7 +16,7 @@ import {
   validateSchema,
   whereLensProblem,
 } from '../index';
-import { lensAt, lensLimits, lensOf, lensSize, whereProblemAt } from '../src/core/lens';
+import { lensAt, lensLimits, lensSize, whereProblemAt } from '../src/core/lens';
 import { listOf } from '../src/core/schemaMap';
 import { hydrationLimits } from '../src/helpers/hydration/hydrate';
 import { loadModels } from './fixtures/load';
@@ -968,7 +968,7 @@ describe('the limits throw; nothing is cut', () => {
         ),
       },
     };
-    expect(() => lensOf(dense, 'm0')).toThrow(
+    expect(() => lensSize(dense, 'm0')).toThrow(
       `the lens of \`m0\` hydrates more than ${lensLimits.refuse} relations a row`,
     );
   });
@@ -993,7 +993,7 @@ describe('the limits throw; nothing is cut', () => {
         ),
       },
     };
-    expect(() => lensOf(chain, 'c0')).toThrow(
+    expect(() => lensSize(chain, 'c0')).toThrow(
       `the lens of \`c0\` goes past ${lensLimits.depth} relations`,
     );
   });
@@ -1064,6 +1064,18 @@ describe('a record passed with children already fetched', () => {
       false,
     );
     expect(passed).toEqual(before);
+  });
+});
+
+describe('json-rules’ operator fit check', () => {
+  test('validateSchema reports a date operator on a String column, which json-rules throws on when run', () => {
+    const schema = ruled('user', {
+      rule: { field: 'name', dateOperator: 'before', value: '2026-01-01' },
+    } as ActionRule);
+    expect(codes(schema)).toEqual(['operator_kind_mismatch']);
+    expect(() =>
+      check(actorAs('x'), schema, { resource: 'user', record: { id: 'u1', name: 'Una' } }, 'act'),
+    ).toThrow('is not a valid date');
   });
 });
 
