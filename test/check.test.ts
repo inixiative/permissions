@@ -785,7 +785,7 @@ describe('cycle detection (regressions for the adversarial findings)', () => {
     expect(c(stub(), s, { resource: 'node', record: leaf }, 'read')).toBe(true);
   });
 
-  test('a genuine relation cycle still throws', () => {
+  test('a loop through relations (data) denies; it never throws', () => {
     const s: RebacSchema = {
       permissions: { node: { actions: { read: { rel: 'parent', action: 'read' } } } },
     };
@@ -793,7 +793,7 @@ describe('cycle detection (regressions for the adversarial findings)', () => {
     const a: Record<string, unknown> = { id: 'a' };
     const b: Record<string, unknown> = { id: 'b', parent: a };
     a.parent = b;
-    expect(() => c(stub(), s, { resource: 'node', record: a }, 'read')).toThrow(/Cycle detected/);
+    expect(c(stub(), s, { resource: 'node', record: a }, 'read')).toBe(false);
   });
 });
 

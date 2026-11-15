@@ -311,7 +311,8 @@ const check = createRebacCheck<Resource>(map); // map: SchemaMap<Resource>
 
 Cycle detection uses **object identity** (a `WeakMap`), not `record.id`, so id-less or
 id-colliding records never produce a false "cycle", and a true self/mutual delegation
-(`read: 'read'`) throws instead of overflowing the stack. The key includes the table being
+(`read: 'read'`) throws instead of overflowing the stack. A loop made by data (a relation
+walked back to a row already on the walk, as a linked hydration cycle can be) denies instead. The key includes the table being
 walked, so an entitlement's owner revisiting the same node is not a cycle. A loop built from grant
 data (two holders owning each other's entitlements) is not a schema bug and does not throw: the
 back edge contributes nothing, and only a chain that reaches a real grant allows.

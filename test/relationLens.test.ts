@@ -327,17 +327,46 @@ describe('the review probes: each returned true on 0.22.0', () => {
   });
 });
 
-describe('a cyclic record in the grant check and in paths', () => {
+describe('a loop made by data denies; a schema that names itself throws', () => {
   const walks: RebacSchema = {
     permissions: {
       user: { actions: { own: null, read: { any: ['own', { rel: 'org', action: 'read' }] } } },
       org: { actions: { read: { rel: 'creator', action: 'read' } } },
     },
   };
+  const owns = (id: string): PermixLike => ({
+    check: (resource, action, recordId) =>
+      resource === 'user' && action === 'own' && recordId === id,
+    getActor: () => null,
+  });
 
-  // An open point for the owner: a denial explores every arm, so on a linked cycle it reaches the
-  // same view twice and the walk's cycle rule throws where the tree form denied.
-  test('the grant check on a cyclic anchor: an allow is as on a tree; a denial throws', async () => {
+  test('around the cycle: no grant denies, the owner is allowed, paths agree', async () => {
+    const u1 = await hydrate('user', db.user?.u1 as Row);
+    expect((u1.org as Row).creator as Row).toBe(u1);
+    const subject = { resource: 'user', record: u1 };
+    expect(check(actorAs('x'), walks, subject, 'read')).toBe(false);
+    expect(check(owns('u1'), walks, subject, 'read')).toBe(true);
+    expect(createRebacPaths(map)(actorAs('x'), walks, subject, 'read')).toEqual([]);
+    expect(createRebacPaths(map)(owns('u1'), walks, subject, 'read')).toEqual([[]]);
+  });
+
+  test('a sibling arm beside the looping arm is still judged', async () => {
+    const u1 = await hydrate('user', db.user?.u1 as Row);
+    const sibling: RebacSchema = {
+      permissions: {
+        user: {
+          actions: {
+            own: null,
+            read: { any: [{ rel: 'org', action: 'read' }, reads('name', 'Una')] },
+          },
+        },
+        org: { actions: { read: { rel: 'creator', action: 'read' } } },
+      },
+    };
+    expect(check(actorAs('x'), sibling, { resource: 'user', record: u1 }, 'read')).toBe(true);
+  });
+
+  test('the grant check on a cyclic anchor denies instead of throwing, and allows as on a tree', async () => {
     const u1 = await hydrate('user', db.user?.u1 as Row);
     const tree = { ...(db.org?.o1 as Row) };
     const entry: EntitlementEntry = {
@@ -353,15 +382,18 @@ describe('a cyclic record in the grant check and in paths', () => {
     const nobody: PermixLike = { check: () => false, getActor: () => null };
     expect(grants(orgReader, u1.org as Row)).toBe(true);
     expect(grants(orgReader, tree)).toBe(true);
+    expect(grants(nobody, u1.org as Row)).toBe(false);
     expect(grants(nobody, tree)).toBe(false);
-    expect(() => grants(nobody, u1.org as Row)).toThrow(/Cycle detected/);
   });
 
-  test('a walk around the cycle: paths contributes nothing; check throws, as on any cyclic record', async () => {
+  test('a rule that names itself on the same record still throws', async () => {
     const u1 = await hydrate('user', db.user?.u1 as Row);
-    const subject = { resource: 'user', record: u1 };
-    expect(createRebacPaths(map)(actorAs('x'), walks, subject, 'read')).toEqual([]);
-    expect(() => check(actorAs('x'), walks, subject, 'read')).toThrow(/Cycle detected/);
+    const selfLoop: RebacSchema = {
+      permissions: { user: { actions: { read: { any: ['read'] } } } },
+    };
+    expect(() => check(actorAs('x'), selfLoop, { resource: 'user', record: u1 }, 'read')).toThrow(
+      /Cycle detected/,
+    );
   });
 });
 

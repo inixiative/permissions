@@ -28,6 +28,8 @@ export type Walk<R extends string, T = boolean> = {
   above?: ReadonlySet<Row>;
   /** Set once the walk has crossed a list: a missing column is unknown, a bridge denies, the first pass counts nothing. */
   underItem?: true;
+  /** Relation hops crossed on this path: a node met again after one is a data loop, which denies. */
+  hops?: number;
 };
 
 const noRows: ReadonlySet<Row> = new Set();
@@ -68,8 +70,12 @@ const walkAction = <R extends string, T>(
   // Key by resource too: the same record object reached as a different resource (a self-join) is
   // a distinct node, not a cycle. Key by table too: an owner walk legitimately revisits the node.
   const key = `${permixId(permix)}:${nodeId(record)}:${resource}:${actionOrRule}`;
-  if (visited.has(key)) return walk.algebra.loop(resource, actionOrRule);
+  const at = `${key}\u0001${walk.hops ?? 0}`;
+  // why: a loop with no hop is a schema naming itself (a bug, it throws); one through a hop is data, and denies
+  if (visited.has(key))
+    return visited.has(at) ? walk.algebra.loop(resource, actionOrRule) : walk.algebra.none;
   visited.add(key);
+  visited.add(at);
 
   const schemaRule = walk.schema.permissions[resource]?.actions[actionOrRule] ?? null;
   const rowRules = record.permissionRules as Record<string, ActionRule> | null | undefined;
@@ -109,6 +115,7 @@ const walkRule = <R extends string, T>(
       ...walk,
       absent: 'unknown',
       underItem: true,
+      hops: (walk.hops ?? 0) + 1,
       ...(walk.above ? { above: noRows } : {}),
     };
     return algebra.any(
@@ -143,7 +150,8 @@ const walkRule = <R extends string, T>(
         currentResource = next.resource;
       }
     }
-    return evaluate(walk, permix, currentResource, current, rule.action, visited);
+    const hopped = { ...walk, hops: (walk.hops ?? 0) + 1 };
+    return evaluate(hopped, permix, currentResource, current, rule.action, visited);
   }
 
   if ('rule' in rule) {

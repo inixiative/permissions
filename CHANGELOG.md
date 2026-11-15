@@ -31,9 +31,13 @@ it; they are replaced, not joined by a fourth.
 - A check refuses on first use a schema that reads outside the lens, `{ rel }` hops included.
   Kingdom, template and Tribe carry one such arm, `integration.integration` in `db:token.create`.
 - A stored rule reads only columns the model has; computed keys only in a rule passed to `check`.
-- A hydrated record with a cycle is cyclic (`JSON.stringify` throws on it). A walk that goes
-  around a cycle and comes back to the same row and action throws `Cycle detected`, as a
-  hand-built cyclic record always did; before, the cut made it deny.
+- A hydrated record with a cycle is cyclic (`JSON.stringify` throws on it).
+- **A loop made by data denies; it never throws.** A walk that comes back to the same row and
+  action through at least one relation hop counts as nothing (that branch denies, its siblings
+  are still judged), as `paths` and a loop built from grant data already did. Why: linking made
+  real data cyclic, and a denial that walks a data loop must not be a 500. A rule that names
+  itself on the same record, with no hop between, still throws: that is a schema bug. Before, a
+  hand-built cyclic record threw `Cycle detected`.
 - The schema is frozen on its first use, and an entitlement's `where` when it is first judged.
 - `createHydrator` no longer deletes values under relations it does not follow; it takes
   `(resource, record)`.
