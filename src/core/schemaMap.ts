@@ -358,13 +358,20 @@ type Keyed = {
   indexes?: { kind: string; fields: string[] }[];
 };
 
-/** A row's key: its model's id columns (`isId`, or a composite `@@id`), else the engine's id field; undefined when a column is unset. */
+/** The one encoding of a row's key: its resource and the columns that pick it, in column order. */
+export const keyOf = (resource: string, where: Row): string =>
+  `${resource}\u0000${JSON.stringify(Object.entries(where).sort(([a], [b]) => a.localeCompare(b)))}`;
+
+// why: the engine id field is what the app loads by (Zealot's `uuid`), so it wins over the model's `isId`
+/** A row's key: the engine id field when the model has it and the row a value, else the model's id columns, else undefined (the object). */
 export const rowKey = (
   map: SchemaMap,
   resource: string,
   record: Row,
   field = idField(),
 ): string | undefined => {
+  if (fieldOf(map, resource, field) && recordId(record, field) !== undefined)
+    return keyOf(resource, { [field]: recordId(record, field) });
   const { idColumns } = indexMap(map);
   if (!idColumns.has(resource)) {
     const model = map.fieldMap.models[map.resources[resource] as string] as Keyed | undefined;
@@ -377,10 +384,10 @@ export const rowKey = (
     );
   }
   const columns = idColumns.get(resource) as readonly string[];
-  if (!columns.length || (columns.length === 1 && columns[0] === field))
-    return recordId(record, columns[0] ?? field);
-  const values = columns.map((column) => recordId(record, column));
-  return values.some((value) => value === undefined) ? undefined : values.join('\u0000');
+  const values = columns.map((column) => [column, recordId(record, column)] as const);
+  return values.length && values.every(([, value]) => value !== undefined)
+    ? keyOf(resource, Object.fromEntries(values))
+    : undefined;
 };
 
 /** Every to-one relation of `resource` the hydrator follows, by field name. */

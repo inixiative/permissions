@@ -866,8 +866,8 @@ check(permix, schema, { resource: 'document', record: doc }, 'manage');
   app loaded, a relation keyed on the other side); no stored rule may name it
   ([the lens](#what-a-rule-may-read-the-relation-lens)). Columns are left as given too: build the
   record from the stored row, and take from a request body only the fields the caller may set.
-  Under a list item every to-one the declaration does not load is dropped, whatever `loadMany`
-  returned.
+  Under a list item every relation the declaration does not load, to-one or list, is dropped,
+  whatever `loadMany` returned, and a list arm met there denies.
 - **Check the schema against the map:** `validateSchema(map, schema)` returns every read outside
   the lens and every action named where it isn't defined, which would otherwise deny forever,
   along with every rule `validateActionRule` refuses. Run it in a test or at boot.

@@ -1,6 +1,7 @@
 import { idField } from '../../core/recordId';
 import {
   indexMap,
+  keyOf,
   keysFrom,
   listsOf,
   type Relation,
@@ -35,9 +36,6 @@ const whereOf = (relation: Relation, record: Row): Row | null => {
   }
   return where;
 };
-
-const keyOf = (resource: string, where: Row): string =>
-  `${resource}\u0000${JSON.stringify(Object.entries(where).sort(([a], [b]) => a.localeCompare(b)))}`;
 
 /** The most `load`/`loadMany` calls one hydration makes before it throws. */
 export const hydrationLimits = { loads: 10_000 };
@@ -115,7 +113,10 @@ export const createHydrator = <R extends string>({ map, load, loadMany }: Hydrat
   // why: under an item only the declared paths exist, loaded as written and never linked
   const declared = async (run: Run, resource: R, record: Row, tree: Spelled): Promise<Row> => {
     const result: Row = { ...record };
-    for (const [name] of toOnesOf(map, resource)) delete result[name];
+    for (const [name, field] of Object.entries(
+      map.fieldMap.models[map.resources[resource]]?.fields ?? {},
+    ))
+      if (field.kind === 'object' || field.kind === 'bridge') delete result[name];
     await Promise.all(
       Object.entries(tree).map(async ([name, below]) => {
         delete result[name];

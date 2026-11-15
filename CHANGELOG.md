@@ -24,16 +24,19 @@ fits Kingdom's 313 rule reads and 368 rel hops.
   and throws. The stored copy of the starting record is that record, so a forged root does not
   pass by reaching itself.
 - **The caller's record is never registered**: a loop back to it loads the stored row. Under a list
-  item only the declared paths exist: every other to-one on an item is dropped, whatever
-  `loadMany` returned, and a declared path is loaded as written, never linked.
+  item only the declared `down` tree exists: every relation field the declaration does not load
+  (to-one or list, `hydrate: false` or keyed on the other side) is dropped from an item, whatever
+  `loadMany` returned; a declared path is loaded as written, never linked; and a list arm met
+  under an item denies, wherever its rule came from.
 - **Stored rules are judged at their own resource.** A row's `permissionRules` and an entitlement
   `where` are general rules, valid where the row is reached directly; on a list item what they
   read outside the declaration is unknown, so that arm fails and siblings still decide. The list
   arm's own `condition` keeps the strict check against `down`.
 - **The grant check's first pass is main's**: a data loop can place a row above itself (u1 created
   its own org), and the writer holds the action there by the schema.
-- **Rows are known by their key**: the model's id columns (`isId`, or a composite `@@id`), else
-  the engine's id field; an id-less row (a stand-in) by its object.
+- **Rows are known by their key**: the engine id field when the model has it and the row a value
+  (it is what the app loads by), else the model's id columns (`isId`, or a composite `@@id`), else
+  the object (a stand-in). One encoder, `keyOf`, keys rows for the hydrator and for identity.
 - `validateSchema` reports json-rules' `operator_kind_mismatch` (a check never refuses on it).
   `invalid_value` is left off: it would fail 64 of this repo's tests only because the fixture
   helper types every column `String` (`test/schemaMaps.ts`); the owner decides later.

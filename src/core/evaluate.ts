@@ -114,6 +114,8 @@ const walkRule = <R extends string, T>(
   const { algebra } = walk;
   // why: `visited` is forked per item, since two items reaching one row are parallel paths, not a cycle
   if ('arrayOperator' in rule) {
+    // why: under an item only the declared down tree exists; a second list is never crossed
+    if (walk.under) return algebra.none;
     const list = listOf(walk.map, resource, rule.rel);
     const items = record[rule.rel];
     if (!list || !Array.isArray(items)) return algebra.none;

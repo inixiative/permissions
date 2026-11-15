@@ -17,7 +17,7 @@ import {
   whereLensProblem,
 } from '../index';
 import { lensAt, lensLimits, lensSize, whereProblemAt } from '../src/core/lens';
-import { listOf } from '../src/core/schemaMap';
+import { listOf, rowKey } from '../src/core/schemaMap';
 import { hydrationLimits } from '../src/helpers/hydration/hydrate';
 import { loadModels } from './fixtures/load';
 
@@ -1234,6 +1234,187 @@ describe('under a list item only the declared paths exist', () => {
     const [item] = conversation.messages as Row[];
     expect(item && 'conversation' in item).toBe(false);
     expect((item?.author as Row).name).toBe('Una');
+  });
+});
+
+describe('one down boundary: an item holds only its declared tree', () => {
+  const col = column('String');
+  const items: SchemaMap = {
+    resources: {
+      conversation: 'Conversation',
+      message: 'Message',
+      user: 'User',
+      org: 'Org',
+      reaction: 'Reaction',
+      profile: 'Profile',
+    },
+    fieldMap: {
+      models: {
+        Org: { fields: { id: col, name: col } },
+        User: { fields: { id: col, name: col } },
+        Profile: {
+          fields: {
+            id: col,
+            messageId: col,
+            flag: col,
+            message: toOne('Message', 'messageId', { relationName: 'MP' }),
+          },
+        },
+        Reaction: {
+          fields: {
+            id: col,
+            messageId: col,
+            who: col,
+            message: toOne('Message', 'messageId', { relationName: 'MR' }),
+          },
+        },
+        Conversation: {
+          fields: {
+            id: col,
+            messages: toMany('Message', {
+              relationName: 'CM',
+              annotations: { permissions: { down: ['author'] } },
+            } as Partial<FieldMapEntry>),
+          },
+        },
+        Message: {
+          fields: {
+            id: col,
+            conversationId: col,
+            authorId: col,
+            hiddenOrgId: col,
+            meta: column('Json'),
+            permissionRules: column('Json'),
+            conversation: toOne('Conversation', 'conversationId', { relationName: 'CM' }),
+            author: toOne('User', 'authorId', { relationName: 'MA' }),
+            hiddenOrg: toOne('Org', 'hiddenOrgId', {
+              relationName: 'MH',
+              annotations: { permissions: { hydrate: false } },
+            } as Partial<FieldMapEntry>),
+            profile: toOne('Profile', undefined, { relationName: 'MP' }),
+            reactions: toMany('Reaction', {
+              relationName: 'MR',
+              annotations: { permissions: { down: [] } },
+            } as Partial<FieldMapEntry>),
+          },
+        },
+      },
+    },
+  };
+  const rows: Record<string, Record<string, Row>> = {
+    user: { u1: { id: 'u1', name: 'Una' } },
+    conversation: { c1: { id: 'c1' } },
+    message: {
+      m1: { id: 'm1', conversationId: 'c1', authorId: 'u1', hiddenOrgId: 'o1', meta: { tag: 'x' } },
+    },
+  };
+  const loading = (permissionRules: unknown) =>
+    createHydrator({
+      map: items,
+      load: async (resource, where) => rows[resource]?.[where.id as string] ?? null,
+      loadMany: async (resource, where) =>
+        Object.values(rows[resource] ?? {})
+          .filter((row) => Object.entries(where).every(([key, value]) => row[key] === value))
+          .map((row) => ({
+            ...row,
+            permissionRules,
+            conversation: { id: 'c1' },
+            author: { id: 'u1', name: 'EVIL' },
+            hiddenOrg: { id: 'o1', name: 'FORGED' },
+            profile: { id: 'p', flag: 'FORGED' },
+            reactions: [{ id: 'r', who: 'evil' }],
+          })),
+    });
+  const schema: RebacSchema = {
+    permissions: {
+      conversation: {
+        actions: { read: { rel: 'messages', arrayOperator: 'any', condition: 'read' } },
+      },
+      message: { actions: { read: null } },
+      user: { actions: {} },
+      org: { actions: {} },
+      reaction: { actions: {} },
+      profile: { actions: {} },
+    },
+  };
+
+  test('everything a loader returned on an item but the declaration does not load is gone', async () => {
+    const conversation = await loading(null)('conversation', rows.conversation?.c1 as Row);
+    const [item] = conversation.messages as Row[];
+    expect(Object.keys(item as Row).sort()).toEqual(
+      [
+        'author',
+        'authorId',
+        'conversationId',
+        'hiddenOrgId',
+        'id',
+        'meta',
+        'permissionRules',
+      ].sort(),
+    );
+    expect((item?.author as Row).name).toBe('Una');
+  });
+
+  test('a row rule on an item never crosses a second list', async () => {
+    const rule: ActionRule = {
+      rel: 'reactions',
+      arrayOperator: 'any',
+      condition: { rule: { field: 'who', operator: 'equals', value: 'evil' } },
+    };
+    const conversation = await loading({ read: rule })(
+      'conversation',
+      rows.conversation?.c1 as Row,
+    );
+    const ask = createRebacCheck(items);
+    expect(
+      ask(actorAs('x'), schema, { resource: 'conversation', record: conversation }, 'read'),
+    ).toBe(false);
+    const [item] = conversation.messages as Row[];
+    const leaked = {
+      ...conversation,
+      messages: [{ ...item, reactions: [{ id: 'r', who: 'evil' }] }],
+    };
+    expect(ask(actorAs('x'), schema, { resource: 'conversation', record: leaked }, 'read')).toBe(
+      false,
+    );
+  });
+});
+
+describe('a row’s key', () => {
+  test('the engine id field wins over the model’s isId column, as the app loads by it', () => {
+    const col = column('String');
+    const keyed: SchemaMap = {
+      resources: { brand: 'Brand' },
+      fieldMap: {
+        models: {
+          Brand: {
+            fields: { id: column('Int', { isId: true } as Partial<FieldMapEntry>), uuid: col },
+          },
+        },
+      },
+    };
+    expect(rowKey(keyed, 'brand', { uuid: 'b-1' }, 'uuid')).toBe(
+      rowKey(keyed, 'brand', { uuid: 'b-1', id: 7 }, 'uuid'),
+    );
+    expect(rowKey(keyed, 'brand', { id: 7 }, 'uuid')).toBe(
+      rowKey(keyed, 'brand', { id: 7 }, 'uuid'),
+    );
+    expect(rowKey(keyed, 'brand', {}, 'uuid')).toBeUndefined();
+  });
+
+  test('composite values never collide across a NUL', () => {
+    const col = column('String');
+    const pair = {
+      resources: { pair: 'Pair' },
+      fieldMap: {
+        models: {
+          Pair: { fields: { a: col, b: col }, indexes: [{ kind: 'id', fields: ['a', 'b'] }] },
+        },
+      },
+    } as unknown as SchemaMap;
+    expect(rowKey(pair, 'pair', { a: 'x\u0000', b: 'y' })).not.toBe(
+      rowKey(pair, 'pair', { a: 'x', b: '\u0000y' }),
+    );
   });
 });
 
