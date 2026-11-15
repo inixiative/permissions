@@ -1,63 +1,48 @@
 ## Unreleased — one relation lens: what hydration loads is all a check reads
 
-Every leak the reviews found was one bug: a check read a relation hydration did not load (a
-request body's list read by index or in a bracket spelling, a relation keyed on the other side
-read as null, a path past the hydrator's cycle cut, an entitlement `where` read on a list, a
-schema edited after its first check). One lens per model, built from the schema map the check
-uses and cached with it, now decides what the hydrator loads, what the engine reads of a record,
-and which paths a rule may name.
+**The change.** One lens per model, built from the schema map and cached with it, decides what
+the hydrator loads, what the engine reads of a record (a view, never the record), and which paths
+a rule may name. README: [What a check reads](README.md#what-a-check-reads-the-relation-lens).
 
-- **The lens.** At a model's row: every to-one relation that owns its key, leads to a resource in
-  the map and is not `hydrate: false`, and every declared list; under an item, only the list's
-  `down` paths. Columns (Json and scalar lists included) are not part of it and always pass, so
-  ABAC is untouched; bridges are unchanged. `relationOf` is the lens's to-one relation, so
-  `hydrate: false` relations are no longer anchor-path, `rowsAbove` or `rel` steps.
-- **A check reads a view of the record.** Columns, the lens's relations through the lens below,
-  and at the root every key the model does not have (computed fields). Never the record itself:
-  the caller's record is not changed. Built once per check (about 0.4 µs a row, bench S3).
-- **Every path is walked through the lens**, field and value side, in every json-rules spelling
-  (`pathSegments`, exported by json-rules for this), and every `{ rel }` hop. Refused, each with
-  its fix: a list (cross it with the list arm), a relation outside the lens, an index into a
-  relation, a key the model does not have below the root, a path that comes back to a model it
-  passed (except on a declared `down` path, loaded as written). Paths at `__actor` are exempt.
-  Codes: `lens` (a `{ rule }` path), `relation` (a `{ rel }` hop), `down` (under an item).
-- **Where it runs.** A schema on first use (throws), a rule passed to `check` (throws), a row's
-  `permissionRules` (widen nothing), an entitlement `where` when consulted (never holds, memoised
-  per `where` object), `entitlementProblem(entry, map)`, `placeEntitlement`, the grant check.
-- **The schema is frozen on its first use**, deeply, so it is judged once and an edit in place
-  throws. The list arm's own `arrayOperator === 'any'` guard and its "second list under an item"
-  guard are gone: the freeze and validation make the first unreachable, and an item's view holds
-  no list, so the second never finds one. The bridge-under-an-item guard stays (a bridge reads a
-  key and the dictionary, not the view). `absent: 'unknown'` under an item stays: it is for a
-  column the item came back without (A-2), which no lens can see.
-- **One walk.** The under-item path check (`relIssues` with `relationsRead`, split on `.`) is now
-  the same walk with the item's `down` tree as its lens; `ListRelation.paths` became
-  `ListRelation.item`, the item's lens node, which the hydrator also loads from.
-- **Options rejected.** json-rules' own Lens (`validateRuleInLens`): its model defaults enter each
-  model once, at its nearest reach, which hides two relations to one model (Signet `user` and
-  `recipientUser`); its field walk splits on `.`, so a bracket spelling at the root reads as an
-  unknown (computed) key; and it has no "unknown keys pass at the root" or "a list is never read
-  by path". Spelling the whole lens as an explicit tree under `root` grows with every acyclic path.
-  A lens mode in json-rules that applies a model's relations at every visit would still need the
-  other two. A cache of the view across checks: a record changed between two checks would be
-  read stale. Deleting unloaded values in the hydrator (as before): it left the check trusting a
-  caller's record and could not cover a `where` or a bracket spelling.
+**Why.** Every leak the reviews found was a check reading a relation hydration did not load: a
+request body's list read by index or in a bracket spelling, a relation keyed on the other side
+read as null, a path past the hydrator's cycle cut, an entitlement `where` read on a list or on
+`__actor`, a schema or a `where` edited after it was judged. Three mechanisms (the hydrator
+deleting unloaded values, the under-item path check, the list arm's guards) each covered part of
+it; they are replaced, not joined by a fourth.
+
+- The under-item path check is the same walk with the item's `down` tree as its lens.
+- The list arm's `arrayOperator === 'any'` guard is gone (the frozen, validated schema makes it
+  unreachable), and so is its second-list guard (an item's view holds no list). The bridge guard
+  under an item stays: a bridge reads a key and the dictionary, not the view. `absent: 'unknown'`
+  under an item stays: it is for a column the item came back without, which no lens can see.
+- json-rules exports `pathSegments`, its own segmenter, so the walk and `check()` read a path the
+  same way.
 
 ### Breaking
 
-- **A check refuses on first use a schema that reads outside the lens**, `{ rel }` hops included:
-  a relation the map does not have, a list, a `hydrate: false` relation or one keyed on the other
-  side (these only denied before, and validated silently for the last two). Kingdom, template and
-  Tribe carry one such arm, `integration.integration` in `db:token.create`.
-- **Below the root, a check reads only columns the model has.** A rule reading a made-up key
-  under a relation is refused; a hand-built record's extra key under a relation is not read.
-- **`createHydrator` leaves values under relations it does not follow** (no longer deletes them);
-  no check reads them. It still replaces what it follows. Its function takes `(resource, record)`.
-- **`declarationIssues` is now `lensIssues`** (all lens issues, not only `down`);
-  `actionRuleLensIssues` is new. `ListRelation.paths` is now `item`. `resolveField` is gone.
-- **The schema object is frozen on first use.** Build it fully before the first check.
-- **`entitlementProblem(entry, map)`** reports a `where` outside the lens; without the map it is
-  unchanged. `placeEntitlement` returns null for such an entry.
+- A check refuses on first use a schema that reads outside the lens, `{ rel }` hops included.
+  Kingdom, template and Tribe carry one such arm, `integration.integration` in `db:token.create`.
+- Below the root a check reads only columns the model has.
+- The schema is frozen on its first use, and an entitlement's `where` when it is first judged.
+- `createHydrator` no longer deletes values under relations it does not follow; it takes
+  `(resource, record)`.
+- `declarationIssues` and `resolveField` are gone; `ListRelation.paths` is `item`, a lens node.
+  `whereLensProblem(map, resource, where)` is new. A `hydrate: false` relation is no longer an
+  anchor-path, `rel` or `rowsAbove` step.
+
+### Options rejected
+
+- json-rules' own Lens (`validateRuleInLens`): model defaults enter each model once, at its
+  nearest reach, which hides two relations to one model (Signet `user`, `recipientUser`); it has
+  no "a list is never read by path" and no "keys the model lacks pass at the root". Spelling the
+  whole lens as a `root` tree grows with every acyclic path; a json-rules "every visit" mode would
+  still need the other two.
+- A view cached across checks: a record changed between two checks would be read stale.
+- Memoising a row's `permissionRules` check: the memo is sound only if the rules are frozen, and
+  they are the caller's record. They are re-checked on every walk.
+- Keeping the hydrator's deletion: it left the check trusting the record and could not cover a
+  `where` or a bracket spelling.
 
 ## 0.22.0 — grants below a held row; a list arm; marks that join a stand-in
 

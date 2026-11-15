@@ -31,31 +31,7 @@ const whereOf = (relation: Relation, record: Row): Row | null => {
 const keyOf = (resource: string, where: Row): string =>
   `${resource}\u0000${JSON.stringify(Object.entries(where).sort(([a], [b]) => a.localeCompare(b)))}`;
 
-/**
- * Build a recursive hydrator over a schema map: it loads exactly the relation lens
- * (`LensNode`), the relations a check reads. Every to-one relation that owns its foreign key,
- * leads to a resource in the map and is not tagged `/// @permissions(hydrate: false)` is loaded
- * and attached, recursively, so a check never sees an under-hydrated relation: a missing one can
- * only mean the key is null (a real deny), not a loading artifact. Composite keys and non-id
- * targets load by every column the target names. A polymorphic record gets every relation whose
- * columns are set, whatever its kind.
- *
- * The hydrator owns what it follows: a followed relation holds the row it loaded, or nothing, so a
- * value the record already carried there (a request body's `conversation: {...}`) is dropped.
- * Anything else is left as given (an undeclared list the app loaded, a relation keyed on the other
- * side); a check never reads it, since it reads the record through the same lens.
- *
- * A list relation tagged `/// @permissions(down: [forumUser.fanUser, forumUser.brandUser])` is
- * loaded one jump down wherever its model is hydrated above an item: one `loadMany` by the items'
- * foreign key, replacing whatever the record held under that field (`[]` when the record has no
- * key), then under each item only the declared to-one paths, through `load`, each owned the same
- * way. Nothing else loads from an item or from the rows on those paths: no upward hydration, no
- * second list.
- *
- * `ancestors`, the records on the path from the root, cuts an edge back to one of them, so
- * hydration terminates on a self-referential key or an A to B to A loop. It is forked per branch, so
- * a parent reached on two paths is hydrated on both; `pending` loads it once.
- */
+/** A hydrator that loads the relation lens of a record, owning what it follows (README, Helper: hydration). */
 export const createHydrator = <R extends string>({ map, load, loadMany }: HydrateDeps<R>) => {
   if (indexMap(map as SchemaMap).lists.size && !loadMany)
     throw new Error('the map declares a list (`@permissions(down: ...)`): pass `loadMany`');

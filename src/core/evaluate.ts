@@ -26,11 +26,7 @@ export type Walk<R extends string, T = boolean> = {
    * entitlement counts only at one of these rows, marked `grantsBelow`, without a `where`.
    */
   above?: ReadonlySet<Row>;
-  /**
-   * Set once the walk has crossed a list. Under an item only the declared paths are loaded (the
-   * view holds nothing else, no list either), so a column the item came back without is unknown,
-   * a bridge denies, and nothing counts in the grant check's first pass.
-   */
+  /** Set once the walk has crossed a list: a missing column is unknown, a bridge denies, the first pass counts nothing. */
   underItem?: true;
 };
 
