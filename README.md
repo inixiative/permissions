@@ -786,9 +786,10 @@ always read, so ABAC is untouched. Bridges are their own mechanism.
 - **On the rule, a walk.** Every path a rule reads, field and value side, in every spelling
   json-rules reads (`messages.0.id`, `messages[0].id`, `["messages"][0]["id"]`), and every
   `{ rel }` hop, is walked through the lens. Refused, each with its fix: a list (use the list
-  arm), a relation outside the lens, an index into a relation, a key the model does not have below
-  the root, and a path that comes back to a model it passed (hydration stops where a loop closes;
-  a declared `down` path is loaded as written, so it may). An `__actor` path is the actor's, in a
+  arm), a relation outside the lens, an index into a relation, and a key the model does not have,
+  at the root too: a rule matches the model it is written on. Only a rule you pass to `check`
+  reads a computed key, in its own leaves at the subject (you built that record). A path around a
+  cycle is fine: the hydrator links it (see Cycles below). An `__actor` path is the actor's, in a
   `{ rule }`; a `where` reads the record alone, so there it is refused. Codes: `lens` (a rule
   path), `relation` (a `{ rel }` hop), `down` (under an item, outside the declaration).
 
@@ -864,13 +865,14 @@ check(permix, schema, { resource: 'document', record: doc }, 'manage');
   prisma-map annotation) is not followed, and so is outside the lens: no rule reads it and no
   `rel` walks it. Use it for an edge that is not part of ownership, or to break a loop in the
   schema.
-- **Cycles:** an edge back to a record already on the path from the root is cut, so a self-referential
-  key or an A to B to A loop terminates; a parent reached on two paths is hydrated on both and loaded
-  once.
+- **Cycles:** an edge back to a row already on the path (the root included) holds that same
+  hydrated object, so the record is the real cyclic graph and a path around it reads the real
+  row, never null; each row loads once, and a parent reached on two paths is hydrated on both.
+  The record is not `JSON.stringify`-able then; serialise the row, not the hydrated record.
 
 Records are plain data: `check` reads the lens of the record it is given and cannot tell a loaded
 row from one written by hand under a relation the lens holds. Hydrate what came from a request,
-and add computed fields at the root only after hydrating, from data you loaded yourself.
+and read computed fields only in a rule you pass to `check`.
 
 ## Also exported
 

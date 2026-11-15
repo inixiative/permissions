@@ -17,13 +17,23 @@ it; they are replaced, not joined by a fourth.
   under an item stays: a bridge reads a key and the dictionary, not the view. `absent: 'unknown'`
   under an item stays: it is for a column the item came back without, which no lens can see.
 - json-rules exports `pathSegments`, its own segmenter, so the walk and `check()` read a path the
-  same way.
+  same way, and its own lens gate now segments a path the same way too.
+- **Cycles are linked, not cut** (the owner's decision): a row already above on the path is the
+  same object at the position. The old cut left the relation empty, and an empty relation read
+  as null; a per-path "comes back to a model" refusal could not see chained `{ rel }` hops or a
+  `where` held on the cut row. The hydrator owns the loop rule; the refusal is gone.
+- **A key the model does not have is refused in every stored rule** (the owner's decision: "it
+  should match the thing"): schema rules, row `permissionRules` and entitlement `where`s, at the
+  root too. A computed `plan` on `org`, reached by `{ rel }`, read `plan equals null` as true.
 
 ### Breaking
 
 - A check refuses on first use a schema that reads outside the lens, `{ rel }` hops included.
   Kingdom, template and Tribe carry one such arm, `integration.integration` in `db:token.create`.
-- Below the root a check reads only columns the model has.
+- A stored rule reads only columns the model has; computed keys only in a rule passed to `check`.
+- A hydrated record with a cycle is cyclic (`JSON.stringify` throws on it). A walk that goes
+  around a cycle and comes back to the same row and action throws `Cycle detected`, as a
+  hand-built cyclic record always did; before, the cut made it deny.
 - The schema is frozen on its first use, and an entitlement's `where` when it is first judged.
 - `createHydrator` no longer deletes values under relations it does not follow; it takes
   `(resource, record)`.
@@ -35,9 +45,10 @@ it; they are replaced, not joined by a fourth.
 
 - json-rules' own Lens (`validateRuleInLens`): model defaults enter each model once, at its
   nearest reach, which hides two relations to one model (Signet `user`, `recipientUser`); it has
-  no "a list is never read by path" and no "keys the model lacks pass at the root". Spelling the
+  no "a list is never read by path". Spelling the
   whole lens as a `root` tree grows with every acyclic path; a json-rules "every visit" mode would
-  still need the other two.
+  still need that.
+- Keeping the cycle cut with a "comes back to a model" refusal: incomplete (above).
 - A view cached across checks: a record changed between two checks would be read stale.
 - Memoising a row's `permissionRules` check: the memo is sound only if the rules are frozen, and
   they are the caller's record. They are re-checked on every walk.
