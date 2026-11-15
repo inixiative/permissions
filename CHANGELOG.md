@@ -108,13 +108,14 @@ applied. Each is off until an app uses it; the breaking changes are listed last.
   annotation, a malformed `down` or `place`, or `down` beside `hydrate: false` throws. prisma-map
   keeps a malformed value without complaint, so a typo was a silently missing list or mark.
   Annotations on models that are not resources are not read.
-- **`createHydrator` drops a value it did not load** from every relation it follows (A-1).
+- **`createHydrator` drops a value it did not load** from every relation field of the model,
+  followed or not (A-1): a `rel` through a relation nothing loads denies.
   Hydrate rows; attach hand-made relations after hydrating. A map that declares a list needs
   `loadMany`.
 - **A `where` no longer pins an object or an array** onto the placed record (A-5), nor a field
-  stated with two different values (B-1). Such a row admitted nothing at read (`equals` on an
-  object is exact), so only a dead grant is lost. A scalar list (`String[]`) and a Json object
-  are no longer pinned at the root either.
+  stated with two different values (B-1). A pin on a relation admitted nothing at read, so
+  only a dead grant is lost there. **A pin on a Json column or a scalar list (`String[]`) was a
+  live row and is now refused at grant time.**
 - **`validateSchema` reports a `{ rel }` through a list.**
 
 ## Unreleased — delegatedWhere; no negative rules; a where never takes part in liveness

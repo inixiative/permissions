@@ -141,14 +141,15 @@ export const createHydrator = <R extends string>({ map, load, loadMany }: Hydrat
         items.map((item) => down(list.resource, item, tree, pending)),
       );
     });
+    const declared = new Set(listsOf(map, resource).map(([name]) => name));
     await Promise.all([
       ...lists,
       ...Object.entries(fields).map(async ([name, field]) => {
+        // why: a value under any relation field is the caller's claim until the hydrator loads it
+        if (field.kind === 'object' && !declared.has(name)) delete result[name];
         if (skipsHydration(field)) return;
         const relation = relationOf(map, resource, name);
         if (!relation) return;
-        // why: a value already under a followed relation is the caller's claim, not a loaded row
-        delete result[name];
         const where = whereOf(relation, record);
         if (!where) return;
         const key = keyOf(relation.resource, where);

@@ -1081,3 +1081,40 @@ describe('review: validation edges', () => {
     expect(check(otto, bridged({}), { ...item, data: subject.data }, hop)).toBe(true);
   });
 });
+
+describe('review: the hydrator owns every relation field, followed or not (F1)', () => {
+  test('a value under a relation tagged hydrate: false does not survive hydration', async () => {
+    const fieldMap = {
+      models: {
+        Message: {
+          fields: {
+            id: { kind: 'scalar', type: 'String', isId: true },
+            conversationId: { kind: 'scalar', type: 'String' },
+            conversation: {
+              kind: 'object',
+              type: 'Conversation',
+              isList: false,
+              fromFields: ['conversationId'],
+              toFields: ['id'],
+              annotations: { permissions: { hydrate: false } },
+            },
+          },
+        },
+        Conversation: { fields: { id: { kind: 'scalar', type: 'String', isId: true } } },
+      },
+    };
+    const hydrate = createHydrator({
+      map: {
+        resources: { 'db:message': 'Message', 'db:conversation': 'Conversation' },
+        fieldMap,
+      } as never,
+      load: async () => null,
+    });
+    const hydrated = await hydrate('db:message', {
+      id: 'm1',
+      conversationId: 'c1',
+      conversation: { id: 'c1', participants: [{ forged: true }] },
+    });
+    expect('conversation' in hydrated).toBe(false);
+  });
+});

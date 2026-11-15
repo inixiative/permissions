@@ -525,8 +525,9 @@ from a path, and anything nested narrow nothing: dropping a record loosens the g
 kind, which every real record of that kind shares, may drop it. The writer must pass on every
 record left. The root's exact `equals` leaves (`equals null` pins `null`) fill the rest: scalar
 values only, on fields that are not relations or lists, so a `where` never puts a row or a list
-on the placed record (`equals` on an object admits no hydrated record at read, so nothing real is
-lost). A field two root leaves state with different values is left unknown, since no record holds
+on the placed record. A pin on a relation admitted no hydrated record at read, so nothing real
+is lost there; a pin on a Json column or a scalar list was a live row (`equals` is deep) and is
+now refused at grant time, so state such a condition on a scalar field. A field two root leaves state with different values is left unknown, since no record holds
 both and the order of conjuncts must not decide a grant. The path
 wins over a pinned foreign key it knows, so a `where` cannot move the record out from under its
 anchor (a pin on a foreign key the path leaves unknown stays, and the rules still walk the placed
