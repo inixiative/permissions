@@ -67,5 +67,37 @@ const s2 = async () => {
   report('S2 entitlements held, read at 3 hops', results);
 };
 
+const s3 = async () => {
+  const nobody = await table({
+    resource: 'elsewhere',
+    id: 'x',
+    actions: { own: true },
+  } as PermissionEntry);
+  const results = [];
+  for (const depth of [1, 3, 6]) {
+    const records = pool(depth);
+    const field = Array.from({ length: depth }, () => 'parent').join('.');
+    const ruled: typeof schema = {
+      permissions: {
+        [model(depth)]: {
+          actions: { see: { rule: { field: `${field}.id`, operator: 'equals', value: 'root' } } },
+        },
+      },
+    };
+    results.push(
+      measure(`rule reads ${depth} hops up`, (i) =>
+        check(
+          nobody,
+          ruled,
+          { resource: model(depth), record: records[i % records.length] as never },
+          'see',
+        ),
+      ),
+    );
+  }
+  report('S3 a { rule } over the record (no table, no entitlements)', results);
+};
+
 await s1();
 await s2();
+await s3();
