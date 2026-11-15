@@ -1,4 +1,3 @@
-import { recordId } from './recordId';
 import type { Actor, PermixLike, Row } from './types';
 
 // Stable identity for cycle detection that does NOT depend on `record.id` — an id may be absent or
@@ -36,8 +35,8 @@ export const asOwner = (owner: PermixLike, actor: Actor | null): PermixLike => {
   return slice;
 };
 
-/** A row's identity on a walk: its id when it has one, so a row loaded twice is one row; else the object. */
-export const rowId = (record: Row): string => {
-  const id = recordId(record);
-  return id === undefined || id === '' ? `#${nodeId(record)}` : `=${id}`;
+/** A row's identity on a walk: its id (`field`, the engine's id field) when it has one, so a row loaded twice is one row; else the object. */
+export const rowId = (record: Row, field: string): string => {
+  const id = record[field];
+  return id == null || id === '' ? `#${nodeId(record)}` : `=${String(id)}`;
 };

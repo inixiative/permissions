@@ -57,7 +57,7 @@ export const entitled = <R extends string, T>(
     held.map(
       ({ anchor, where, owner, ref, grantsBelow }) =>
         () =>
-          !visited.has(`${permixId(owner)}:${rowId(record)}:${resource}:${action}`) &&
+          !visited.has(`${permixId(owner)}:${rowId(record, walk.idField)}:${resource}:${action}`) &&
           (above
             ? grantsBelow === true && where === undefined
             : where === undefined ||

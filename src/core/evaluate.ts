@@ -28,6 +28,8 @@ export type Walk<R extends string, T = boolean> = {
   above?: ReadonlySet<Row>;
   /** The item's lens node once the walk has crossed a list: a missing column is unknown, a bridge denies, the first pass counts nothing. */
   under?: Under;
+  /** The engine's id field, read once per check. */
+  idField: string;
   /** Relation hops crossed on this path: a node met again after one is a data loop, which denies. */
   hops?: number;
 };
@@ -72,7 +74,7 @@ const walkAction = <R extends string, T>(
 ): T => {
   // Key by resource too: the same record object reached as a different resource (a self-join) is
   // a distinct node, not a cycle. Key by table too: an owner walk legitimately revisits the node.
-  const key = `${permixId(permix)}:${rowId(record)}:${resource}:${actionOrRule}`;
+  const key = `${permixId(permix)}:${rowId(record, walk.idField)}:${resource}:${actionOrRule}`;
   const hops = walk.hops ?? 0;
   // why: a loop with no hop is a schema naming itself (a bug, it throws); one through a hop is data, and denies
   if (visited.has(key))

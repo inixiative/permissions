@@ -3,6 +3,7 @@ import type { Algebra } from './algebra';
 import { evaluate } from './evaluate';
 import { withExactStrings } from './exactStrings';
 import { judgeOnce } from './lens';
+import { idField } from './recordId';
 import { indexMap, type SchemaMap } from './schemaMap';
 import type { ActionRule, CheckOptions, PermixLike, RebacSchema, Row, Subject } from './types';
 import { validateActionRule } from './validateActionRule';
@@ -79,6 +80,7 @@ export const createWalker = <R extends string, T>(
           getDict,
           algebra,
           ignoreWheres,
+          idField: idField(),
           ...(above ? { above: above(record) } : {}),
         },
         permix,
