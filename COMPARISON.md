@@ -9,7 +9,7 @@
 - **Delegation that stays honest.** Every entitlement is backed by whoever granted it, and every check asks again whether that grantor still allows the action on that record, up the whole chain and across tenant boundaries. Demote anyone in the chain and everything they handed on stops on the next request, with nothing to clean up. None of the systems here documents this.
 - **Granting is checked by the same rules.** Whether you may hand an entitlement on is decided by the same check, on a stand-in for every record the grant would reach. You can only grant what you could do on all of it.
 - **Positive by design.** There are no deny rules. You narrow by composing a stricter rule, so there is no deny-versus-allow conflict to resolve, and a validated rule can never pass because a relation wasn't loaded.
-- **Tiny.** The core is about fourteen hundred lines; delegation and hydration helpers are about two hundred more. You can read all of it.
+- **Tiny.** The core is about 2,500 lines; delegation and hydration helpers are about 300 more. You can read all of it.
 
 ## The table
 

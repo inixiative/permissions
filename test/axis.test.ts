@@ -194,7 +194,7 @@ const theOrganizations = () =>
 
 const may = async (writer: Awaited<ReturnType<typeof table>>, entry: EntitlementEntry) => {
   const placed = placeEntitlement(map, entry, o1);
-  return placed !== null && placed.every((record) => canGrant(writer, schema, entry, record));
+  return placed?.every((record) => canGrant(writer, schema, entry, record));
 };
 
 const holderOf = async (entry: EntitlementEntry) => {

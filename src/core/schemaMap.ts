@@ -61,11 +61,10 @@ type MapIndex = {
 type Annotated = { annotations?: { permissions?: Record<string, unknown> } };
 
 /** A field's `/// @permissions(...)` annotation, as prisma-map carries it. */
-export const permissionsAnnotation = (field: unknown): Record<string, unknown> | undefined =>
+const permissionsAnnotation = (field: unknown): Record<string, unknown> | undefined =>
   (field as Annotated | undefined)?.annotations?.permissions;
 
-export const skipsHydration = (field: unknown): boolean =>
-  permissionsAnnotation(field)?.hydrate === false;
+const skipsHydration = (field: unknown): boolean => permissionsAnnotation(field)?.hydrate === false;
 
 const annotationKeys = ['hydrate', 'down', 'place'];
 const placeableTypes = ['String', 'Int', 'Boolean'];

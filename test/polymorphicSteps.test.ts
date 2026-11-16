@@ -165,9 +165,9 @@ describe('polymorphic steps', () => {
       actions: { manage: true },
     } as EntitlementEntry;
     const placed = placeEntitlement(map, entry, o1);
-    expect(placed!.map((r) => (r.integration as { ownerModel: string }).ownerModel).sort()).toEqual(
+    expect(placed?.map((r) => (r.integration as { ownerModel: string }).ownerModel).sort()).toEqual(
       ['Organization', 'Space'],
     );
-    expect(placed!.every((r) => canGrant(writer, schema, entry, r))).toBe(false);
+    expect(placed?.every((r) => canGrant(writer, schema, entry, r))).toBe(false);
   });
 });

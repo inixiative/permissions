@@ -15,17 +15,11 @@ import type { PermixLike, Row } from './types';
 const holds = (where: Condition, record: Row, absent: Absent): boolean =>
   checkRule(where, record, { absent }) === true;
 
-// Entitlements are consulted after the table and the schema both miss, at the node the holder's
-// own walk reached, with the record in hand. One applies when the record's path reaches its anchor (each
-// polymorphic step one of the kinds its relation admits), its
-// `where` holds, and whoever granted it can still do the action on this record: the
-// owner's own table, walked from here. A space moved to another org stops reaching its grantor.
-// A `where` that reads outside the lens never holds, even in the liveness walk.
-// An owner that is already on this walk for this node and action is a loop built from grant
-// data, not a schema bug: it denies instead of throwing, so it can never hide a sibling.
-// In the grant check's first pass (`walk.above`) one counts only at a hydrated row above the
-// granted record, and only when it is marked `grantsBelow` and has no `where`, at every depth of
-// the owner walk.
+/**
+ * The entitlements that admit `action` on `record`: its path reaches the anchor, its `where` holds
+ * inside the lens, and its owner, walked from here, takes the action. In the grant check's first
+ * pass one counts only at a row in `above`, marked `grantsBelow`, without a `where`.
+ */
 export const entitled = <R extends string, T>(
   walk: Walk<R, T>,
   permix: PermixLike,

@@ -312,8 +312,9 @@ const check = createRebacCheck<Resource>(map); // map: SchemaMap<Resource>
 // now `schema: RebacSchema<Resource>`, `subject.resource: Resource` — a typo is a compile error.
 ```
 
-Cycle detection uses **object identity** (a `WeakMap`), not `record.id`, so id-less or
-id-colliding records never produce a false "cycle", and a true self/mutual delegation
+Cycle detection knows a row by its key (`identityKeyOfRow`: the engine id field, else the model's
+id columns, with its resource), else by the object, so an id-less record never produces a false
+"cycle", and a true self/mutual delegation
 (`read: 'read'`) throws instead of overflowing the stack. A loop made by data (a relation
 walked back to a row already on the walk, as a linked hydration cycle can be) denies instead. The key includes the table being
 walked, so an entitlement's owner revisiting the same node is not a cycle. A loop built from grant

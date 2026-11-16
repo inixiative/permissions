@@ -1,15 +1,11 @@
 import { describe, expect, test } from 'bun:test';
-import { type FieldMap, Operator } from '@inixiative/json-rules';
+import { Operator } from '@inixiative/json-rules';
 import {
-  createCanGrantEntitlement,
   createPermissions,
   createRebacCheck,
   type EntitlementEntry,
   type PermissionEntry,
-  placeEntitlement,
   type RebacSchema,
-  type Row,
-  type SchemaMap,
 } from '../index';
 import { mapOf } from './schemaMaps';
 

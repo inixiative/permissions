@@ -197,7 +197,7 @@ const may = async (
   anchor: Row,
 ) => {
   const placed = placeEntitlement(map, entry, anchor);
-  return placed !== null && placed.every((record) => canGrant(writer, schema, entry, record));
+  return placed?.every((record) => canGrant(writer, schema, entry, record));
 };
 
 describe('the path names a kind at each polymorphic step: read time', () => {

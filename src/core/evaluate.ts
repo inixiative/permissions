@@ -51,7 +51,7 @@ export type WhatOneCheckRemembers<T = unknown> = {
   rowRulesThatHold: WeakMap<Row, Map<string, boolean>>;
   answers: WeakMap<Row, Map<string, RememberedAnswer<T>>> | undefined;
   nodesFoundOnPath: number;
-  // why: null at no hops (nothing kept, nothing collected); undefined until a node past a hop meets its first child
+  /** null at no hops, where nothing is kept; undefined until a node past a hop meets its first child. */
   footprintOfThisNode: RememberedAnswer<T>[] | undefined | null;
   footprintChecks: number;
 };
@@ -166,7 +166,7 @@ const walkAction = <R extends string, T>(
       visited.delete(key);
     }
   };
-  // why: a node at no hops is on the starting row, where the walk is shallow; only a hop makes it repeat (Aron, 2026-11-15)
+  // why: a node at no hops is on the starting row, where the walk is shallow; only a hop makes it repeat
   if (hops === 0) return algebra.any([granted, walkRules]);
   oneCheck.answers ??= new WeakMap();
   let byNode = oneCheck.answers.get(record);

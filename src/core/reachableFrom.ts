@@ -5,7 +5,7 @@ import type { RebacSchema } from './types';
 type Delegates = (rule: unknown) => string[];
 
 /** The actions an action is implied by: a bare name, or the bare names of a top-level `any`. */
-export const pureDelegates: Delegates = (rule) => {
+const pureDelegates: Delegates = (rule) => {
   if (typeof rule === 'string') return [rule];
   if (!isPlainObject(rule)) return [];
   const node = rule as Record<string, unknown>;

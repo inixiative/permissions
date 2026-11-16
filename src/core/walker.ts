@@ -49,7 +49,6 @@ export const createWalker = <R extends string, T>(
     schema: RebacSchema<R>,
     subject: Subject<R>,
     actionOrRule: ActionRule,
-    visited: Set<string> = new Set(),
     above?: ReadonlySet<Row>,
   ): T => {
     assertSchema(map as SchemaMap, schema);
@@ -96,7 +95,7 @@ export const createWalker = <R extends string, T>(
         subject.resource,
         record,
         actionOrRule,
-        new Map([...visited].map((key) => [key, 0])),
+        new Map(),
       ),
     );
   };

@@ -7,7 +7,7 @@ import {
 } from '../index';
 import { mapOf } from '../test/schemaMaps';
 
-export const DEPTH = 6;
+const DEPTH = 6;
 export const model = (i: number) => `m${i}`;
 
 const standard = (parent: boolean) => ({
@@ -52,7 +52,7 @@ export const nobody = () =>
 export const rootOwner = () =>
   table({ resource: model(0), id: 'root', actions: { own: true } } as PermissionEntry);
 
-export const pathUp = (depth: number) => Array.from({ length: depth }, () => 'parent').join('.');
+const pathUp = (depth: number) => Array.from({ length: depth }, () => 'parent').join('.');
 
 export const entitlement = (
   resource: string,

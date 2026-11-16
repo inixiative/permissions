@@ -746,7 +746,7 @@ describe('the starting record: a row is known by resource and id', () => {
     load: async (resource, where) => {
       loads.push(`${resource}:${where.id}`);
       const row = db[resource]?.[where.id as string] ?? null;
-      return row && row.deletedAt ? null : row;
+      return row?.deletedAt ? null : row;
     },
     loadMany: async () => [],
   });

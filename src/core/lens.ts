@@ -261,7 +261,7 @@ export const whyRelationPathCannotBeWalked = (
 };
 
 const codesForPathOutsideLens = new Set(['not_in_lens', 'scope_out_of_bounds']);
-// why: json-rules' fit check is reported by validateSchema; it never refuses a check (invalid_value waits on typed fixtures)
+// why: json-rules' fit check is reported by validateSchema; it never refuses a check
 const codesForOperatorNotFittingField = new Set(['operator_kind_mismatch']);
 
 /** A miss that refuses a read: out of the lens, a relation hop, or past a declaration; not an operator fit. */

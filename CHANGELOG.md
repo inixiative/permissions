@@ -55,6 +55,7 @@ fits Kingdom's 313 rule reads and 368 rel hops.
 
 ### Breaking
 
+- `RebacCheck` takes four arguments: the `visited` set is gone (no caller seeded it). An app wrapper that passes it through (Kingdom's and template's `check.ts`) drops the argument.
 - A schema that reads outside the lens is refused on first use, `{ rel }` hops included. Kingdom,
   template and Tribe carry one such arm, `integration.integration` in `db:token.create`.
 - A rule reads only fields the model has, wherever it came from, a rule passed to `check`
