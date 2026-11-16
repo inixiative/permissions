@@ -1,10 +1,10 @@
 import { type Absent, type Condition, check as checkRule } from '@inixiative/json-rules';
-import { evaluate, type Visited, type Walk } from './evaluate';
-import { asOwner, permixId, rowId } from './identity';
+import { evaluate, identifyRowOncePerCheck, type Visited, type Walk } from './evaluate';
+import { asOwner, permixId } from './identity';
 import { lensesAtRow, whyWhereLeavesLensAtRow } from './lens';
 import { reachableFrom } from './reachableFrom';
 import { recordId } from './recordId';
-import { identityKeyOfRow, rowsAlongAnchorPath } from './schemaMap';
+import { rowsAlongAnchorPath } from './schemaMap';
 import type { Anchor, PermixLike, Row } from './types';
 
 const holds = (where: Condition, record: Row, absent: Absent): boolean =>
@@ -52,7 +52,7 @@ export const entitled = <R extends string, T>(
       ({ anchor, where, owner, ref, grantsBelow }) =>
         () =>
           !visited.has(
-            `${permixId(owner)}:${rowId(record, identityKeyOfRow(walk.map, resource, record, walk.idField))}:${resource}:${action}`,
+            `${permixId(owner)}:${identifyRowOncePerCheck(walk, resource, record)}:${resource}:${action}`,
           ) &&
           (above
             ? grantsBelow === true && where === undefined

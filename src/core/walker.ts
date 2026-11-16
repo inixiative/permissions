@@ -1,6 +1,6 @@
 import { type BridgeDictionary, indexBridges } from '@inixiative/json-rules';
 import type { Algebra } from './algebra';
-import { evaluate } from './evaluate';
+import { evaluate, startOneCheck } from './evaluate';
 import { withExactStrings } from './exactStrings';
 import { freezeThenJudgeOnce } from './freezeThenJudgeOnce';
 import { idField } from './recordId';
@@ -94,6 +94,7 @@ export const createWalker = <R extends string, T>(
           algebra,
           ignoreWheres,
           idField: idField(),
+          oneCheck: startOneCheck(),
           ...(above ? { above } : {}),
         },
         permix,

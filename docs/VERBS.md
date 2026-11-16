@@ -46,7 +46,7 @@ what.
 | consult an entitlement | `src/core/entitled.ts` (`entitled`) | — |
 | walk an anchor path on a record | `src/core/schemaMap.ts` (`rowsAlongAnchorPath`) | — (used by `entitled`, `rowsAbove` and placement) |
 | walk the delegation graph | `src/core/reachableFrom.ts` (`delegationReach`) | — (used by `reachableFrom` and `validateActionRule`'s cycle test) |
-| identify a row | `src/core/schemaMap.ts` (`identityKeyOfRow`, `keyFromResourceAndColumns`), `src/core/recordId.ts` | — (the hydrator and loop detection share one key) |
+| identify a row | `src/core/schemaMap.ts` (`identityKeyOfRow`, `keyFromResourceAndColumns`), `src/core/recordId.ts`; on a walk, `src/core/evaluate.ts` (`identifyRowOncePerCheck`, once per row and resource in one check) | — (the hydrator and loop detection share one key) |
 | load a row | `src/helpers/hydration/hydrate.ts` | — (the app's `load` / `loadMany` are called nowhere else) |
 
 ## The lens, in this library's words

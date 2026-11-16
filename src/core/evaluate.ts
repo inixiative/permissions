@@ -32,6 +32,32 @@ export type Walk<R extends string, T = boolean> = {
   idField: string;
   /** Relation hops crossed on this path: a node met again after one is a data loop, which denies. */
   hops?: number;
+  /** What this one check remembers; fresh for each check, shared by every copy of its walk. */
+  oneCheck: WhatOneCheckRemembers;
+};
+
+/** A row's id on the walk (`rowId` of `identityKeyOfRow`), by row object and then resource. */
+export type WhatOneCheckRemembers = {
+  rowIds: WeakMap<Row, Map<string, string>>;
+};
+
+export const startOneCheck = (): WhatOneCheckRemembers => ({ rowIds: new WeakMap() });
+
+/** A row's id on the walk, computed once per row and resource in one check. */
+export const identifyRowOncePerCheck = <R extends string, T>(
+  walk: Walk<R, T>,
+  resource: string,
+  record: Row,
+): string => {
+  const { rowIds } = walk.oneCheck;
+  const byResource = rowIds.get(record) ?? new Map<string, string>();
+  rowIds.set(record, byResource);
+  let id = byResource.get(resource);
+  if (id === undefined) {
+    id = rowId(record, identityKeyOfRow(walk.map, resource, record, walk.idField));
+    byResource.set(resource, id);
+  }
+  return id;
 };
 
 /** The nodes a path has stood on, each with the relation hops crossed when it was reached. */
@@ -74,7 +100,7 @@ const walkAction = <R extends string, T>(
 ): T => {
   // Key by resource too: the same record object reached as a different resource (a self-join) is
   // a distinct node, not a cycle. Key by table too: an owner walk legitimately revisits the node.
-  const key = `${permixId(permix)}:${rowId(record, identityKeyOfRow(walk.map, resource, record, walk.idField))}:${resource}:${actionOrRule}`;
+  const key = `${permixId(permix)}:${identifyRowOncePerCheck(walk, resource, record)}:${resource}:${actionOrRule}`;
   const hops = walk.hops ?? 0;
   // why: a loop with no hop is a schema naming itself (a bug, it throws); one through a hop is data, and denies
   if (visited.has(key))
