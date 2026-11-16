@@ -16,9 +16,10 @@ import {
 import { mapOf } from '../schemaMaps';
 
 // A walk case in the form a differential fuzzer of two builds writes: resources, row objects and
-// tables of grants and entitlements, each by index; one row may be several objects. Resource i is
-// `db:ri` (model `Mi`, columns `id`, `flag` and a foreign key per relation). `outcomesOfWalkCase`
+// tables of grants and entitlements, each by index; one row may be several objects. Each resource has
+// columns `id`, `flag` and a foreign key per relation. `outcomesOfWalkCase`
 // builds it fresh and runs `check` (absent null and unknown), `paths` (limit 2) and the grant check.
+// `names` names the resources; without it resource i is `db:ri`.
 
 type Relation = { name: string; target: number };
 type List = { name: string; item: number; inverse: string; down: string[] };
@@ -47,6 +48,7 @@ type CaseTable = {
   superadmin?: boolean;
 };
 export type WalkCase = {
+  names?: string[];
   resources: { rels: Relation[]; lists: List[] }[];
   schema: Record<string, Record<string, ActionRule>>;
   objects: CaseObject[];
@@ -55,9 +57,12 @@ export type WalkCase = {
   grant: { ent: Omit<CaseEntitlement, 'owner' | 'ref'>; placed: number };
 };
 
-const resourceName = (index: number) => `db:r${index}`;
+/** A resource's name: the case's `names`, else `db:r<index>`. */
+const resourceNameIn = (walkCase: WalkCase) => (index: number) =>
+  walkCase.names?.[index] ?? `db:r${index}`;
 
 const mapOfCase = (walkCase: WalkCase): SchemaMap => {
+  const resourceName = resourceNameIn(walkCase);
   const names = walkCase.resources.map((_, i) => resourceName(i));
   const byResource = <V>(of: (resource: WalkCase['resources'][number]) => [string, V][]) =>
     Object.fromEntries(
@@ -77,7 +82,7 @@ const mapOfCase = (walkCase: WalkCase): SchemaMap => {
 const schemaOfCase = (walkCase: WalkCase): RebacSchema => ({
   permissions: Object.fromEntries(
     Object.entries(walkCase.schema).map(([index, actions]) => [
-      resourceName(Number(index)),
+      resourceNameIn(walkCase)(Number(index)),
       { actions: structuredClone(actions) },
     ]),
   ),
@@ -107,6 +112,7 @@ const entryOfCase = (
   walkCase: WalkCase,
   entitlement: Omit<CaseEntitlement, 'owner'>,
 ): EntitlementEntry => {
+  const resourceName = resourceNameIn(walkCase);
   let anchorResource = entitlement.resource;
   for (const segment of entitlement.path)
     anchorResource =
@@ -147,6 +153,7 @@ const outcome = (run: () => boolean | Admission[]): boolean | string | string[] 
 
 /** What `check` (absent null and unknown), `paths` (limit 2) and the grant check answer on a case. */
 export const outcomesOfWalkCase = async (walkCase: WalkCase) => {
+  const resourceName = resourceNameIn(walkCase);
   const map = mapOfCase(walkCase);
   const schema = schemaOfCase(walkCase);
   const rows = rowsOfCase(walkCase);

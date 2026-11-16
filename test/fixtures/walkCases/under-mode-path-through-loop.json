@@ -1,62 +1,90 @@
 {
+  "names": ["db:board", "db:card", "db:account", "db:viewer"],
   "resources": [
-    { "rels": [], "lists": [{ "name": "items", "item": 1, "inverse": "tp", "down": ["ta"] }] },
-    { "rels": [{ "name": "tp", "target": 0 }, { "name": "ta", "target": 2 }], "lists": [] },
-    { "rels": [{ "name": "tq", "target": 0 }], "lists": [] },
-    { "rels": [{ "name": "q0", "target": 0 }, { "name": "q1", "target": 2 }], "lists": [] }
+    {
+      "rels": [],
+      "lists": [{ "name": "cards", "item": 1, "inverse": "board", "down": ["account"] }]
+    },
+    { "rels": [{ "name": "board", "target": 0 }, { "name": "account", "target": 2 }], "lists": [] },
+    { "rels": [{ "name": "board", "target": 0 }], "lists": [] },
+    { "rels": [{ "name": "board", "target": 0 }, { "name": "account", "target": 2 }], "lists": [] }
   ],
   "schema": {
     "0": {
-      "a": {
+      "read": {
         "all": [
-          { "rel": "items", "arrayOperator": "any", "condition": { "rel": "ta", "action": "a" } },
-          "b"
+          {
+            "rel": "cards",
+            "arrayOperator": "any",
+            "condition": { "rel": "account", "action": "read" }
+          },
+          "edit"
         ]
       },
-      "b": null
+      "edit": null
     },
     "1": {},
-    "2": { "a": null },
+    "2": { "read": null },
     "3": {
-      "a": {
-        "any": [{ "all": [{ "rel": "q0", "action": "a" }, false] }, { "rel": "q1", "action": "a" }]
+      "read": {
+        "any": [
+          { "all": [{ "rel": "board", "action": "read" }, false] },
+          { "rel": "account", "action": "read" }
+        ]
       }
     }
   },
   "objects": [
-    { "res": 0, "id": "p1", "flag": "x", "links": {}, "lists": { "items": [1] } },
-    { "res": 1, "id": "c1", "flag": "x", "links": { "tp": 0, "ta": 2 }, "lists": {} },
+    { "res": 0, "id": "b1", "flag": "x", "links": {}, "lists": { "cards": [1] } },
+    { "res": 1, "id": "c1", "flag": "x", "links": { "board": 0, "account": 2 }, "lists": {} },
     {
       "res": 2,
-      "id": "ra1",
-      "links": { "tq": 0 },
+      "id": "a1",
+      "links": { "board": 0 },
       "lists": {},
       "permissionRules": {
-        "a": {
+        "read": {
           "all": [
             { "rule": { "field": "flag", "operator": "equals", "value": null } },
-            { "rel": "tq", "action": "a" }
+            { "rel": "board", "action": "read" }
           ]
         }
       }
     },
-    { "res": 3, "id": "q1", "flag": "x", "links": { "q0": 0, "q1": 2 }, "lists": {} }
+    { "res": 3, "id": "v1", "flag": "x", "links": { "board": 0, "account": 2 }, "lists": {} }
   ],
   "tables": [
     {
       "grants": [],
       "ents": [
-        { "resource": 2, "path": [], "anchorId": "ra1", "actions": ["a"], "ref": "Er", "owner": 1 },
-        { "resource": 0, "path": [], "anchorId": "p1", "actions": ["b"], "ref": "Epb", "owner": 1 }
+        {
+          "resource": 2,
+          "path": [],
+          "anchorId": "a1",
+          "actions": ["read"],
+          "ref": "accountRead",
+          "owner": 1
+        },
+        {
+          "resource": 0,
+          "path": [],
+          "anchorId": "b1",
+          "actions": ["edit"],
+          "ref": "boardEdit",
+          "owner": 1
+        }
       ],
       "actor": "User"
     },
     {
-      "grants": [{ "resource": 2, "action": "a" }, { "resource": 0, "action": "b" }],
+      "grants": [{ "resource": 2, "action": "read" }, { "resource": 0, "action": "edit" }],
       "ents": [],
       "actor": null
     }
   ],
-  "query": { "object": 3, "action": "a" },
-  "grant": { "ent": { "resource": 0, "path": [], "anchorId": "p1", "actions": ["a"] }, "placed": 0 }
+  "query": { "object": 3, "action": "read" },
+  "grant": {
+    "ent": { "resource": 0, "path": [], "anchorId": "b1", "actions": ["read"] },
+    "placed": 0
+  }
 }

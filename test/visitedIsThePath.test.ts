@@ -7,23 +7,17 @@ import {
   type PermissionEntry,
   type RebacSchema,
 } from '../index';
-import { outcomesOfWalkCase, walkCase } from './fixtures/walkCases';
 import { mapOf } from './schemaMaps';
 
-// `visited` holds only the nodes on the current path: a node leaves it when its walk returns. Before,
-// a finished node stayed in the map its sibling branches shared, so `entitled` skipped an owner walk
-// that met it again, and `paths` left out the admission through it.
+// `visited` holds only the nodes on the current path: a node leaves it when its walk returns, so a
+// node a finished sibling walked is walked again by an owner that reaches it.
 
 const map = mapOf({ 'db:space': { organization: 'db:organization' } });
 const schema: RebacSchema = {
   permissions: {
     'db:organization': { actions: { own: null } },
     'db:space': {
-      actions: {
-        view: null,
-        read: 'view',
-        loopsWithNoHop: 'loopsWithNoHop',
-      },
+      actions: { view: null, read: 'view' },
     },
   },
 };
@@ -64,7 +58,7 @@ describe('`visited` holds only the nodes on the current path', () => {
     ]);
   });
 
-  test('check and the grant check answer as before on the same case', async () => {
+  test('check and the grant check admit on the same case', async () => {
     const holder = await holderAndOwner();
     const subject = { resource: 'db:space', record: s1 };
     expect(createRebacCheck(map)(holder, schema, subject, 'read')).toBe(true);
@@ -76,43 +70,5 @@ describe('`visited` holds only the nodes on the current path', () => {
         s1,
       ),
     ).toBe(true);
-  });
-
-  test("the fuzzer's finished sibling: paths now has the longer chain too; check and grant unchanged", async () => {
-    expect(await outcomesOfWalkCase(await walkCase('finished-sibling-in-visited'))).toEqual({
-      check: true,
-      checkUnknown: true,
-      paths: ['t0e1>t1e0', 't0e1>t1e0>t2e2>t0e1>t1e0'],
-      grant: false,
-    });
-  });
-
-  test('a rule naming itself with no hop still throws; a loop through a hop still denies', async () => {
-    const nobody = createPermissions();
-    const check = createRebacCheck(map);
-    expect(() =>
-      check(nobody, schema, { resource: 'db:space', record: s1 }, 'loopsWithNoHop'),
-    ).toThrow('Cycle detected in permission graph: db:space.loopsWithNoHop');
-    const looped: Record<string, unknown> = { id: 's2', organizationId: 'o2' };
-    const organization = { id: 'o2', space: looped };
-    looped.organization = organization;
-    const loopMap = mapOf({
-      'db:space': { organization: 'db:organization' },
-      'db:organization': { space: 'db:space' },
-    });
-    const throughAHop: RebacSchema = {
-      permissions: {
-        'db:space': { actions: { read: { rel: 'organization', action: 'read' } } },
-        'db:organization': { actions: { read: { rel: 'space', action: 'read' } } },
-      },
-    };
-    expect(
-      createRebacCheck(loopMap)(
-        nobody,
-        throughAHop,
-        { resource: 'db:space', record: looped },
-        'read',
-      ),
-    ).toBe(false);
   });
 });

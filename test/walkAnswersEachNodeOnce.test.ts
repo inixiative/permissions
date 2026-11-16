@@ -1,4 +1,4 @@
-import { describe, expect, spyOn, test } from 'bun:test';
+import { describe, expect, test } from 'bun:test';
 import { Operator } from '@inixiative/json-rules';
 import { map as chainMap, schema as chainSchema, model, nobody, pool } from '../bench/fixtures';
 import {
@@ -16,16 +16,13 @@ import {
   type RebacSchema,
   type Row,
 } from '../index';
-import * as evaluateModule from '../src/core/evaluate';
 import { outcomesOfWalkCase, type WalkCase, walkCase } from './fixtures/walkCases';
 import { mapOf } from './schemaMaps';
 
-// One check answers each node once (src/core/evaluate.ts, `walkAction`): a node is its table, its
-// row object, its resource and action, in one walk mode. An answer is kept only when no test in
-// its walk found a node on the path, with every node key its walk tested; it is reused only while
-// none of those keys is on the path. Every test below passes identically on the walk without the
-// memo (commit "A row's own rules are judged once per row per check"), except the ones that count
-// computations (1, and "3 and 5, counted").
+// One check answers each node reached after a hop once (src/core/evaluate.ts, `walkAction`): a
+// node is its table, its row object, its resource and action, in one walk mode. An answer is kept
+// only when no test in its walk found a node on the path, and reused only while no answer in its
+// footprint is on the path. Tests that count `check` calls count node computations.
 
 /** A permix that counts its `check` calls by resource, action and id: one per node computed. */
 const counting = (permix: PermixLike) => {
@@ -44,7 +41,7 @@ const counting = (permix: PermixLike) => {
   return { counted, calls, total };
 };
 
-describe('1. a denial walks each node once', () => {
+describe('a denial walks each node once', () => {
   test("on the bench chain at 0, 2, 4 and 6 hops: the starting row's 4 nodes once each, plus one computation per distinct node above it (8, 16, 24), and the answer is false", async () => {
     const check = createRebacCheck(chainMap);
     const permix = await nobody();
@@ -66,32 +63,32 @@ describe('1. a denial walks each node once', () => {
 });
 
 describe('only a node reached after a hop is remembered', () => {
-  test('a check that never leaves its starting row does no memo work; one that hops does', async () => {
-    const started = spyOn(evaluateModule, 'startOneCheck');
-    try {
-      const check = createRebacCheck(chainMap);
-      const permix = await nobody();
-      expect(
-        check(permix, chainSchema, { resource: model(0), record: pool(0)[0] as Row }, 'read'),
-      ).toBe(false);
-      const atStart = started.mock.results[0]?.value as evaluateModule.WhatOneCheckRemembers;
-      expect([atStart.answers, atStart.footprintOfThisNode, atStart.footprintChecks]).toEqual([
-        undefined,
-        null,
-        0,
-      ]);
-      expect(
-        check(permix, chainSchema, { resource: model(2), record: pool(2)[0] as Row }, 'read'),
-      ).toBe(false);
-      const hopped = started.mock.results[1]?.value as evaluateModule.WhatOneCheckRemembers;
-      expect(hopped.answers).toBeInstanceOf(WeakMap);
-    } finally {
-      started.mockRestore();
-    }
+  // `own` is reached twice from `read`: through `view` and through `edit`.
+  const diamondOnOneRow: RebacSchema = {
+    permissions: {
+      'db:organization': {
+        actions: { own: null, view: 'own', edit: 'own', read: { any: ['view', 'edit'] } },
+      },
+      'db:space': { actions: { read: { rel: 'organization', action: 'read' } } },
+    },
+  };
+  const oneRowMap = mapOf({ 'db:space': { organization: 'db:organization' } });
+  const o1 = { id: 'o1' };
+  const ownCalls = async (resource: string, record: Row) => {
+    const { counted, calls } = counting(await nobody());
+    createRebacCheck(oneRowMap)(counted, diamondOnOneRow, { resource, record }, 'read');
+    return calls.get('db:organization:own:o1');
+  };
+
+  test('on the starting row a node met twice is walked twice; one hop away, once', async () => {
+    expect(await ownCalls('db:organization', o1)).toBe(2);
+    expect(await ownCalls('db:space', { id: 's1', organizationId: 'o1', organization: o1 })).toBe(
+      1,
+    );
   });
 });
 
-describe('2. a node reached while an ancestor of it is on the path is not kept', () => {
+describe('a node reached while an ancestor of it is on the path is not kept', () => {
   const map = mapOf(
     { 'db:space': { organization: 'db:organization' }, 'db:organization': { space: 'db:space' } },
     { 'db:space': ['flag'], 'db:organization': ['flag'] },
@@ -136,7 +133,7 @@ describe('2. a node reached while an ancestor of it is on the path is not kept',
     expect(answers).toEqual(Array(8).fill(true));
   });
 
-  test('with no hop: a rule naming itself throws, in every order', () => {
+  test('with no hop, a rule naming itself throws, in every order', () => {
     for (const read of orders<ActionRule>([false, 'manage']))
       for (const manage of orders<ActionRule>(['read', false])) {
         const schema: RebacSchema = {
@@ -194,50 +191,41 @@ const s1 = { id: 's1', organizationId: 'o1', organization: { id: 'o1' } };
 const paths = (admissions: readonly (readonly (readonly (string | null)[])[])[]) =>
   admissions.map((admission) => admission.map((chain) => chain.join('>')));
 
-describe('3. createRebacPaths with a reused answer', () => {
-  test('a node reached twice still gives every path, and the limit throws where it did', async () => {
+describe('createRebacPaths with a reused answer', () => {
+  test('a node two arms reach is walked once and gives every path; a limit of one throws', async () => {
     const { holder } = await twoHeld();
     const subject = { resource: 'db:space', record: s1 };
     expect(
       paths(createRebacPaths(diamondMap, { limit: 2 })(holder.counted, diamond, subject, 'read')),
     ).toEqual([['e1'], ['e2']]);
+    expect(holder.calls.get('db:organization:read:o1')).toBe(1);
     expect(() =>
       createRebacPaths(diamondMap, { limit: 1 })(holder.counted, diamond, subject, 'read'),
     ).toThrow(PathLimitError);
   });
 });
 
-describe('3 and 5, counted: the memo computes a reused node once', () => {
-  test('the holder walks o1 once though two arms reach it, and the owner walks it once for both entitlements', async () => {
+describe("an entitlement owner's walk reuses the owner's answers, never the holder's", () => {
+  test("the owner walks o1 once for both entitlements; the holder's own read on o1 denies", async () => {
     const { holder, owner } = await twoHeld();
-    createRebacPaths(diamondMap)(
-      holder.counted,
-      diamond,
-      { resource: 'db:space', record: s1 },
-      'read',
-    );
-    expect(holder.calls.get('db:organization:read:o1')).toBe(1);
+    const subject = { resource: 'db:space', record: s1 };
+    expect(paths(createRebacPaths(diamondMap)(holder.counted, diamond, subject, 'read'))).toEqual([
+      ['e1'],
+      ['e2'],
+    ]);
     expect(owner.calls.get('db:organization:read:o1')).toBe(1);
+    expect(createRebacCheck(diamondMap)(createPermissions(), diamond, subject, 'read')).toBe(false);
   });
 });
 
-describe("4. the grant check's two passes and a plain check share no answers", () => {
-  test('the first pass denies at a row the liveness walk admits, and the grant holds', async () => {
-    const owner = createPermissions();
-    await owner.setup([
-      { resource: 'db:organization', id: 'o1', actions: { own: true } } as PermissionEntry,
-    ]);
-    const writer = createPermissions();
-    const named: EntitlementEntry = {
-      resource: 'db:space',
-      anchor: { resource: 'db:organization', id: 'o1', path: 'organization' },
-      where: { field: 'name', operator: Operator.equals, value: 'a' },
-      actions: { read: true },
-    };
-    await writer.setup([named], { owner });
+describe("the grant check's two passes share no answers", () => {
+  // The writer holds read on o1 from O (grantsBelow) and read on o1's spaces from O; O holds read on
+  // o1 from the root, under a `where`. The first pass walks O's read on o1 one hop up and counts no
+  // `where`: it denies. The liveness pass walks the same node of O, counting every `where`: it admits.
+  test('the first pass denies at o1 where the liveness pass admits, and the grant holds', async () => {
     const map = mapOf(
       { 'db:space': { organization: 'db:organization' } },
-      { 'db:space': ['name'] },
+      { 'db:organization': ['name'] },
     );
     const schema: RebacSchema = {
       permissions: {
@@ -245,34 +233,42 @@ describe("4. the grant check's two passes and a plain check share no answers", (
         'db:space': { actions: { read: { rel: 'organization', action: 'read' } } },
       },
     };
-    const anchor = { id: 'o1' };
-    const [placed] = placeEntitlement(map, named, anchor) ?? [];
-    expect(createCanGrantEntitlement(map)(writer, schema, named, placed as Row)).toBe(true);
-    const check = createRebacCheck(map);
-    const space = (name: string) => ({
-      id: 's1',
-      name,
-      organizationId: 'o1',
-      organization: anchor,
-    });
-    expect(check(writer, schema, { resource: 'db:space', record: space('a') }, 'read')).toBe(true);
-    expect(check(writer, schema, { resource: 'db:space', record: space('b') }, 'read')).toBe(false);
-  });
-});
-
-describe("5. an entitlement owner's walk reuses the owner's answers, never the holder's", () => {
-  test("the holder's own read on o1 denies and the owner's admits: each entitlement admits through the owner", async () => {
-    const { holder } = await twoHeld();
-    const subject = { resource: 'db:space', record: s1 };
-    expect(paths(createRebacPaths(diamondMap)(holder.counted, diamond, subject, 'read'))).toEqual([
-      ['e1'],
-      ['e2'],
+    const atO1 = { resource: 'db:organization', id: 'o1' };
+    const root = createPermissions();
+    await root.setup([
+      { resource: 'db:organization', id: 'o1', actions: { own: true } } as PermissionEntry,
     ]);
-    expect(createRebacCheck(diamondMap)(createPermissions(), diamond, subject, 'read')).toBe(false);
+    const owner = createPermissions();
+    await owner.setup(
+      [
+        {
+          resource: 'db:organization',
+          anchor: atO1,
+          where: { field: 'name', operator: Operator.equals, value: 'acme' },
+          actions: { read: true },
+        },
+      ],
+      { owner: root },
+    );
+    const spacesOfO1: EntitlementEntry = {
+      resource: 'db:space',
+      anchor: { ...atO1, path: 'organization' },
+      actions: { read: true },
+    };
+    const writer = createPermissions();
+    await writer.setup(
+      [
+        { resource: 'db:organization', anchor: atO1, actions: { read: true }, grantsBelow: true },
+        spacesOfO1,
+      ],
+      { owner },
+    );
+    const [placed] = placeEntitlement(map, spacesOfO1, { id: 'o1', name: 'acme' }) ?? [];
+    expect(createCanGrantEntitlement(map)(writer, schema, spacesOfO1, placed as Row)).toBe(true);
   });
 });
 
-describe('6. walk modes', () => {
+describe('walk modes', () => {
   test('one row met outside a list and under its item is answered in each mode', async () => {
     const underAndOutside: WalkCase = {
       resources: [
@@ -305,53 +301,57 @@ describe('6. walk modes', () => {
     expect({ check, checkUnknown }).toEqual({ check: false, checkUnknown: false });
   });
 
-  test('under a list item, one row at two lens positions is computed at each', async () => {
-    const twoPositions: WalkCase = {
-      resources: [
-        {
-          rels: [],
-          lists: [
-            { name: 'members', item: 1, inverse: 'organization', down: ['user', 'brand.user'] },
-          ],
+  test('under a list item, one row reached at two lens positions is walked at each', async () => {
+    const map = mapOf(
+      {
+        'db:member': { organization: 'db:organization', user: 'db:user', brand: 'db:brand' },
+        'db:brand': { user: 'db:user' },
+      },
+      {},
+      { 'db:organization': { members: { item: 'db:member', down: ['user', 'brand.user'] } } },
+    );
+    const schema: RebacSchema = {
+      permissions: {
+        'db:organization': {
+          actions: { read: { rel: 'members', arrayOperator: 'any', condition: 'read' } },
         },
-        {
-          rels: [
-            { name: 'organization', target: 0 },
-            { name: 'user', target: 2 },
-            { name: 'brand', target: 3 },
-          ],
-          lists: [],
-        },
-        { rels: [], lists: [] },
-        { rels: [{ name: 'user', target: 2 }], lists: [] },
-      ],
-      schema: {
-        0: { read: { rel: 'members', arrayOperator: 'any', condition: 'read' } },
-        1: {
-          read: {
-            any: [
-              { rel: 'user', action: 'read' },
-              { rel: 'brand.user', action: 'read' },
-            ],
+        'db:member': {
+          actions: {
+            read: {
+              any: [
+                { rel: 'user', action: 'read' },
+                { rel: 'brand.user', action: 'read' },
+              ],
+            },
           },
         },
-        2: { read: null },
+        'db:brand': { actions: {} },
+        'db:user': { actions: { read: null } },
       },
-      objects: [
-        { res: 0, id: 'o1', links: {}, lists: { members: [1] } },
-        { res: 1, id: 'm1', links: { user: 2, brand: 3 }, lists: {} },
-        { res: 2, id: 'u1', links: {}, lists: {} },
-        { res: 3, id: 'b1', links: { user: 2 }, lists: {} },
-      ],
-      tables: [{ grants: [], ents: [], actor: null }],
-      query: { object: 0, action: 'read' },
-      grant: { ent: { resource: 0, path: [], anchorId: 'o1', actions: ['read'] }, placed: 0 },
     };
-    expect((await outcomesOfWalkCase(twoPositions)).check).toBe(false);
+    const user = { id: 'u1' };
+    const member = {
+      id: 'm1',
+      organizationId: 'o1',
+      userId: 'u1',
+      user,
+      brandId: 'b1',
+      brand: { id: 'b1', userId: 'u1', user },
+    };
+    const { counted, calls } = counting(await nobody());
+    expect(
+      createRebacCheck(map)(
+        counted,
+        schema,
+        { resource: 'db:organization', record: { id: 'o1', members: [member] } },
+        'read',
+      ),
+    ).toBe(false);
+    expect(calls.get('db:user:read:u1')).toBe(2);
   });
 });
 
-describe('two objects of one row (found against the first reading of the memo)', () => {
+describe('two objects of one row', () => {
   test('a plain check reads each copy as loaded (an include tree loads the organization twice)', async () => {
     const map = mapOf(
       {
@@ -452,7 +452,7 @@ describe('two objects of one row (found against the first reading of the memo)',
     ).toBe(false);
   });
 
-  test("the first pass's repeat of the granted row, met again while the granted row is on the path, still denies", async () => {
+  test("the first pass's repeat of the granted row, met again while the granted row is on the path, denies", async () => {
     const schema: RebacSchema = {
       permissions: {
         'db:organization': {
@@ -479,18 +479,9 @@ describe('two objects of one row (found against the first reading of the memo)',
 
 const FOOTPRINT_CASE = { check: false, checkUnknown: false, paths: [], grant: false };
 
-// Cases found by fuzzing this build against the walk without the memo (test/fixtures/walkCases):
-// rows, schemas and tables in the fuzzer's form, each with what every check answers.
-describe('cases found against the memo', () => {
+// Cases in the fuzzer's form (test/fixtures/walkCases), each with what every check answers.
+describe('fuzzed walk cases', () => {
   const expected: Record<string, Awaited<ReturnType<typeof outcomesOfWalkCase>>> = {
-    'two-copies-loaded-differently': { check: true, checkUnknown: true, paths: [''], grant: true },
-    'first-pass-hydrated-repeat': { check: true, checkUnknown: true, paths: ['e'], grant: false },
-    'repeat-met-while-start-on-path': {
-      check: true,
-      checkUnknown: true,
-      paths: ['e'],
-      grant: false,
-    },
     'plain-repeat-met-while-start-on-path': {
       check: false,
       checkUnknown: false,
@@ -500,7 +491,7 @@ describe('cases found against the memo', () => {
     'under-mode-path-through-loop': {
       check: true,
       checkUnknown: true,
-      paths: ['Er'],
+      paths: ['accountRead'],
       grant: false,
     },
     'footprint-on-path-two-levels-down': FOOTPRINT_CASE,
@@ -508,19 +499,13 @@ describe('cases found against the memo', () => {
     'finished-sibling-in-visited': {
       check: true,
       checkUnknown: true,
-      paths: ['t0e1>t1e0', 't0e1>t1e0>t2e2>t0e1>t1e0'],
+      paths: ['holder1>owner0', 'holder1>owner0>third2>holder1>owner0'],
       grant: false,
     },
   };
   const named: Record<string, string> = {
-    'two-copies-loaded-differently':
-      'two objects of one row with different flags: each is judged on its own object',
-    'first-pass-hydrated-repeat':
-      "the grant check's first pass meets the hydrated repeat of the granted row in `above`: it never counts as the granted row",
-    'repeat-met-while-start-on-path':
-      'that repeat answered once, then met again while the granted row is on the path: the grant check denies, as recomputing does',
     'plain-repeat-met-while-start-on-path':
-      'the same in a plain check: the repeat met while the start row is on the path denies',
+      "a plain check meets the starting row's hydrated repeat while the start is on the path: it denies",
     'under-mode-path-through-loop':
       'a node whose walk reaches an ancestor only under a list item is answered again outside it',
     'footprint-on-path-two-levels-down':

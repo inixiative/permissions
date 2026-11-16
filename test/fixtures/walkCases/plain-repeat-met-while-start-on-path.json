@@ -1,19 +1,20 @@
 {
+  "names": ["db:organization", "db:space"],
   "resources": [
     { "rels": [{ "name": "primarySpace", "target": 1 }], "lists": [] },
     { "rels": [{ "name": "organization", "target": 0 }], "lists": [] }
   ],
   "schema": {
     "0": {
-      "x": {
+      "view": {
         "any": [
           { "rule": { "field": "flag", "operator": "equals", "value": "x" } },
-          { "rel": "primarySpace", "action": "n" }
+          { "rel": "primarySpace", "action": "viaOrganization" }
         ]
       },
-      "read": { "all": [{ "rel": "primarySpace", "action": "n" }, "x"] }
+      "read": { "all": [{ "rel": "primarySpace", "action": "viaOrganization" }, "view"] }
     },
-    "1": { "n": { "rel": "organization", "action": "x" } }
+    "1": { "viaOrganization": { "rel": "organization", "action": "view" } }
   },
   "objects": [
     { "res": 0, "id": "o1", "flag": "y", "links": { "primarySpace": 1 }, "lists": {} },

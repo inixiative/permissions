@@ -188,8 +188,8 @@ const actorWrote = (field: string): ActionRule => ({
 const codes = (schema: RebacSchema) =>
   validateSchema(map, schema).errors.map((issue) => issue.code);
 
-describe('the review probes: each returned true on 0.22.0', () => {
-  test('T1: a path through an undeclared list a request body filled is refused', async () => {
+describe('reads the hydrator never loaded are refused', () => {
+  test('a path through an undeclared list a request body filled is refused', async () => {
     const body = await hydrate('conversation', {
       id: 'c1',
       orgId: 'o1',
@@ -203,7 +203,7 @@ describe('the review probes: each returned true on 0.22.0', () => {
     expect(codes(schema)).toEqual(['lens']);
   });
 
-  test('T2: the same read in a bracket spelling is refused, on a declared list too', async () => {
+  test('the same read in a bracket spelling is refused, on a declared list too', async () => {
     const record = { id: 'c1', orgId: 'o1', drafts: [{ authorId: 'attacker' }] };
     for (const field of [
       '["drafts"][0]["authorId"]',
@@ -221,7 +221,7 @@ describe('the review probes: each returned true on 0.22.0', () => {
     );
   });
 
-  test('T3: a relation keyed on the other side is refused, so a banned user never reads as unbanned', async () => {
+  test('a relation keyed on the other side is refused, so a banned user never reads as unbanned', async () => {
     const attacker = await hydrate('user', db.user?.attacker as Row);
     const schema = ruled('user', reads('profile.bannedAt'));
     expect(() =>
@@ -238,7 +238,7 @@ describe('the review probes: each returned true on 0.22.0', () => {
     expect(inline).toThrow(/keeps its foreign key/);
   });
 
-  test('T5: a schema is frozen on its first check; an edit afterwards throws and changes nothing', async () => {
+  test('a schema is frozen on its first check; an edit afterwards throws and changes nothing', async () => {
     const record = await hydrate('conversation', { id: 'c1', orgId: 'o1' });
     const schema = ruled('conversation', reads('orgId', 'nope'));
     expect(check(actorAs('attacker'), schema, { resource: 'conversation', record }, 'act')).toBe(
@@ -253,7 +253,7 @@ describe('the review probes: each returned true on 0.22.0', () => {
     );
   });
 
-  test('T6: an entitlement whose where reads into a list never holds, and is never granted', async () => {
+  test('an entitlement whose where reads into a list never holds, and is never granted', async () => {
     const entry: EntitlementEntry = {
       resource: 'conversation',
       anchor: { resource: 'conversation', id: 'c1' },
@@ -276,7 +276,7 @@ describe('the review probes: each returned true on 0.22.0', () => {
     expect(createCanGrantEntitlement(map)(writer, schema, entry, record)).toBe(false);
   });
 
-  test('T8: a path back to a model is refused; the hydrator links the row it would read', async () => {
+  test('a path back to a model is refused; the hydrator links the row it would read', async () => {
     const attacker = await hydrate('user', db.user?.attacker as Row);
     const org = attacker.org as Row;
     expect((org.creator as Row).org).toBe(org);
@@ -291,7 +291,7 @@ describe('the review probes: each returned true on 0.22.0', () => {
       ).toThrow(/comes back to `user`: a path back to a model is not in the lens/);
   });
 
-  test('P1: a rel back to a model is two hops; each lands on the real row, and a where there holds on it', async () => {
+  test('a rel back to a model is two hops; each lands on the real row, and a where there holds on it', async () => {
     const u1 = await hydrate('user', db.user?.u1 as Row);
     expect(((u1.org as Row).creator as Row).org).toBe(u1.org);
     const oneHop: RebacSchema = {
@@ -360,7 +360,7 @@ describe('a loop made by data denies; a schema that names itself throws', () => 
     expect(createRebacPaths(map)(owns('u1'), walks, subject, 'read')).toEqual([[]]);
   });
 
-  test('a sibling arm beside the looping arm is still judged', async () => {
+  test('a sibling arm beside the looping arm is judged', async () => {
     const u1 = await hydrate('user', db.user?.u1 as Row);
     const sibling: RebacSchema = {
       permissions: {
@@ -396,7 +396,7 @@ describe('a loop made by data denies; a schema that names itself throws', () => 
     expect(grants(nobody, tree)).toBe(false);
   });
 
-  test('a rule that names itself on the same record still throws', async () => {
+  test('a rule that names itself on the same record throws', async () => {
     const u1 = await hydrate('user', db.user?.u1 as Row);
     const selfLoop: RebacSchema = {
       permissions: { user: { actions: { read: { any: ['read'] } } } },
@@ -407,7 +407,7 @@ describe('a loop made by data denies; a schema that names itself throws', () => 
   });
 });
 
-describe('the second review: each returned true on the first build', () => {
+describe('computed keys, class instances, frozen wheres and the actor in a where', () => {
   test('a computed key on a row reached by { rel } is refused, so a set plan never reads as null', () => {
     const schema: RebacSchema = {
       permissions: {
@@ -421,7 +421,7 @@ describe('the second review: each returned true on the first build', () => {
     );
   });
 
-  test('A: a relation held as a class instance is read, not dropped', () => {
+  test('a relation held as a class instance is read, not dropped', () => {
     class OrgRow {
       id = 'o1';
       name = 'acme';
@@ -438,7 +438,7 @@ describe('the second review: each returned true on the first build', () => {
     expect(at('acme')).toBe(true);
   });
 
-  test('B: an entitlement where is frozen when first judged; an edit afterwards throws', () => {
+  test('an entitlement where is frozen when first judged; an edit afterwards throws', () => {
     const where: Condition = { field: 'name', operator: 'equals', value: 'Una' };
     const entry: EntitlementEntry = {
       resource: 'user',
@@ -456,7 +456,7 @@ describe('the second review: each returned true on the first build', () => {
     expect(ask()).toBe(true);
   });
 
-  test('C: a where reads the record alone, so an `__actor` path in it is refused', () => {
+  test('a where reads the record alone, so an `__actor` path in it is refused', () => {
     const entry: EntitlementEntry = {
       resource: 'user',
       anchor: { resource: 'user', id: 'u1' },
@@ -606,7 +606,7 @@ describe('the record a check reads is a view', () => {
   });
 });
 
-describe('the second review of the final build', () => {
+describe('the root, item paths, unknown resources and wheres on an item', () => {
   test('an edge back to the root loads the stored row: the caller’s record is not believed there', async () => {
     const named = (value: unknown): RebacSchema => ({
       permissions: {

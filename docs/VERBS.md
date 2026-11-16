@@ -48,7 +48,7 @@ what.
 | consult an entitlement | `src/core/entitled.ts` (`entitled`) | — |
 | walk an anchor path on a record | `src/core/schemaMap.ts` (`rowsAlongAnchorPath`; `anchorRowReachedFrom`, whether it reaches the anchor) | — (used by `entitled`, `rowsAbove` and placement) |
 | walk the delegation graph | `src/core/reachableFrom.ts` (`delegationReach`) | — (used by `reachableFrom` and `validateActionRule`'s cycle test) |
-| identify a row | `src/core/schemaMap.ts` (`identityKeyOfRow`, `keyFromResourceAndColumns`), `src/core/recordId.ts`; on a walk, `src/core/evaluate.ts` (`identifyRowOncePerCheck`, once per row and resource in one check) | — (the hydrator and loop detection share one key) |
+| identify a row | `src/core/schemaMap.ts` (`identityKeyOfRow`, `keyFromResourceAndColumns`), `src/core/recordId.ts` (`recordId`, `hasNoValue`: null, undefined or `''` is no value); on a walk, `src/core/evaluate.ts` (`identifyRowOncePerCheck`, once per row and resource in one check) | — (the hydrator and loop detection share one key) |
 | load a row | `src/helpers/hydration/hydrate.ts` | — (the app's `load` / `loadMany` are called nowhere else) |
 
 ## The lens, in this library's words
@@ -61,6 +61,7 @@ words its refusals:
 | `spellEveryFollowedRelationChain` | From a resource, spell under `root.relations` every chain of relations hydration follows, never entering the same model twice on one chain; throws past `relationLensLimits`. |
 | `lensAnchoredAtModel` | The json-rules lens for one model with a spelled relation tree; the rule form also carries the actor. |
 | `lensesAtRow` | The lenses a read is judged in at one row: the resource's, or under a list item what remains of the list's declared `down` paths. |
+| `lensesBuiltOnceAt` | The lens and the rule lens at one key (a resource, or a landing under an item), built once per map. |
 | `countRelationsOneRowHydrates` | The relations one row of a resource hydrates, one kind of each false-polymorphic model counted. |
 | `issuesForReadsOutsideLens` | Every path a condition reads that the lens does not hold, as json-rules' gate reports it. |
 | `whyPathLeavesLens`, `whyRelationPathCannotBeWalked` | The refusal in this library's words: a list (use the list arm), a relation not loaded, a path outside a declared `down`, a path back to a model. |

@@ -46,7 +46,7 @@ type RememberedAnswer<T> = {
 };
 
 /** `answers`: by row object, then walk mode and node key, each kept only when no test in its walk found a node on the path. */
-export type WhatOneCheckRemembers<T = unknown> = {
+type WhatOneCheckRemembers<T = unknown> = {
   rowIds: WeakMap<Row, Map<string, string>>;
   rowRulesThatHold: WeakMap<Row, Map<string, boolean>>;
   answers: WeakMap<Row, Map<string, RememberedAnswer<T>>> | undefined;

@@ -1,9 +1,10 @@
 import { describe, expect, spyOn, test } from 'bun:test';
-import { map, model, nobody, pool, recordAt, schema } from '../bench/fixtures';
-import { createRebacCheck } from '../index';
+import { map, model, nobody, pool, schema } from '../bench/fixtures';
+import { createPermissions, createRebacCheck, createRebacPaths, type RebacSchema } from '../index';
 import * as schemaMap from '../src/core/schemaMap';
 import * as validateActionRule from '../src/core/validateActionRule';
 import * as validateSchema from '../src/core/validateSchema';
+import { mapOf } from './schemaMaps';
 
 // One check remembers what it computed (src/core/evaluate.ts, `WhatOneCheckRemembers`); nothing
 // it remembers outlives the check.
@@ -26,25 +27,42 @@ describe('a row is identified once per row per check', () => {
 });
 
 describe("a row's own rules are judged once per row per check", () => {
-  test('a root row whose own operate rule the denied read reaches many times is judged once, and again on the next check', async () => {
-    const check = createRebacCheck(map);
-    const permix = await nobody();
-    const record = recordAt(6, 'leaf');
-    let root = record;
-    while (root.parent) root = root.parent as typeof record;
-    root.permissionRules = { operate: 'manage' };
+  // Three owners each walk the start row (no hop, so no node memo): only the row-rule cache keeps
+  // their walks from judging its rule again.
+  const rowRuleCalls = async () => {
+    const spaceMap = mapOf({ 'db:space': { organization: 'db:organization' } });
+    const spaceSchema: RebacSchema = {
+      permissions: {
+        'db:organization': { actions: { own: null } },
+        'db:space': { actions: { view: null, read: null } },
+      },
+    };
+    const anchor = { resource: 'db:space', id: 's1' };
+    const owners = [createPermissions(), createPermissions(), createPermissions()];
+    const holder = createPermissions();
+    for (const [i, owner] of owners.entries())
+      await holder.setup(
+        [{ resource: 'db:space', anchor, actions: { read: true }, ref: `e${i}` }],
+        {
+          owner,
+        },
+      );
+    const record = { id: 's1', organizationId: 'o1', permissionRules: { read: 'view' } };
     const judged = spyOn(validateActionRule, 'validateActionRule');
     const lens = spyOn(validateSchema, 'issuesForRuleReadsOutsideLens');
     try {
-      expect(check(permix, schema, { resource: model(6), record }, 'read')).toBe(false);
-      expect(judged).toHaveBeenCalledTimes(1);
-      expect(lens).toHaveBeenCalledTimes(1);
-      expect(check(permix, schema, { resource: model(6), record }, 'read')).toBe(false);
-      expect(judged).toHaveBeenCalledTimes(2);
-      expect(lens).toHaveBeenCalledTimes(2);
+      expect(
+        createRebacPaths(spaceMap)(holder, spaceSchema, { resource: 'db:space', record }, 'read'),
+      ).toEqual([]);
+      return [judged.mock.calls.length, lens.mock.calls.length];
     } finally {
       judged.mockRestore();
       lens.mockRestore();
     }
+  };
+
+  test('three entitlement owners walking one row judge its own read rule once among them', async () => {
+    // validateActionRule: once for the row's rule, six for the schema's three rules on its first use
+    expect(await rowRuleCalls()).toEqual([7, 1]);
   });
 });

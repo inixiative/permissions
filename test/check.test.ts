@@ -752,8 +752,8 @@ describe('raw boolean ActionRule (true = allow, false = deny; null stays a deny)
   });
 });
 
-describe('cycle detection (regressions for the adversarial findings)', () => {
-  test('#2 self-delegation throws instead of looping forever', () => {
+describe('cycle detection', () => {
+  test('self-delegation throws instead of looping forever', () => {
     const s: RebacSchema = { permissions: { m: { actions: { read: 'read' } } } };
     const c = createRebacCheck(mapOf({}, loose));
     expect(() => c(stub(), s, { resource: 'm', record: { id: '1' } }, 'read')).toThrow(
@@ -761,7 +761,7 @@ describe('cycle detection (regressions for the adversarial findings)', () => {
     );
   });
 
-  test('#2 mutual delegation throws', () => {
+  test('mutual delegation throws', () => {
     const s: RebacSchema = { permissions: { m: { actions: { read: 'manage', manage: 'read' } } } };
     const c = createRebacCheck(mapOf({}, loose));
     expect(() => c(stub(), s, { resource: 'm', record: { id: '1' } }, 'read')).toThrow(
@@ -769,7 +769,7 @@ describe('cycle detection (regressions for the adversarial findings)', () => {
     );
   });
 
-  test('#3 a legal chain of distinct id-LESS records does NOT false-positive a cycle', () => {
+  test('a chain of distinct records without ids is not a cycle', () => {
     const s: RebacSchema = {
       permissions: {
         node: {

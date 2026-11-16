@@ -616,7 +616,7 @@ describe('the mark: a row without grantsBelow never counts in the first pass', (
   });
 });
 
-describe('still refused: an entitlement with a where never counts in the first pass', () => {
+describe('refused: an entitlement with a where never counts in the first pass', () => {
   const draft = eq('label', 'draft');
   const row = integrationsOfS1(['manage']);
 
@@ -678,7 +678,7 @@ describe('still refused: an entitlement with a where never counts in the first p
   });
 });
 
-describe('still refused: combining, sideways, another anchor, a rewritten where', () => {
+describe('refused: combining, sideways, another anchor, a rewritten where', () => {
   const slack = eq('provider', 'slack');
   const teams = eq('provider', 'teams');
 
@@ -730,7 +730,7 @@ describe('still refused: combining, sideways, another anchor, a rewritten where'
 // the granted record, not above it, so it never counts: without this the rows below would be
 // re-anchored and combined for one row, and R99 reversed (review F1). Every row here is hydrated
 // as the database returns it, every held row is marked, and no `where` is involved.
-describe('still refused: an entitlement on the granted record itself (self-anchored entries)', () => {
+describe('refused: an entitlement on the granted record itself (self-anchored entries)', () => {
   const i1 = integrationIn({ ...s1, label: null });
   const t1 = { id: 't1', integrationId: 'i1', integration: i1 };
 
@@ -777,14 +777,14 @@ describe('still refused: an entitlement on the granted record itself (self-ancho
     expect(await grants(holding([readOfI1, postOfS1]), both, t1)).toBe(false);
   });
 
-  test('a self-anchored copy still passes, and rows above the granted one still count', async () => {
+  test('a self-anchored copy passes, and rows above the granted one count', async () => {
     expect(await grants(holding([manageS1]), manageS1, s1)).toBe(true);
     const manageI1 = entry('db:integration', { resource: 'db:integration', id: 'i1' }, ['manage']);
     expect(await grants(holding([manageS1]), manageI1, i1)).toBe(true);
   });
 });
 
-describe('still refused: an entitlement met below the anchor, on a placed record', () => {
+describe('refused: an entitlement met below the anchor, on a placed record', () => {
   test('held on the granted resource itself, at the placed record: only the copy pass applies', async () => {
     const writer = holding([below(integrationsOfS1(['manage']))]);
     const threads = entry(
@@ -1022,7 +1022,7 @@ describe('upstream conditions', () => {
       expect(await grants(w, newRow, s1)).toBe(false);
     });
 
-    test('W still copies its own row: the copy pass ignores every where in liveness, as on main', async () => {
+    test('W copies its own row: the copy pass ignores every where in liveness', async () => {
       expect(await grants(w, wRow, s1)).toBe(true);
     });
 
@@ -1087,7 +1087,7 @@ describe('upstream conditions', () => {
       expect(await grants(holding([wRow], unlensed), newRow, s1)).toBe(true);
     });
 
-    test('W still copies its own row: a lensed chain is handed on by the copy pass', async () => {
+    test('W copies its own row: a lensed chain is handed on by the copy pass', async () => {
       expect(await grants(w, wRow, s1)).toBe(true);
     });
 

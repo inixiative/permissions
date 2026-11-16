@@ -1,25 +1,26 @@
 {
+  "names": ["db:organization", "db:space"],
   "resources": [
-    { "rels": [{ "name": "up", "target": 1 }], "lists": [] },
-    { "rels": [{ "name": "back", "target": 0 }], "lists": [] }
+    { "rels": [{ "name": "primarySpace", "target": 1 }], "lists": [] },
+    { "rels": [{ "name": "organization", "target": 0 }], "lists": [] }
   ],
   "schema": {
     "0": {
-      "x": {
+      "view": {
         "any": [
           { "rule": { "field": "flag", "operator": "equals", "value": "x" } },
-          { "rel": "up", "action": "n" }
+          { "rel": "primarySpace", "action": "viaOrganization" }
         ]
       },
-      "m": "x",
-      "read": { "all": [{ "rel": "up", "action": "n" }, "x"] }
+      "viewAgain": "view",
+      "read": { "all": [{ "rel": "primarySpace", "action": "viaOrganization" }, "view"] }
     },
-    "1": { "n": { "rel": "back", "action": "m" } }
+    "1": { "viaOrganization": { "rel": "organization", "action": "viewAgain" } }
   },
   "objects": [
-    { "res": 0, "id": "o1", "flag": "y", "links": { "up": 1 }, "lists": {} },
-    { "res": 1, "id": "s1", "links": { "back": 2 }, "lists": {} },
-    { "res": 0, "id": "o1", "flag": "x", "links": { "up": 3 }, "lists": {} },
+    { "res": 0, "id": "o1", "flag": "y", "links": { "primarySpace": 1 }, "lists": {} },
+    { "res": 1, "id": "s1", "links": { "organization": 2 }, "lists": {} },
+    { "res": 0, "id": "o1", "flag": "x", "links": { "primarySpace": 3 }, "lists": {} },
     { "res": 1, "id": "s1", "links": {}, "lists": {} }
   ],
   "tables": [{ "grants": [], "ents": [], "actor": null }],
