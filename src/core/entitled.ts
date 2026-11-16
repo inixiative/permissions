@@ -2,7 +2,7 @@ import { type Absent, type Condition, check as checkRule } from '@inixiative/jso
 import {
   evaluate,
   identifyRowOncePerCheck,
-  isOwnerNodeOnPath,
+  isNodeOnPath,
   type Visited,
   type Walk,
 } from './evaluate';
@@ -57,7 +57,7 @@ export const entitled = <R extends string, T>(
     held.map(
       ({ anchor, where, owner, ref, grantsBelow }) =>
         () =>
-          !isOwnerNodeOnPath(
+          !isNodeOnPath(
             walk,
             visited,
             `${permixId(owner)}:${identifyRowOncePerCheck(walk, resource, record)}:${resource}:${action}`,

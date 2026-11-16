@@ -14,9 +14,10 @@ import {
   type SchemaMap,
 } from '../../index';
 
-// A walk case as the differential fuzzer writes it (session ed6e52b5 scratchpad
-// review-walk-memo/fuzz.ts): resources by index, objects by index, tables of grants and
-// entitlements. `outcomesOfWalkCase` builds it fresh and runs each check on it.
+// A walk case in the form a differential fuzzer of two builds writes: resources, row objects and
+// tables of grants and entitlements, each by index; one row may be several objects. Resource i is
+// `db:ri` (model `Mi`, columns `id`, `flag` and a foreign key per relation). `outcomesOfWalkCase`
+// builds it fresh and runs `check` (absent null and unknown), `paths` (limit 2) and the grant check.
 
 type Relation = { name: string; target: number };
 type List = { name: string; item: number; inverse: string; down: string[] };

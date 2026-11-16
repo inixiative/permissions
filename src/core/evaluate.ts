@@ -36,33 +36,22 @@ export type Walk<R extends string, T = boolean> = {
   oneCheck: WhatOneCheckRemembers<T>;
 };
 
-/**
- * A node's answer, kept only when no test in its walk found a node on the path. Its `footprint` is
- * what its answer depends on: the answers of the nodes it walked or reused (each with its key) and
- * the keys `entitled` tested; it holds while no key in it, at any depth, is on the path.
- */
+/** `footprint`: the answers its walk walked or reused; it holds while none of their keys, at any depth, is on the path. */
 type RememberedAnswer<T> = {
   key: string;
   answer: T;
-  footprint: Footprint<T> | undefined;
+  footprint: RememberedAnswer<T>[] | undefined;
   checkedAt: number;
 };
-type Footprint<T> = (string | RememberedAnswer<T>)[];
 
-/**
- * `rowIds`: a row's id on the walk (`rowId` of `identityKeyOfRow`), by row object and then resource.
- * `rowRulesThatHold`: whether a row's own rule for an action is well formed and reads inside the lens, by row object and then resource and action.
- * `answers`: a node's remembered answer, by row object and then walk mode and node key; made on the first node reached after a hop.
- * `nodesFoundOnPath`: how many tests in this check found a node on the path.
- * `footprintOfThisNode`: the footprint so far of the node being walked; null while that node is at no hops, since it keeps nothing.
- * `footprintChecks`: how many times a footprint has been checked against the path.
- */
+/** `answers`: by row object, then walk mode and node key, each kept only when no test in its walk found a node on the path. */
 export type WhatOneCheckRemembers<T = unknown> = {
   rowIds: WeakMap<Row, Map<string, string>>;
   rowRulesThatHold: WeakMap<Row, Map<string, boolean>>;
   answers: WeakMap<Row, Map<string, RememberedAnswer<T>>> | undefined;
   nodesFoundOnPath: number;
-  footprintOfThisNode: Footprint<T> | undefined | null;
+  // why: null at no hops (nothing kept, nothing collected); undefined until a node past a hop meets its first child
+  footprintOfThisNode: RememberedAnswer<T>[] | undefined | null;
   footprintChecks: number;
 };
 
@@ -103,43 +92,31 @@ export const identifyRowOncePerCheck = <R extends string, T>(
 export type Visited = Map<string, number>;
 
 /** Whether node `key` is on the current path, counted on the check when it is. */
-const isNodeOnPath = <T>(oneCheck: WhatOneCheckRemembers<T>, visited: Visited, key: string) => {
+export const isNodeOnPath = <R extends string, T>(
+  { oneCheck }: Walk<R, T>,
+  visited: Visited,
+  key: string,
+): boolean => {
   if (!visited.has(key)) return false;
   oneCheck.nodesFoundOnPath++;
   return true;
 };
 
-/** `isNodeOnPath` for `entitled`'s owner test, which a node's answer depends on without walking it. */
-export const isOwnerNodeOnPath = <R extends string, T>(
-  walk: Walk<R, T>,
-  visited: Visited,
-  key: string,
-): boolean => {
-  addToFootprint(walk.oneCheck, key);
-  return isNodeOnPath(walk.oneCheck, visited, key);
-};
-
-const addToFootprint = <T>(
-  oneCheck: WhatOneCheckRemembers<T>,
-  item: string | RememberedAnswer<T>,
-) => {
-  if (oneCheck.footprintOfThisNode) oneCheck.footprintOfThisNode.push(item);
-  else if (oneCheck.footprintOfThisNode === undefined) oneCheck.footprintOfThisNode = [item];
+const addToFootprint = <T>(oneCheck: WhatOneCheckRemembers<T>, answer: RememberedAnswer<T>) => {
+  if (oneCheck.footprintOfThisNode) oneCheck.footprintOfThisNode.push(answer);
+  else if (oneCheck.footprintOfThisNode === undefined) oneCheck.footprintOfThisNode = [answer];
 };
 
 const isFootprintOnPath = <T>(
-  footprint: Footprint<T>,
+  footprint: RememberedAnswer<T>[],
   visited: Visited,
   check: number,
 ): boolean => {
-  for (const item of footprint) {
-    if (typeof item === 'string') {
-      if (visited.has(item)) return true;
-    } else if (item.checkedAt !== check) {
-      item.checkedAt = check;
-      if (visited.has(item.key)) return true;
-      if (item.footprint && isFootprintOnPath(item.footprint, visited, check)) return true;
-    }
+  for (const answer of footprint) {
+    if (answer.checkedAt === check) continue;
+    answer.checkedAt = check;
+    if (visited.has(answer.key)) return true;
+    if (answer.footprint && isFootprintOnPath(answer.footprint, visited, check)) return true;
   }
   return false;
 };
@@ -187,7 +164,7 @@ const walkAction = <R extends string, T>(
   const granted = () =>
     permix.check(resource, actionOrRule, recordId(record)) ? algebra.unit : algebra.none;
   // why: a loop with no hop is a schema naming itself (a bug, it throws); one through a hop is data, and denies
-  if (isNodeOnPath(oneCheck, visited, key))
+  if (isNodeOnPath(walk, visited, key))
     return algebra.any([
       granted,
       () => (visited.get(key) === hops ? algebra.loop(resource, actionOrRule) : algebra.none),
@@ -224,7 +201,7 @@ const walkAction = <R extends string, T>(
   oneCheck.footprintOfThisNode = undefined;
   const foundBefore = oneCheck.nodesFoundOnPath;
   let answer: T;
-  let footprint: Footprint<T> | undefined;
+  let footprint: RememberedAnswer<T>[] | undefined;
   try {
     answer = algebra.any([granted, walkRules]);
   } finally {

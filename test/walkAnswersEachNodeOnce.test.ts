@@ -480,7 +480,11 @@ describe('two objects of one row (found against the first reading of the memo)',
   });
 });
 
-describe("the reviewer's regression cases (session ed6e52b5, review-walk-memo/cases)", () => {
+const FOOTPRINT_CASE = { check: false, checkUnknown: false, paths: [], grant: false };
+
+// Cases found by fuzzing this build against the walk without the memo (test/fixtures/walkCases):
+// rows, schemas and tables in the fuzzer's form, each with what every check answers.
+describe('cases found against the memo', () => {
   const expected: Record<string, Awaited<ReturnType<typeof outcomesOfWalkCase>>> = {
     'two-copies-loaded-differently': { check: true, checkUnknown: true, paths: [''], grant: true },
     'first-pass-hydrated-repeat': { check: true, checkUnknown: true, paths: ['e'], grant: false },
@@ -502,6 +506,8 @@ describe("the reviewer's regression cases (session ed6e52b5, review-walk-memo/ca
       paths: ['Er'],
       grant: false,
     },
+    'footprint-on-path-two-levels-down': FOOTPRINT_CASE,
+    'reused-child-in-parent-footprint': FOOTPRINT_CASE,
     'finished-sibling-in-visited': {
       check: true,
       checkUnknown: true,
@@ -510,13 +516,22 @@ describe("the reviewer's regression cases (session ed6e52b5, review-walk-memo/ca
     },
   };
   const named: Record<string, string> = {
-    'two-copies-loaded-differently': 'two copies of one row loaded differently',
-    'first-pass-hydrated-repeat': "the first pass's hydrated repeat of the granted row",
-    'repeat-met-while-start-on-path': 'that repeat met while the start is on the path, grant check',
+    'two-copies-loaded-differently':
+      'two objects of one row with different flags: each is judged on its own object',
+    'first-pass-hydrated-repeat':
+      "the grant check's first pass meets the hydrated repeat of the granted row in `above`: it never counts as the granted row",
+    'repeat-met-while-start-on-path':
+      'that repeat answered once, then met again while the granted row is on the path: the grant check denies, as recomputing does',
     'plain-repeat-met-while-start-on-path':
-      'that repeat met while the start is on the path, plain check',
-    'under-mode-path-through-loop': 'a node whose walk reaches an ancestor only under a list item',
-    'finished-sibling-in-visited': 'a finished sibling left in `visited`',
+      'the same in a plain check: the repeat met while the start row is on the path denies',
+    'under-mode-path-through-loop':
+      'a node whose walk reaches an ancestor only under a list item is answered again outside it',
+    'footprint-on-path-two-levels-down':
+      "o1 → s1 → o1's repeat → s1's repeat: an answer kept for s1 whose footprint meets the start two levels down is not reused while the start is on the path; read denies",
+    'reused-child-in-parent-footprint':
+      "the same loop, with s1's two actions reaching the repeat: an answer reused inside another stays in that one's footprint; read denies",
+    'finished-sibling-in-visited':
+      'a node a finished sibling walked is not on the path: paths reports the longer chain through it',
   };
   for (const [name, title] of Object.entries(named))
     test(title, async () => {
