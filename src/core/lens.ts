@@ -108,21 +108,32 @@ const spellEveryFollowedRelationChain = (
   return spellBelow(resource, [resource], []);
 };
 
+/** The lens and the rule lens at `key`, built once from `tree` (read only when they are built). */
+const lensesBuiltOnceAt = (
+  map: SchemaMap,
+  key: string,
+  model: string,
+  tree: () => SpelledRelationTree,
+) => {
+  const { lenses } = indexMap(map);
+  if (!lenses.has(key)) {
+    const spelled = tree();
+    lenses.set(key, lensAnchoredAtModel(map, model, spelled, false));
+    lenses.set(`rule\u0000${key}`, lensAnchoredAtModel(map, model, spelled, true));
+  }
+  return { lens: lenses.get(key) ?? null, rule: lenses.get(`rule\u0000${key}`) ?? null };
+};
+
 const lensesAndSizeOfResource = (map: SchemaMap, resource: string) => {
-  const { lenses, lensSizes } = indexMap(map);
+  const { lensSizes } = indexMap(map);
   const model = map.resources[resource];
   if (!model) return null;
-  if (!lenses.has(resource)) {
+  const lenses = lensesBuiltOnceAt(map, resource, model, () => {
     const { tree, size } = spellEveryFollowedRelationChain(map, resource);
-    lenses.set(resource, lensAnchoredAtModel(map, model, tree, false));
-    lenses.set(`rule\u0000${resource}`, lensAnchoredAtModel(map, model, tree, true));
     lensSizes.set(resource, size);
-  }
-  return {
-    lens: lenses.get(resource) ?? null,
-    rule: lenses.get(`rule\u0000${resource}`) ?? null,
-    size: lensSizes.get(resource) ?? 0,
-  };
+    return tree;
+  });
+  return { ...lenses, size: lensSizes.get(resource) ?? 0 };
 };
 
 /** The relations one row of `resource` hydrates, one kind of each polymorphic model counted. */
@@ -134,7 +145,6 @@ const lensesAtLandingUnderListItem = (
   map: SchemaMap,
   under: PositionUnderListItem,
 ): LensesAtRow => {
-  const { lenses } = indexMap(map);
   const key = `${under.list}\u0000${under.prefix.join('.')}`;
   let resource = under.listRelation.resource;
   let tree = under.listRelation.down;
@@ -142,15 +152,10 @@ const lensesAtLandingUnderListItem = (
     resource = relationOf(map, resource, segment)?.resource ?? resource;
     tree = (tree[segment]?.relations ?? {}) as SpelledRelationTree;
   }
-  const model = map.resources[resource] as string;
-  if (!lenses.has(key)) {
-    lenses.set(key, lensAnchoredAtModel(map, model, tree, false));
-    lenses.set(`rule\u0000${key}`, lensAnchoredAtModel(map, model, tree, true));
-  }
+  const spelled = tree;
   return {
     resource,
-    lens: lenses.get(key) ?? null,
-    rule: lenses.get(`rule\u0000${key}`) ?? null,
+    ...lensesBuiltOnceAt(map, key, map.resources[resource] as string, () => spelled),
     under,
   };
 };
@@ -256,7 +261,7 @@ export const whyRelationPathCannotBeWalked = (
 };
 
 const codesForPathOutsideLens = new Set(['not_in_lens', 'scope_out_of_bounds']);
-// why: json-rules' fit check is reported by validateSchema; it never refuses a check (invalid_value waits on typed fixtures)
+// why: json-rules' fit check is reported by validateSchema; it never refuses a check
 const codesForOperatorNotFittingField = new Set(['operator_kind_mismatch']);
 
 /** A miss that refuses a read: out of the lens, a relation hop, or past a declaration; not an operator fit. */

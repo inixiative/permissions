@@ -6,7 +6,7 @@ const splitResource = (resource: string): [string, string] => {
   return i === -1 ? ['', resource] : [resource.slice(0, i), resource.slice(i + 1)];
 };
 
-export type BridgeHop = {
+type BridgeHop = {
   farResource: string;
   localOn: string;
   farMap: string;

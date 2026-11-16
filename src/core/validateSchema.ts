@@ -125,16 +125,22 @@ const relIssues = (
   return under ? follow(landed, rule.action) : [];
 };
 
-/** Every action rule of a schema that is not well formed and positive, by `resource.action`. */
-export const schemaRuleIssues = (schema: RebacSchema): ValidationIssue[] =>
+const issuesOfEveryActionRule = (
+  schema: RebacSchema,
+  judgedInItsSchema: boolean,
+): ValidationIssue[] =>
   Object.entries(schema.permissions).flatMap(([resource, permission]) =>
     Object.entries(permission?.actions ?? {}).flatMap(([action, rule]) =>
-      validateActionRule(rule).errors.map((issue) => ({
-        ...issue,
-        path: `${resource}.${action}${issue.path.slice(1)}`,
-      })),
+      validateActionRule(
+        rule,
+        judgedInItsSchema ? { schema, resource, action } : undefined,
+      ).errors.map((issue) => ({ ...issue, path: `${resource}.${action}${issue.path.slice(1)}` })),
     ),
   );
+
+/** Every action rule of a schema that is not well formed and positive, by `resource.action`. */
+export const schemaRuleIssues = (schema: RebacSchema): ValidationIssue[] =>
+  issuesOfEveryActionRule(schema, false);
 
 /** Every read of a well-formed action rule at `resource` outside the lens. */
 export const issuesForRuleReadsOutsideLens = (
@@ -206,16 +212,6 @@ export const validateSchema = (
   map: SchemaMap,
   schema: RebacSchema,
 ): ValidationResult & { warnings: ValidationIssue[] } => {
-  const errors = [
-    ...Object.entries(schema.permissions).flatMap(([resource, permission]) =>
-      Object.entries(permission?.actions ?? {}).flatMap(([action, rule]) =>
-        validateActionRule(rule, { schema, resource, action }).errors.map((issue) => ({
-          ...issue,
-          path: `${resource}.${action}${issue.path.slice(1)}`,
-        })),
-      ),
-    ),
-    ...readIssues(map, schema),
-  ];
+  const errors = [...issuesOfEveryActionRule(schema, true), ...readIssues(map, schema)];
   return { ok: errors.length === 0, errors, warnings: lensWarnings(map, schema) };
 };

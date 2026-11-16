@@ -7,7 +7,7 @@ import {
 } from '../index';
 import { mapOf } from '../test/schemaMaps';
 
-export const DEPTH = 6;
+const DEPTH = 6;
 export const model = (i: number) => `m${i}`;
 
 const standard = (parent: boolean) => ({
@@ -45,10 +45,14 @@ export const table = async (...entries: PermissionEntry[]): Promise<Permix> => {
   return permix;
 };
 
+/** A table whose only grant is on a resource the bench never checks. */
+export const nobody = () =>
+  table({ resource: 'elsewhere', id: 'x', actions: { own: true } } as PermissionEntry);
+
 export const rootOwner = () =>
   table({ resource: model(0), id: 'root', actions: { own: true } } as PermissionEntry);
 
-export const pathUp = (depth: number) => Array.from({ length: depth }, () => 'parent').join('.');
+const pathUp = (depth: number) => Array.from({ length: depth }, () => 'parent').join('.');
 
 export const entitlement = (
   resource: string,

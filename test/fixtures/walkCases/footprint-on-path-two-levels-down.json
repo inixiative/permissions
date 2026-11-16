@@ -1,0 +1,32 @@
+{
+  "names": ["db:organization", "db:space"],
+  "resources": [
+    { "rels": [{ "name": "primarySpace", "target": 1 }], "lists": [] },
+    { "rels": [{ "name": "organization", "target": 0 }], "lists": [] }
+  ],
+  "schema": {
+    "0": {
+      "view": {
+        "any": [
+          { "rule": { "field": "flag", "operator": "equals", "value": "x" } },
+          { "rel": "primarySpace", "action": "viaOrganization" }
+        ]
+      },
+      "viewAgain": "view",
+      "read": { "all": [{ "rel": "primarySpace", "action": "viaOrganization" }, "view"] }
+    },
+    "1": { "viaOrganization": { "rel": "organization", "action": "viewAgain" } }
+  },
+  "objects": [
+    { "res": 0, "id": "o1", "flag": "y", "links": { "primarySpace": 1 }, "lists": {} },
+    { "res": 1, "id": "s1", "links": { "organization": 2 }, "lists": {} },
+    { "res": 0, "id": "o1", "flag": "x", "links": { "primarySpace": 3 }, "lists": {} },
+    { "res": 1, "id": "s1", "links": {}, "lists": {} }
+  ],
+  "tables": [{ "grants": [], "ents": [], "actor": null }],
+  "query": { "object": 0, "action": "read" },
+  "grant": {
+    "ent": { "resource": 0, "path": [], "anchorId": "o1", "actions": ["read"] },
+    "placed": 0
+  }
+}

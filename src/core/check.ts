@@ -8,7 +8,6 @@ export type RebacCheck<R extends string = string> = (
   schema: RebacSchema<R>,
   subject: Subject<R>,
   actionOrRule: ActionRule,
-  visited?: Set<string>,
 ) => boolean;
 
 /**
@@ -25,7 +24,10 @@ export type RebacCheck<R extends string = string> = (
 export const createRebacCheck = <R extends string = string>(
   map: SchemaMap<R>,
   { absent = 'null' }: CheckOptions = {},
-): RebacCheck<R> => createWalker(map, absent, booleanAlgebra);
+): RebacCheck<R> => {
+  const walker = createWalker(map, absent, booleanAlgebra);
+  return (permix, schema, subject, actionOrRule) => walker(permix, schema, subject, actionOrRule);
+};
 
 export type RebacPaths<R extends string = string> = (
   permix: PermixLike,

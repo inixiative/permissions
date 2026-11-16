@@ -42,19 +42,20 @@ fits Kingdom's 313 rule reads and 368 rel hops.
   its own org), and the writer holds the action there by the schema.
 - **Rows are known by their key**: the engine id field when the model has it and the row a value
   (it is what the app loads by), else the model's id columns (`isId`, or a composite `@@id`), else
-  the object (a stand-in). One encoder, `keyFromResourceAndColumns`, keys rows for the hydrator and for identity.
+  the object (a stand-in). One encoder, `keyFromResourceAndColumns`, keys rows for the hydrator and for identity (a `paths` admission is keyed by its own `JSON.stringify`).
 - `validateSchema` reports json-rules' `operator_kind_mismatch` (a check never refuses on it).
   `invalid_value` is left off: it would fail 64 of this repo's tests only because the fixture
   helper types every column `String` (`test/schemaMaps.ts`); the owner decides later.
 - The freeze costs about 15% in json-rules' evaluator; it stays.
 - The list arm's `arrayOperator === 'any'` guard is gone (a frozen, judged schema cannot carry
   another). The bridge guard and `absent: 'unknown'` under an item stay.
-- One anchor-path walk (`rowsAlongAnchorPath`) replaces `reaches`, `chainOf` and the start of `rowsAbove`;
+- One anchor-path walk (`rowsAlongAnchorPath`) under `chainOf`, placement and `anchorRowReachedFrom`, the one test that a record's path reaches its anchor (`entitled` and `rowsAbove`);
   one delegation walker (`delegationReach`, with `pureDelegates` or `allDelegates`) replaces the
   cycle test's and `reachableFrom`'s, which is cached per frozen schema.
 
 ### Breaking
 
+- `RebacCheck` takes four arguments: the `visited` set is gone (no caller seeded it). An app wrapper that passes it through (Kingdom's and template's `check.ts`) drops the argument.
 - A schema that reads outside the lens is refused on first use, `{ rel }` hops included. Kingdom,
   template and Tribe carry one such arm, `integration.integration` in `db:token.create`.
 - A rule reads only fields the model has, wherever it came from, a rule passed to `check`
@@ -69,6 +70,16 @@ fits Kingdom's 313 rule reads and 368 rel hops.
   `(resource, record)`. `ListRelation.paths` is `down` (json-rules' spelling).
   `declarationIssues` and `resolveField` are gone; `whyEntitlementWhereLeavesLens` is new; `validateSchema`
   also returns `warnings`. A `hydrate: false` relation is no anchor-path, `rel` or `rowsAbove` step.
+- **`paths` reports the admissions through a node a finished sibling walked.** `visited` holds only
+  the nodes on the current path; a finished node used to stay in the map its siblings shared, and
+  `entitled` skipped the owner walk that met it again. `paths` may now return more admissions, and
+  may reach its limit (`PathLimitError`) where it did not. `check` and the grant check answer as
+  before (no difference in 48,000 fuzzed cases).
+- **One check answers each node once, past its starting row.** A node reached after a hop (its
+  table, row object, resource and action, in its walk mode) is kept when no test in its walk found
+  a node on the path, with its footprint, and reused while nothing in the footprint is on the path.
+  A denial 6 hops down walks 28 nodes instead of 329. Row keys and a row's own rule verdicts are
+  also computed once per row per check. No answer changes.
 
 ### Options rejected
 

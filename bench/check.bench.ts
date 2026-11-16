@@ -1,6 +1,14 @@
-import { createRebacCheck, type EntitlementEntry, type PermissionEntry } from '../index';
+import { createRebacCheck, type EntitlementEntry } from '../index';
 import { withExactStrings } from '../src/core/exactStrings';
-import { entitlement, map, model, pool, rootOwner, schema, table } from './fixtures';
+import {
+  entitlement,
+  map,
+  model,
+  nobody as nobodyTable,
+  pool,
+  rootOwner,
+  schema,
+} from './fixtures';
 import { measure, report } from './harness';
 
 const check = createRebacCheck(map);
@@ -19,11 +27,7 @@ console.log(`bun ${Bun.version} · ${process.arch} · ${new Date().toISOString()
 
 const s1 = async () => {
   const owner = await rootOwner();
-  const nobody = await table({
-    resource: 'elsewhere',
-    id: 'x',
-    actions: { own: true },
-  } as PermissionEntry);
+  const nobody = await nobodyTable();
   const results = [measure('engineGlobals.with alone', () => withExactStrings(() => 1))];
   for (const depth of [0, 1, 2, 4, 6]) {
     results.push(measure(`allow read, ${depth} hops`, on(depth)(owner, 'read')));
@@ -50,11 +54,7 @@ const s2 = async () => {
     };
     for (const [variant, make] of Object.entries(variants)) {
       if (n === 0 && variant !== 'a: other resources') continue;
-      const holder = await table({
-        resource: 'elsewhere',
-        id: 'x',
-        actions: { own: true },
-      } as PermissionEntry);
+      const holder = await nobodyTable();
       if (n > 0)
         await holder.setup(
           Array.from({ length: n }, (_, k) => make(k)),
@@ -68,11 +68,7 @@ const s2 = async () => {
 };
 
 const s3 = async () => {
-  const nobody = await table({
-    resource: 'elsewhere',
-    id: 'x',
-    actions: { own: true },
-  } as PermissionEntry);
+  const nobody = await nobodyTable();
   const results = [];
   for (const depth of [1, 3, 6]) {
     const records = pool(depth);

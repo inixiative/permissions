@@ -28,25 +28,11 @@ const narrows = (held: Entitlement, entry: EntitlementEntry) => {
 };
 
 /**
- * Build the grant check, bound to the same schema map as the rebac check.
- *
- * A grant is judged in two passes. The first: the writer's table (its role; a delegate's role is
- * its owner's table capped at it) with no actor takes every action `entry` names on `placed`, the pseudo record `placeEntitlement` builds
- * from the hydrated anchor along the entry's path; a field it does not carry is unknown (json-rules
- * `absent: 'unknown'`), so the writer covers every record the `where` admits. In that pass an
- * entitlement counts as a role on its record would when it is marked `grantsBelow`, has no
- * `where`, and the walk meets it on a hydrated row above the granted record (`rowsAbove`: never
- * the granted record itself, never a placed one); its owner is walked from there under the same
- * rule. A `where` is excluded because it would be read on today's row and dropped from the grant.
- * Failing that, the
- * entitlement pass: the entry is one entitlement the writer holds, copied or narrowed — same
- * resource and anchor, each of its actions one the held entitlement holds or reaches by pure
- * delegation (a bare action name, alone or an arm of a top-level `any`), and every condition of the held `where`
- * among the entry's (the held `where` itself, or each child of its top `all`) — and for each granted
- * action, whoever granted the held one still takes that action on `placed`, in a walk that counts
- * every entitlement `where` as holding. The `where` is judged by structure alone and never by
- * that liveness walk, so a pin the placed record leaves unknown (`id in [A, B]`) passes on at any
- * depth. A granter limited only by a `where` counts as live; reads apply every `where` live.
+ * Build the grant check (README, Granting one). First pass: the writer's table, with no actor,
+ * takes every action `entry` names on `placed` (absent fields unknown), counting an entitlement
+ * only on a row above the granted record (`rowsAbove`), marked `grantsBelow`, without a `where`.
+ * Failing that, the entry narrows one entitlement the writer holds, and its granter still takes
+ * each action on `placed` in a walk that counts every `where` as holding.
  */
 export const createCanGrantEntitlement = <R extends string = string>(
   map: SchemaMap<R>,
@@ -67,10 +53,12 @@ export const createCanGrantEntitlement = <R extends string = string>(
     const table = asOwner(permix, null);
     const above = rowsAbove(map, entry, placed);
     const subject = { resource, record: placed };
-    if (actions.every((action) => check(table, schema, subject, action, new Set(), above)))
-      return true;
-    const reached = actions.map((action) => reachableFrom(schema, resource, action));
-    const candidates = [...(reached[0] ?? [])].flatMap(
+    if (actions.every((action) => check(table, schema, subject, action, above))) return true;
+    const reached = actions.map((action) => ({
+      action,
+      implying: reachableFrom(schema, resource, action),
+    }));
+    const candidates = [...(reached[0]?.implying ?? [])].flatMap(
       (action) => permix.entitlements?.(resource, action) ?? [],
     );
     return candidates.some((held) => {
@@ -79,7 +67,8 @@ export const createCanGrantEntitlement = <R extends string = string>(
       const owner = asOwner(held.owner, null);
       const backed = (action: string) => backs(owner, schema, { resource, record: placed }, action);
       return (
-        narrows(held, entry) && actions.every((action, i) => lowers(reached[i]!) && backed(action))
+        narrows(held, entry) &&
+        reached.every(({ action, implying }) => lowers(implying) && backed(action))
       );
     });
   };

@@ -10,8 +10,8 @@ import {
   type RebacSchema,
   type SchemaMap,
 } from '../index';
+import { stringColumn as scalar } from './schemaMaps';
 
-const scalar = { kind: 'scalar', type: 'String' } as const;
 const toOne = (type: string, fromFields: string[], toFields: string[]) =>
   ({ kind: 'object', type, isList: false, fromFields, toFields }) as const;
 const fieldMap: FieldMap = {
@@ -165,9 +165,9 @@ describe('polymorphic steps', () => {
       actions: { manage: true },
     } as EntitlementEntry;
     const placed = placeEntitlement(map, entry, o1);
-    expect(placed!.map((r) => (r.integration as { ownerModel: string }).ownerModel).sort()).toEqual(
+    expect(placed?.map((r) => (r.integration as { ownerModel: string }).ownerModel).sort()).toEqual(
       ['Organization', 'Space'],
     );
-    expect(placed!.every((r) => canGrant(writer, schema, entry, r))).toBe(false);
+    expect(placed?.every((r) => canGrant(writer, schema, entry, r))).toBe(false);
   });
 });

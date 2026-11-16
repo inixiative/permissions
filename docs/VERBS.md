@@ -41,12 +41,14 @@ what.
 | build a json-rules lens and judge a path against it | `src/core/lens.ts` | `validateRuleInLens` and `walkLensPath` are called nowhere else. |
 | spell a relation tree | `src/core/lens.ts` (`spellEveryFollowedRelationChain`) | json-rules' model defaults enter each model once; every route is spelled under `root` here, as json-rules' docs say to. |
 | freeze, then judge once | `src/core/freezeThenJudgeOnce.ts` | `Object.freeze` nowhere else: a schema, an inline rule and a `where` are frozen by the one function that memoises their judgement. |
+| remember an answer by two keys | `src/core/freezeThenJudgeOnce.ts` (`answerOnce`) | — (used by `freezeThenJudgeOnce`, `reachableFrom`, the walker's inline-rule keys and the per-check row caches) |
 | walk a rule | `src/core/evaluate.ts` (`evaluate`), entered through `src/core/walker.ts` (`createWalker`) | — (one engine walk for `check`, `paths` and both grant passes) |
 | hop to a related row | `src/core/evaluate.ts` (`{ rel }` and the list arm), `src/core/bridgeHop.ts` (a bridge) | — |
+| remember a node's answer for one check | `src/core/evaluate.ts` (`walkAction`; `isNodeOnPath` is the counted test for a node on the path, `entitled`'s owner test included; a remembered answer's footprint is read against `visited` uncounted; the per-check state is `WhatOneCheckRemembers`) | — (a node reached after a hop: kept when no test in its walk found a node on the path, reused while no answer in its footprint is on the path; nothing outlives the check) |
 | consult an entitlement | `src/core/entitled.ts` (`entitled`) | — |
-| walk an anchor path on a record | `src/core/schemaMap.ts` (`rowsAlongAnchorPath`) | — (used by `entitled`, `rowsAbove` and placement) |
+| walk an anchor path on a record | `src/core/schemaMap.ts` (`rowsAlongAnchorPath`; `anchorRowReachedFrom`, whether it reaches the anchor) | — (used by `entitled`, `rowsAbove` and placement) |
 | walk the delegation graph | `src/core/reachableFrom.ts` (`delegationReach`) | — (used by `reachableFrom` and `validateActionRule`'s cycle test) |
-| identify a row | `src/core/schemaMap.ts` (`identityKeyOfRow`, `keyFromResourceAndColumns`), `src/core/recordId.ts` | — (the hydrator and loop detection share one key) |
+| identify a row | `src/core/schemaMap.ts` (`identityKeyOfRow`, `keyFromResourceAndColumns`), `src/core/recordId.ts` (`recordId`, `hasNoValue`: null, undefined or `''` is no value); on a walk, `src/core/evaluate.ts` (`identifyRowOncePerCheck`, once per row and resource in one check) | — (the hydrator and loop detection share one key) |
 | load a row | `src/helpers/hydration/hydrate.ts` | — (the app's `load` / `loadMany` are called nowhere else) |
 
 ## The lens, in this library's words
@@ -59,6 +61,7 @@ words its refusals:
 | `spellEveryFollowedRelationChain` | From a resource, spell under `root.relations` every chain of relations hydration follows, never entering the same model twice on one chain; throws past `relationLensLimits`. |
 | `lensAnchoredAtModel` | The json-rules lens for one model with a spelled relation tree; the rule form also carries the actor. |
 | `lensesAtRow` | The lenses a read is judged in at one row: the resource's, or under a list item what remains of the list's declared `down` paths. |
+| `lensesBuiltOnceAt` | The lens and the rule lens at one key (a resource, or a landing under an item), built once per map. |
 | `countRelationsOneRowHydrates` | The relations one row of a resource hydrates, one kind of each false-polymorphic model counted. |
 | `issuesForReadsOutsideLens` | Every path a condition reads that the lens does not hold, as json-rules' gate reports it. |
 | `whyPathLeavesLens`, `whyRelationPathCannotBeWalked` | The refusal in this library's words: a list (use the list arm), a relation not loaded, a path outside a declared `down`, a path back to a model. |

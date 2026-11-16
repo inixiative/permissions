@@ -534,7 +534,7 @@ describe('entitlements: an action on a model from an anchor, owner on the row', 
   });
 });
 
-describe('entitlements: edges the review asked for', () => {
+describe('entitlements: `from`, `where: false`, negation, superadmin owners, setup', () => {
   const manageS1: EntitlementEntry = {
     resource: 'db:space',
     anchor: AT_S1,

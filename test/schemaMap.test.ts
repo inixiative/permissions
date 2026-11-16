@@ -13,8 +13,8 @@ import {
   type Row,
   type SchemaMap,
 } from '../index';
+import { stringColumn as scalar } from './schemaMaps';
 
-const scalar = { kind: 'scalar', type: 'String' } as const;
 const toOne = (type: string, fromFields: string[], toFields: string[]) =>
   ({ kind: 'object', type, isList: false, fromFields, toFields }) as const;
 
@@ -197,7 +197,7 @@ const may = async (
   anchor: Row,
 ) => {
   const placed = placeEntitlement(map, entry, anchor);
-  return placed !== null && placed.every((record) => canGrant(writer, schema, entry, record));
+  return placed?.every((record) => canGrant(writer, schema, entry, record));
 };
 
 describe('the path names a kind at each polymorphic step: read time', () => {

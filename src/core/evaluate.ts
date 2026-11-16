@@ -3,6 +3,7 @@ import { isNil, isPlainObject } from 'lodash-es';
 import type { Algebra } from './algebra';
 import { bridgeHop, lookupFar } from './bridgeHop';
 import { entitled } from './entitled';
+import { answerOnce } from './freezeThenJudgeOnce';
 import { permixId, rowId } from './identity';
 import type { PositionUnderListItem } from './lens';
 import { recordId } from './recordId';
@@ -32,12 +33,88 @@ export type Walk<R extends string, T = boolean> = {
   idField: string;
   /** Relation hops crossed on this path: a node met again after one is a data loop, which denies. */
   hops?: number;
+  /** What this one check remembers; fresh for each check, shared by every copy of its walk. */
+  oneCheck: WhatOneCheckRemembers<T>;
 };
 
-/** The nodes a path has stood on, each with the relation hops crossed when it was reached. */
+/** `footprint`: the answers its walk walked or reused; it holds while none of their keys, at any depth, is on the path. */
+type RememberedAnswer<T> = {
+  key: string;
+  answer: T;
+  footprint: RememberedAnswer<T>[] | undefined;
+  checkedAt: number;
+};
+
+/** `answers`: by row object, then walk mode and node key, each kept only when no test in its walk found a node on the path. */
+type WhatOneCheckRemembers<T = unknown> = {
+  rowIds: WeakMap<Row, Map<string, string>>;
+  rowRulesThatHold: WeakMap<Row, Map<string, boolean>>;
+  answers: WeakMap<Row, Map<string, RememberedAnswer<T>>> | undefined;
+  nodesFoundOnPath: number;
+  /** null at no hops, where nothing is kept; undefined until a node past a hop meets its first child. */
+  footprintOfThisNode: RememberedAnswer<T>[] | undefined | null;
+  footprintChecks: number;
+};
+
+export const startOneCheck = <T>(): WhatOneCheckRemembers<T> => ({
+  rowIds: new WeakMap(),
+  rowRulesThatHold: new WeakMap(),
+  answers: undefined,
+  nodesFoundOnPath: 0,
+  footprintOfThisNode: null,
+  footprintChecks: 0,
+});
+
+/** A row's id on the walk, computed once per row and resource in one check. */
+export const identifyRowOncePerCheck = <R extends string, T>(
+  walk: Walk<R, T>,
+  resource: string,
+  record: Row,
+): string =>
+  answerOnce(walk.oneCheck.rowIds, record, resource, () =>
+    rowId(record, identityKeyOfRow(walk.map, resource, record, walk.idField)),
+  );
+
+/** The nodes on the current path, each with the relation hops crossed when it was reached; a node leaves when its walk returns. */
 export type Visited = Map<string, number>;
 
+/** Whether node `key` is on the current path, counted on the check when it is. */
+export const isNodeOnPath = <R extends string, T>(
+  { oneCheck }: Walk<R, T>,
+  visited: Visited,
+  key: string,
+): boolean => {
+  if (!visited.has(key)) return false;
+  oneCheck.nodesFoundOnPath++;
+  return true;
+};
+
+const addToFootprint = <T>(oneCheck: WhatOneCheckRemembers<T>, answer: RememberedAnswer<T>) => {
+  if (oneCheck.footprintOfThisNode) oneCheck.footprintOfThisNode.push(answer);
+  else if (oneCheck.footprintOfThisNode === undefined) oneCheck.footprintOfThisNode = [answer];
+};
+
+const isFootprintOnPath = <T>(
+  footprint: RememberedAnswer<T>[],
+  visited: Visited,
+  check: number,
+): boolean => {
+  for (const answer of footprint) {
+    if (answer.checkedAt === check) continue;
+    answer.checkedAt = check;
+    if (visited.has(answer.key)) return true;
+    if (answer.footprint && isFootprintOnPath(answer.footprint, visited, check)) return true;
+  }
+  return false;
+};
+
 const noRows: ReadonlySet<Row> = new Set();
+
+// why: under a list item an answer depends on the lens position; in the first pass, on which rows are above
+const modeOfWalk = <R extends string, T>({ above, under }: Walk<R, T>): string =>
+  above === undefined && under === undefined
+    ? ''
+    : `${above === undefined ? '' : above === noRows ? 'no rows above' : 'rows above'}|${under ? `${under.list}:${under.prefix.join('.')}` : ''}|`;
 
 export const evaluate = <R extends string, T>(
   walk: Walk<R, T>,
@@ -52,15 +129,8 @@ export const evaluate = <R extends string, T>(
   if (isNil(actionOrRule)) return algebra.none; // null = terminal deny
   if (typeof actionOrRule === 'boolean') return actionOrRule ? algebra.unit : algebra.none;
 
-  if (typeof actionOrRule === 'string') {
-    const action = actionOrRule;
-    // permix holds the actor's directly-granted (role-derived) actions — a grant short-circuits.
-    const granted = permix.check(resource, action, recordId(record));
-    return algebra.any([
-      () => (granted ? algebra.unit : algebra.none),
-      () => walkAction(walk, permix, resource, record, action, visited),
-    ]);
-  }
+  if (typeof actionOrRule === 'string')
+    return walkAction(walk, permix, resource, record, actionOrRule, visited);
   return walkRule(walk, permix, resource, record, actionOrRule, visited);
 };
 
@@ -74,27 +144,93 @@ const walkAction = <R extends string, T>(
 ): T => {
   // Key by resource too: the same record object reached as a different resource (a self-join) is
   // a distinct node, not a cycle. Key by table too: an owner walk legitimately revisits the node.
-  const key = `${permixId(permix)}:${rowId(record, identityKeyOfRow(walk.map, resource, record, walk.idField))}:${resource}:${actionOrRule}`;
+  const key = `${permixId(permix)}:${identifyRowOncePerCheck(walk, resource, record)}:${resource}:${actionOrRule}`;
   const hops = walk.hops ?? 0;
+  const { algebra, oneCheck } = walk;
+  // permix holds the actor's directly-granted (role-derived) actions — a grant short-circuits.
+  const granted = () =>
+    permix.check(resource, actionOrRule, recordId(record, walk.idField))
+      ? algebra.unit
+      : algebra.none;
   // why: a loop with no hop is a schema naming itself (a bug, it throws); one through a hop is data, and denies
-  if (visited.has(key))
-    return visited.get(key) === hops
-      ? walk.algebra.loop(resource, actionOrRule)
-      : walk.algebra.none;
-  visited.set(key, hops);
+  if (isNodeOnPath(walk, visited, key))
+    return algebra.any([
+      granted,
+      () => (visited.get(key) === hops ? algebra.loop(resource, actionOrRule) : algebra.none),
+    ]);
+  const walkRules = () => {
+    visited.set(key, hops);
+    try {
+      return walkActionRules(walk, permix, resource, record, actionOrRule, visited);
+    } finally {
+      visited.delete(key);
+    }
+  };
+  // why: a node at no hops is on the starting row, where the walk is shallow; only a hop makes it repeat
+  if (hops === 0) return algebra.any([granted, walkRules]);
+  oneCheck.answers ??= new WeakMap();
+  let byNode = oneCheck.answers.get(record);
+  if (!byNode) {
+    byNode = new Map();
+    oneCheck.answers.set(record, byNode);
+  }
+  const node = modeOfWalk(walk) + key;
+  const remembered = byNode.get(node);
+  if (
+    remembered &&
+    !(
+      remembered.footprint &&
+      isFootprintOnPath(remembered.footprint, visited, ++oneCheck.footprintChecks)
+    )
+  ) {
+    addToFootprint(oneCheck, remembered);
+    return remembered.answer;
+  }
+  const footprintOfCaller = oneCheck.footprintOfThisNode;
+  oneCheck.footprintOfThisNode = undefined;
+  const foundBefore = oneCheck.nodesFoundOnPath;
+  let answer: T;
+  let footprint: RememberedAnswer<T>[] | undefined;
+  try {
+    answer = algebra.any([granted, walkRules]);
+  } finally {
+    footprint = oneCheck.footprintOfThisNode;
+    oneCheck.footprintOfThisNode = footprintOfCaller;
+  }
+  if (oneCheck.nodesFoundOnPath === foundBefore) {
+    const kept: RememberedAnswer<T> = { key, answer, footprint, checkedAt: 0 };
+    byNode.set(node, kept);
+    addToFootprint(oneCheck, kept);
+  }
+  return answer;
+};
 
+const walkActionRules = <R extends string, T>(
+  walk: Walk<R, T>,
+  permix: PermixLike,
+  resource: R,
+  record: Row,
+  actionOrRule: string,
+  visited: Visited,
+): T => {
   const schemaRule = walk.schema.permissions[resource]?.actions[actionOrRule] ?? null;
   const rowRules = record.permissionRules as Record<string, ActionRule> | null | undefined;
   const rowRule = rowRules?.[actionOrRule];
   const rowRuleHolds =
     rowRule !== undefined &&
-    validateActionRule(rowRule, {
-      schema: walk.schema,
-      resource,
-      action: actionOrRule,
-      rowRules,
-    }).ok &&
-    issuesForRuleReadsOutsideLens(walk.map, walk.schema, resource, rowRule).length === 0;
+    answerOnce(
+      walk.oneCheck.rowRulesThatHold,
+      record,
+      `${resource}\u0000${actionOrRule}`,
+      () =>
+        validateActionRule(rowRule, {
+          schema: walk.schema,
+          resource,
+          action: actionOrRule,
+          rowRules,
+        }).ok &&
+        issuesForRuleReadsOutsideLens(walk.map, walk.schema, resource, rowRule).length === 0,
+    );
   // Row-level override is additive (OR) with the schema rule — a per-record grant can only widen.
   const merged: ActionRule = rowRuleHolds ? { any: [schemaRule, rowRule] } : schemaRule;
   return walk.algebra.any([
@@ -112,7 +248,6 @@ const walkRule = <R extends string, T>(
   visited: Visited,
 ): T => {
   const { algebra } = walk;
-  // why: `visited` is forked per item, since two items reaching one row are parallel paths, not a cycle
   if ('arrayOperator' in rule) {
     // why: under an item only the declared down tree exists; a second list is never crossed
     if (walk.under) return algebra.none;
@@ -129,10 +264,7 @@ const walkRule = <R extends string, T>(
     return algebra.any(
       items
         .filter((item): item is Row => isPlainObject(item))
-        .map(
-          (item) => () =>
-            evaluate(under, permix, list.resource, item, rule.condition, new Map(visited)),
-        ),
+        .map((item) => () => evaluate(under, permix, list.resource, item, rule.condition, visited)),
     );
   }
   if ('rel' in rule && 'action' in rule) {
@@ -174,15 +306,14 @@ const walkRule = <R extends string, T>(
       ? algebra.unit
       : algebra.none;
   }
-  // Fork `visited` per branch — parallel paths through any/all aren't cycles.
   if ('any' in rule) {
     return algebra.any(
-      rule.any.map((r) => () => evaluate(walk, permix, resource, record, r, new Map(visited))),
+      rule.any.map((r) => () => evaluate(walk, permix, resource, record, r, visited)),
     );
   }
   if ('all' in rule) {
     return algebra.all(
-      rule.all.map((r) => () => evaluate(walk, permix, resource, record, r, new Map(visited))),
+      rule.all.map((r) => () => evaluate(walk, permix, resource, record, r, visited)),
     );
   }
 
