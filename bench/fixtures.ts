@@ -45,6 +45,10 @@ export const table = async (...entries: PermissionEntry[]): Promise<Permix> => {
   return permix;
 };
 
+/** A table whose only grant is on a resource the bench never checks. */
+export const nobody = () =>
+  table({ resource: 'elsewhere', id: 'x', actions: { own: true } } as PermissionEntry);
+
 export const rootOwner = () =>
   table({ resource: model(0), id: 'root', actions: { own: true } } as PermissionEntry);
 

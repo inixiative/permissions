@@ -1,4 +1,5 @@
 import { isPlainObject } from 'lodash-es';
+import { answerOnce } from './freezeThenJudgeOnce';
 import type { RebacSchema } from './types';
 
 type Delegates = (rule: unknown) => string[];
@@ -48,14 +49,12 @@ export const reachableFrom = (
   resource: string,
   action: string,
 ): ReadonlySet<string> => {
-  const byKey = reached.get(schema) ?? new Map<string, ReadonlySet<string>>();
-  reached.set(schema, byKey);
-  const key = `${resource}\u0000${action}`;
-  let set = byKey.get(key);
-  if (!set) {
-    const actions = schema.permissions[resource]?.actions ?? {};
-    set = delegationReach([action], (next) => [actions[next]], pureDelegates);
-    if (Object.isFrozen(schema)) byKey.set(key, set);
-  }
-  return set;
+  const actions = schema.permissions[resource]?.actions ?? {};
+  return answerOnce(
+    reached,
+    schema,
+    `${resource}\u0000${action}`,
+    () => delegationReach([action], (next) => [actions[next]], pureDelegates),
+    Object.isFrozen(schema),
+  );
 };

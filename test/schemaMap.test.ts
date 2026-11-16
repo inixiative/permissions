@@ -13,8 +13,8 @@ import {
   type Row,
   type SchemaMap,
 } from '../index';
+import { stringColumn as scalar } from './schemaMaps';
 
-const scalar = { kind: 'scalar', type: 'String' } as const;
 const toOne = (type: string, fromFields: string[], toFields: string[]) =>
   ({ kind: 'object', type, isList: false, fromFields, toFields }) as const;
 

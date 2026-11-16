@@ -1,19 +1,26 @@
 import type { SchemaMap } from '../index';
 
-const column = { kind: 'scalar', type: 'String', isList: false } as const;
+export const stringColumn = { kind: 'scalar', type: 'String', isList: false } as const;
+
+/** A list relation `name` on a resource: its items' resource and its `/// @permissions(down: [...])` paths. */
+export type ListOf = { item: string; down: readonly string[] };
 
 /**
  * A map of resources, each its own model, with `id`, each relation's foreign key (`<name>Id`) and
- * the given `columns` as String columns: a check reads below the root only what the model has.
+ * the given `columns` as String columns, and the given `lists`: a check reads below the root only
+ * what the model has.
  */
 export const mapOf = (
   relations: Record<string, Record<string, string>>,
   columns: Record<string, readonly string[]> = {},
+  lists: Record<string, Record<string, ListOf>> = {},
 ): SchemaMap => {
   const resources = new Set([
     ...Object.keys(relations),
     ...Object.values(relations).flatMap((fields) => Object.values(fields)),
     ...Object.keys(columns),
+    ...Object.keys(lists),
+    ...Object.values(lists).flatMap((fields) => Object.values(fields).map((list) => list.item)),
   ]);
   return {
     resources: Object.fromEntries([...resources].map((resource) => [resource, resource])),
@@ -23,11 +30,11 @@ export const mapOf = (
           resource,
           {
             fields: {
-              id: column,
-              ...Object.fromEntries((columns[resource] ?? []).map((name) => [name, column])),
+              id: stringColumn,
+              ...Object.fromEntries((columns[resource] ?? []).map((name) => [name, stringColumn])),
               ...Object.fromEntries(
                 Object.entries(relations[resource] ?? {}).flatMap(([segment, target]) => [
-                  [`${segment}Id`, column],
+                  [`${segment}Id`, stringColumn],
                   [
                     segment,
                     {
@@ -38,6 +45,19 @@ export const mapOf = (
                       toFields: ['id'],
                     },
                   ],
+                ]),
+              ),
+              ...Object.fromEntries(
+                Object.entries(lists[resource] ?? {}).map(([name, list]) => [
+                  name,
+                  {
+                    kind: 'object',
+                    type: list.item,
+                    isList: true,
+                    fromFields: [],
+                    toFields: [],
+                    annotations: { permissions: { down: list.down } },
+                  },
                 ]),
               ),
             },

@@ -42,14 +42,14 @@ fits Kingdom's 313 rule reads and 368 rel hops.
   its own org), and the writer holds the action there by the schema.
 - **Rows are known by their key**: the engine id field when the model has it and the row a value
   (it is what the app loads by), else the model's id columns (`isId`, or a composite `@@id`), else
-  the object (a stand-in). One encoder, `keyFromResourceAndColumns`, keys rows for the hydrator and for identity.
+  the object (a stand-in). One encoder, `keyFromResourceAndColumns`, keys rows for the hydrator and for identity (a `paths` admission is keyed by its own `JSON.stringify`).
 - `validateSchema` reports json-rules' `operator_kind_mismatch` (a check never refuses on it).
   `invalid_value` is left off: it would fail 64 of this repo's tests only because the fixture
   helper types every column `String` (`test/schemaMaps.ts`); the owner decides later.
 - The freeze costs about 15% in json-rules' evaluator; it stays.
 - The list arm's `arrayOperator === 'any'` guard is gone (a frozen, judged schema cannot carry
   another). The bridge guard and `absent: 'unknown'` under an item stay.
-- One anchor-path walk (`rowsAlongAnchorPath`) replaces `reaches`, `chainOf` and the start of `rowsAbove`;
+- One anchor-path walk (`rowsAlongAnchorPath`) under `chainOf`, placement and `anchorRowReachedFrom`, the one test that a record's path reaches its anchor (`entitled` and `rowsAbove`);
   one delegation walker (`delegationReach`, with `pureDelegates` or `allDelegates`) replaces the
   cycle test's and `reachableFrom`'s, which is cached per frozen schema.
 

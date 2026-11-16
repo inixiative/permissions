@@ -13,6 +13,7 @@ import {
   type Row,
   type SchemaMap,
 } from '../../index';
+import { mapOf } from '../schemaMaps';
 
 // A walk case in the form a differential fuzzer of two builds writes: resources, row objects and
 // tables of grants and entitlements, each by index; one row may be several objects. Resource i is
@@ -55,55 +56,23 @@ export type WalkCase = {
 };
 
 const resourceName = (index: number) => `db:r${index}`;
-const modelName = (index: number) => `M${index}`;
-const column = { kind: 'scalar', type: 'String', isList: false } as const;
 
-const mapOfCase = (walkCase: WalkCase): SchemaMap => ({
-  resources: Object.fromEntries(walkCase.resources.map((_, i) => [resourceName(i), modelName(i)])),
-  fieldMap: {
-    models: Object.fromEntries(
-      walkCase.resources.map((resource, i) => [
-        modelName(i),
-        {
-          fields: {
-            id: { ...column, isId: true },
-            flag: column,
-            ...Object.fromEntries(
-              resource.rels.flatMap((relation) => [
-                [`${relation.name}Id`, column],
-                [
-                  relation.name,
-                  {
-                    kind: 'object',
-                    type: modelName(relation.target),
-                    isList: false,
-                    fromFields: [`${relation.name}Id`],
-                    toFields: ['id'],
-                    relationName: `rn_${relation.name}`,
-                  },
-                ],
-              ]),
-            ),
-            ...Object.fromEntries(
-              resource.lists.map((list) => [
-                list.name,
-                {
-                  kind: 'object',
-                  type: modelName(list.item),
-                  isList: true,
-                  fromFields: [],
-                  toFields: [],
-                  relationName: `rn_${list.inverse}`,
-                  annotations: { permissions: { down: list.down } },
-                },
-              ]),
-            ),
-          },
-        },
-      ]),
+const mapOfCase = (walkCase: WalkCase): SchemaMap => {
+  const names = walkCase.resources.map((_, i) => resourceName(i));
+  const byResource = <V>(of: (resource: WalkCase['resources'][number]) => [string, V][]) =>
+    Object.fromEntries(
+      walkCase.resources.map((resource, i) => [names[i], Object.fromEntries(of(resource))]),
+    );
+  return mapOf(
+    byResource((resource) =>
+      resource.rels.map((relation) => [relation.name, resourceName(relation.target)]),
     ),
-  },
-});
+    Object.fromEntries(names.map((name) => [name, ['flag']])),
+    byResource((resource) =>
+      resource.lists.map((list) => [list.name, { item: resourceName(list.item), down: list.down }]),
+    ),
+  );
+};
 
 const schemaOfCase = (walkCase: WalkCase): RebacSchema => ({
   permissions: Object.fromEntries(

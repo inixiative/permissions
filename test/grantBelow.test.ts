@@ -20,7 +20,7 @@ import {
   wellFormedEntitlements,
   withoutRedundantEntitlements,
 } from '../index';
-import { mapOf } from './schemaMaps';
+import { mapOf, stringColumn } from './schemaMaps';
 
 // The grant check's first pass also counts an entitlement the writer holds when it is marked
 // `grantsBelow`, has no `where`, and the walk meets it on a hydrated row above the granted record
@@ -912,7 +912,7 @@ describe('what counts as above: rows the anchor holds under a to-one relation th
 
   // The held entitlement's own path is tested on the real row, kinds included (`reaches`).
   test('a held entitlement whose path crosses a polymorphic step counts only for a row of that kind', async () => {
-    const column = { kind: 'scalar' as const, type: 'String' };
+    const column = stringColumn;
     const toOne = (type: string, from: string) => ({
       kind: 'object' as const,
       type,

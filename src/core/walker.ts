@@ -2,7 +2,7 @@ import { type BridgeDictionary, indexBridges } from '@inixiative/json-rules';
 import type { Algebra } from './algebra';
 import { evaluate, startOneCheck } from './evaluate';
 import { withExactStrings } from './exactStrings';
-import { freezeThenJudgeOnce } from './freezeThenJudgeOnce';
+import { answerOnce, freezeThenJudgeOnce } from './freezeThenJudgeOnce';
 import { idField } from './recordId';
 import { indexMap, type SchemaMap } from './schemaMap';
 import type { ActionRule, CheckOptions, PermixLike, RebacSchema, Row, Subject } from './types';
@@ -42,13 +42,8 @@ export const createWalker = <R extends string, T>(
   indexMap(map as SchemaMap);
   // why: an inline rule passed again as the same object is judged once (and frozen); a fresh literal each call is judged each time
   const inlineKeys = new WeakMap<object, Map<string, object>>();
-  const inlineKey = (schema: object, resource: string): object => {
-    const byResource = inlineKeys.get(schema) ?? new Map<string, object>();
-    inlineKeys.set(schema, byResource);
-    const key = byResource.get(resource) ?? {};
-    byResource.set(resource, key);
-    return key;
-  };
+  const inlineKey = (schema: object, resource: string): object =>
+    answerOnce(inlineKeys, schema, resource, () => ({}));
   return (
     permix: PermixLike,
     schema: RebacSchema<R>,

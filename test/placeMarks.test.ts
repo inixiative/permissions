@@ -14,6 +14,7 @@ import {
   validateSchema,
 } from '../index';
 import { annotate, loadModels } from './fixtures/load';
+import { stringColumn } from './schemaMaps';
 
 // Kingdom's surface → integrationResource → integration slice (schemas/kingdom.prisma), parsed by
 // prisma-map. `IntegrationResource.kind` and `.enabled` read `/// @permissions(place: true)`.
@@ -306,7 +307,7 @@ describe('where the mark is refused, when the map is first used', () => {
 });
 
 describe('a polymorphic stand-in: the mark joins it, the path still sets its kind and keys', () => {
-  const scalar = { kind: 'scalar', type: 'String' } as const;
+  const scalar = stringColumn;
   const toOne = (type: string, fromFields: string[], toFields: string[]) =>
     ({ kind: 'object', type, isList: false, fromFields, toFields }) as const;
   const map: SchemaMap = {

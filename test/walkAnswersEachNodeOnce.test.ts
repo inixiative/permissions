@@ -1,6 +1,6 @@
 import { describe, expect, spyOn, test } from 'bun:test';
 import { Operator } from '@inixiative/json-rules';
-import { map as chainMap, schema as chainSchema, model, pool, table } from '../bench/fixtures';
+import { map as chainMap, schema as chainSchema, model, nobody, pool } from '../bench/fixtures';
 import {
   type ActionRule,
   createCanGrantEntitlement,
@@ -43,9 +43,6 @@ const counting = (permix: PermixLike) => {
   const total = () => [...calls.values()].reduce((sum, n) => sum + n, 0);
   return { counted, calls, total };
 };
-
-const nobody = () =>
-  table({ resource: 'elsewhere', id: 'x', actions: { own: true } } as PermissionEntry);
 
 describe('1. a denial walks each node once', () => {
   test("on the bench chain at 0, 2, 4 and 6 hops: the starting row's 4 nodes once each, plus one computation per distinct node above it (8, 16, 24), and the answer is false", async () => {

@@ -21,6 +21,7 @@ import {
   validateSchema,
 } from '../index';
 import { annotate, loadModels } from './fixtures/load';
+import { stringColumn } from './schemaMaps';
 
 // Zealot's conversation slice (schemas/zealot.prisma), parsed by prisma-map. The list field reads
 //   /// @permissions(down: [forumUser.fanUser.user, forumUser.brandUser.user])
@@ -772,7 +773,7 @@ describe('review: what a record may carry into a check', () => {
 });
 
 describe('review: one jump', () => {
-  const scalar = { kind: 'scalar', type: 'String', isList: false } as const;
+  const scalar = stringColumn;
   const list = (type: string, down: string[]) => ({
     kind: 'object' as const,
     type,

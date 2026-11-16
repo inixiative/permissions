@@ -3,6 +3,7 @@ import { isNil, isPlainObject } from 'lodash-es';
 import type { Algebra } from './algebra';
 import { bridgeHop, lookupFar } from './bridgeHop';
 import { entitled } from './entitled';
+import { answerOnce } from './freezeThenJudgeOnce';
 import { permixId, rowId } from './identity';
 import type { PositionUnderListItem } from './lens';
 import { recordId } from './recordId';
@@ -64,27 +65,13 @@ export const startOneCheck = <T>(): WhatOneCheckRemembers<T> => ({
   footprintChecks: 0,
 });
 
-const answerOncePerRow = <V>(
-  remembered: WeakMap<Row, Map<string, V>>,
-  record: Row,
-  key: string,
-  answer: () => V,
-): V => {
-  const byKey = remembered.get(record) ?? new Map<string, V>();
-  remembered.set(record, byKey);
-  if (byKey.has(key)) return byKey.get(key) as V;
-  const value = answer();
-  byKey.set(key, value);
-  return value;
-};
-
 /** A row's id on the walk, computed once per row and resource in one check. */
 export const identifyRowOncePerCheck = <R extends string, T>(
   walk: Walk<R, T>,
   resource: string,
   record: Row,
 ): string =>
-  answerOncePerRow(walk.oneCheck.rowIds, record, resource, () =>
+  answerOnce(walk.oneCheck.rowIds, record, resource, () =>
     rowId(record, identityKeyOfRow(walk.map, resource, record, walk.idField)),
   );
 
@@ -162,7 +149,9 @@ const walkAction = <R extends string, T>(
   const { algebra, oneCheck } = walk;
   // permix holds the actor's directly-granted (role-derived) actions — a grant short-circuits.
   const granted = () =>
-    permix.check(resource, actionOrRule, recordId(record)) ? algebra.unit : algebra.none;
+    permix.check(resource, actionOrRule, recordId(record, walk.idField))
+      ? algebra.unit
+      : algebra.none;
   // why: a loop with no hop is a schema naming itself (a bug, it throws); one through a hop is data, and denies
   if (isNodeOnPath(walk, visited, key))
     return algebra.any([
@@ -229,7 +218,7 @@ const walkActionRules = <R extends string, T>(
   const rowRule = rowRules?.[actionOrRule];
   const rowRuleHolds =
     rowRule !== undefined &&
-    answerOncePerRow(
+    answerOnce(
       walk.oneCheck.rowRulesThatHold,
       record,
       `${resource}\u0000${actionOrRule}`,

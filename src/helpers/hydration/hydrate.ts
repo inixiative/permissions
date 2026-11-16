@@ -1,4 +1,4 @@
-import { idField } from '../../core/recordId';
+import { hasNoValue, idField } from '../../core/recordId';
 import {
   followedToOneRelationsOf,
   indexMap,
@@ -31,7 +31,7 @@ const whereOf = (relation: Relation, record: Row): Row | null => {
   const where: Row = {};
   for (const [index, column] of relation.from.entries()) {
     const value = record[column];
-    if (value == null || value === '') return null;
+    if (hasNoValue(value)) return null;
     where[relation.to[index] ?? idField()] = value;
   }
   return where;

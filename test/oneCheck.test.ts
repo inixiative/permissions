@@ -1,15 +1,12 @@
 import { describe, expect, spyOn, test } from 'bun:test';
-import { map, model, pool, recordAt, schema, table } from '../bench/fixtures';
-import { createRebacCheck, type PermissionEntry } from '../index';
+import { map, model, nobody, pool, recordAt, schema } from '../bench/fixtures';
+import { createRebacCheck } from '../index';
 import * as schemaMap from '../src/core/schemaMap';
 import * as validateActionRule from '../src/core/validateActionRule';
 import * as validateSchema from '../src/core/validateSchema';
 
 // One check remembers what it computed (src/core/evaluate.ts, `WhatOneCheckRemembers`); nothing
 // it remembers outlives the check.
-
-const nobody = () =>
-  table({ resource: 'elsewhere', id: 'x', actions: { own: true } } as PermissionEntry);
 
 describe('a row is identified once per row per check', () => {
   test('a denied read 6 hops down keys each of its 7 rows once, and again on the next check', async () => {

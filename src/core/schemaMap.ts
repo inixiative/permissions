@@ -8,8 +8,8 @@ import {
 import { entitlementProblem } from './entitlementProblem';
 import { withExactStrings } from './exactStrings';
 import type { EntitlementEntry } from './permix';
-import { idField, recordId } from './recordId';
-import type { Row } from './types';
+import { hasNoValue, idField, recordId } from './recordId';
+import type { Anchor, Row } from './types';
 
 /** A polymorphic model's discriminator: `field` names the kind, `fkMap` the columns each kind carries. */
 export type PolymorphicAxis = { field: string; fkMap: Partial<Record<string, readonly string[]>> };
@@ -349,7 +349,7 @@ export const keysFrom = (relation: Pick<Relation, 'from' | 'to'>, parent: Row): 
   Object.fromEntries(
     relation.from.flatMap((column, index) => {
       const value = parent[relation.to[index] as string];
-      return value == null || value === '' ? [] : [[column, value]];
+      return hasNoValue(value) ? [] : [[column, value]];
     }),
   );
 
@@ -370,8 +370,8 @@ export const identityKeyOfRow = (
   record: Row,
   field = idField(),
 ): string | undefined => {
-  if (fieldOf(map, resource, field) && recordId(record, field) !== undefined)
-    return keyFromResourceAndColumns(resource, { [field]: recordId(record, field) });
+  const id = fieldOf(map, resource, field) ? recordId(record, field) : undefined;
+  if (id !== undefined) return keyFromResourceAndColumns(resource, { [field]: id });
   const { idColumns } = indexMap(map);
   if (!idColumns.has(resource)) {
     const model = map.fieldMap.models[map.resources[resource] as string] as Keyed | undefined;
@@ -443,6 +443,22 @@ export const rowsAlongAnchorPath = <R extends string>(
     steps.push({ resource: relation.resource, row: next as Row });
   }
   return steps;
+};
+
+/** The row `anchor` names, when `row`'s path along `anchor.path` reaches it (with `kinds`, each step one its relation admits); else undefined. */
+export const anchorRowReachedFrom = <R extends string>(
+  map: SchemaMap<R>,
+  resource: R,
+  row: Row,
+  anchor: Anchor,
+  kinds = false,
+  field = idField(),
+): Row | undefined => {
+  const segments = anchor.path?.split('.') ?? [];
+  const end = rowsAlongAnchorPath(map, resource, row, segments, kinds)[segments.length];
+  return end?.resource === anchor.resource && recordId(end.row, field) === anchor.id
+    ? end.row
+    : undefined;
 };
 
 const chainOf = <R extends string>(
@@ -564,11 +580,8 @@ export const rowsAbove = <R extends string>(
   placed: Row,
 ): ReadonlySet<Row> => {
   const rows = new Set<Row>();
-  const segments = entry.anchor.path?.split('.') ?? [];
-  const steps = rowsAlongAnchorPath(map, entry.resource as R, placed, segments);
-  const end = steps[segments.length];
-  if (!end || end.resource !== entry.anchor.resource || recordId(end.row) !== entry.anchor.id)
-    return rows;
+  const anchorRow = anchorRowReachedFrom(map, entry.resource as R, placed, entry.anchor);
+  if (!anchorRow) return rows;
   const climb = (current: R, row: Row) => {
     if (rows.has(row)) return;
     rows.add(row);
@@ -578,7 +591,7 @@ export const rowsAbove = <R extends string>(
         climb(relation.resource, parent);
     }
   };
-  climb(end.resource, end.row);
-  if (entry.anchor.path === undefined) rows.delete(end.row);
+  climb(entry.anchor.resource as R, anchorRow);
+  if (entry.anchor.path === undefined) rows.delete(anchorRow);
   return rows;
 };

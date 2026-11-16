@@ -10,5 +10,8 @@ export const idField = (): string => engineGlobals.get('permissions.idField');
 // `String(farId)` — keep the direct path consistent). A record without the field has no id.
 export const recordId = (record: Row, field = idField()): string | undefined => {
   const value = record[field];
-  return value == null || value === '' ? undefined : String(value);
+  return hasNoValue(value) ? undefined : String(value);
 };
+
+/** Whether a column holds nothing a key can use: null, undefined or the empty string. */
+export const hasNoValue = (value: unknown): boolean => value == null || value === '';
