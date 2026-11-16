@@ -69,6 +69,11 @@ fits Kingdom's 313 rule reads and 368 rel hops.
   `(resource, record)`. `ListRelation.paths` is `down` (json-rules' spelling).
   `declarationIssues` and `resolveField` are gone; `whyEntitlementWhereLeavesLens` is new; `validateSchema`
   also returns `warnings`. A `hydrate: false` relation is no anchor-path, `rel` or `rowsAbove` step.
+- **`paths` reports the admissions through a node a finished sibling walked.** `visited` holds only
+  the nodes on the current path; a finished node used to stay in the map its siblings shared, and
+  `entitled` skipped the owner walk that met it again. `paths` may now return more admissions, and
+  may reach its limit (`PathLimitError`) where it did not. `check` and the grant check answer as
+  before (no difference in 48,000 fuzzed cases).
 
 ### Options rejected
 

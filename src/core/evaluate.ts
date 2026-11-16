@@ -60,7 +60,7 @@ export const identifyRowOncePerCheck = <R extends string, T>(
   return id;
 };
 
-/** The nodes a path has stood on, each with the relation hops crossed when it was reached. */
+/** The nodes on the current path, each with the relation hops crossed when it was reached; a node leaves when its walk returns. */
 export type Visited = Map<string, number>;
 
 const noRows: ReadonlySet<Row> = new Set();
@@ -108,7 +108,21 @@ const walkAction = <R extends string, T>(
       ? walk.algebra.loop(resource, actionOrRule)
       : walk.algebra.none;
   visited.set(key, hops);
+  try {
+    return walkActionRules(walk, permix, resource, record, actionOrRule, visited);
+  } finally {
+    visited.delete(key);
+  }
+};
 
+const walkActionRules = <R extends string, T>(
+  walk: Walk<R, T>,
+  permix: PermixLike,
+  resource: R,
+  record: Row,
+  actionOrRule: string,
+  visited: Visited,
+): T => {
   const schemaRule = walk.schema.permissions[resource]?.actions[actionOrRule] ?? null;
   const rowRules = record.permissionRules as Record<string, ActionRule> | null | undefined;
   const rowRule = rowRules?.[actionOrRule];
@@ -138,7 +152,6 @@ const walkRule = <R extends string, T>(
   visited: Visited,
 ): T => {
   const { algebra } = walk;
-  // why: `visited` is forked per item, since two items reaching one row are parallel paths, not a cycle
   if ('arrayOperator' in rule) {
     // why: under an item only the declared down tree exists; a second list is never crossed
     if (walk.under) return algebra.none;
@@ -155,10 +168,7 @@ const walkRule = <R extends string, T>(
     return algebra.any(
       items
         .filter((item): item is Row => isPlainObject(item))
-        .map(
-          (item) => () =>
-            evaluate(under, permix, list.resource, item, rule.condition, new Map(visited)),
-        ),
+        .map((item) => () => evaluate(under, permix, list.resource, item, rule.condition, visited)),
     );
   }
   if ('rel' in rule && 'action' in rule) {
@@ -200,15 +210,14 @@ const walkRule = <R extends string, T>(
       ? algebra.unit
       : algebra.none;
   }
-  // Fork `visited` per branch — parallel paths through any/all aren't cycles.
   if ('any' in rule) {
     return algebra.any(
-      rule.any.map((r) => () => evaluate(walk, permix, resource, record, r, new Map(visited))),
+      rule.any.map((r) => () => evaluate(walk, permix, resource, record, r, visited)),
     );
   }
   if ('all' in rule) {
     return algebra.all(
-      rule.all.map((r) => () => evaluate(walk, permix, resource, record, r, new Map(visited))),
+      rule.all.map((r) => () => evaluate(walk, permix, resource, record, r, visited)),
     );
   }
 

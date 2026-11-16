@@ -62,7 +62,7 @@ export const entitled = <R extends string, T>(
           reaches(walk, resource, record, anchor)
             ? walk.algebra.through(
                 ref,
-                evaluate(walk, asOwner(owner, actor), resource, record, action, new Map(visited)),
+                evaluate(walk, asOwner(owner, actor), resource, record, action, visited),
               )
             : walk.algebra.none,
     ),

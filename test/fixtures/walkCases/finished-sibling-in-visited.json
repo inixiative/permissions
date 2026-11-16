@@ -1,0 +1,79 @@
+{
+  "resources": [
+    { "rels": [{ "name": "t0", "target": 1 }], "lists": [] },
+    {
+      "rels": [{ "name": "t1", "target": 0 }],
+      "lists": [{ "name": "l2", "item": 0, "inverse": "t0", "down": [] }]
+    }
+  ],
+  "schema": {
+    "0": { "a": null, "b": null, "c": null },
+    "1": { "a": { "rel": "t1", "action": "c" }, "b": null }
+  },
+  "objects": [
+    {
+      "res": 0,
+      "id": "r0_1",
+      "flag": "y",
+      "links": { "t0": 4 },
+      "lists": {},
+      "permissionRules": { "c": { "rel": "t0", "action": "a" } }
+    },
+    { "res": 0, "id": "r0_1", "flag": "x", "links": {}, "lists": {} },
+    { "res": 0, "id": "r0_2", "flag": "y", "links": { "t0": 4 }, "lists": {} },
+    { "res": 1, "id": "r1_1", "flag": "y", "links": {}, "lists": { "l2": [] } },
+    { "res": 1, "id": "r1_1", "flag": "y", "links": { "t1": 2 }, "lists": { "l2": [] } },
+    { "res": 1, "id": "r1_2", "flag": "y", "links": {}, "lists": { "l2": [] } }
+  ],
+  "tables": [
+    {
+      "grants": [],
+      "ents": [
+        {
+          "resource": 0,
+          "path": ["t0"],
+          "anchorId": "r1_1",
+          "grantsBelow": true,
+          "actions": ["a", "c"],
+          "ref": "t0e1",
+          "owner": 1
+        }
+      ],
+      "actor": "User"
+    },
+    {
+      "grants": [],
+      "ents": [
+        {
+          "resource": 0,
+          "path": ["t0"],
+          "anchorId": "r1_1",
+          "grantsBelow": true,
+          "actions": ["b", "c"],
+          "ref": "t1e0",
+          "owner": 2
+        }
+      ],
+      "actor": null
+    },
+    {
+      "grants": [{ "resource": 0, "id": "r0_2", "action": "c" }],
+      "ents": [
+        {
+          "resource": 1,
+          "path": [],
+          "anchorId": "r1_1",
+          "actions": ["a", "c"],
+          "ref": "t2e2",
+          "owner": 0
+        }
+      ],
+      "actor": "User"
+    }
+  ],
+  "query": { "object": 0, "action": "c" },
+  "grant": {
+    "ent": { "resource": 1, "path": ["t1"], "anchorId": "r0_2", "actions": ["a", "c"] },
+    "placed": 5
+  }
+}
