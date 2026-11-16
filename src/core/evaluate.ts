@@ -36,29 +36,43 @@ export type Walk<R extends string, T = boolean> = {
   oneCheck: WhatOneCheckRemembers;
 };
 
-/** A row's id on the walk (`rowId` of `identityKeyOfRow`), by row object and then resource. */
+/**
+ * `rowIds`: a row's id on the walk (`rowId` of `identityKeyOfRow`), by row object and then resource.
+ * `rowRulesThatHold`: whether a row's own rule for an action is well formed and reads inside the lens, by row object and then resource and action.
+ */
 export type WhatOneCheckRemembers = {
   rowIds: WeakMap<Row, Map<string, string>>;
+  rowRulesThatHold: WeakMap<Row, Map<string, boolean>>;
 };
 
-export const startOneCheck = (): WhatOneCheckRemembers => ({ rowIds: new WeakMap() });
+export const startOneCheck = (): WhatOneCheckRemembers => ({
+  rowIds: new WeakMap(),
+  rowRulesThatHold: new WeakMap(),
+});
+
+const answerOncePerRow = <V>(
+  remembered: WeakMap<Row, Map<string, V>>,
+  record: Row,
+  key: string,
+  answer: () => V,
+): V => {
+  const byKey = remembered.get(record) ?? new Map<string, V>();
+  remembered.set(record, byKey);
+  if (byKey.has(key)) return byKey.get(key) as V;
+  const value = answer();
+  byKey.set(key, value);
+  return value;
+};
 
 /** A row's id on the walk, computed once per row and resource in one check. */
 export const identifyRowOncePerCheck = <R extends string, T>(
   walk: Walk<R, T>,
   resource: string,
   record: Row,
-): string => {
-  const { rowIds } = walk.oneCheck;
-  const byResource = rowIds.get(record) ?? new Map<string, string>();
-  rowIds.set(record, byResource);
-  let id = byResource.get(resource);
-  if (id === undefined) {
-    id = rowId(record, identityKeyOfRow(walk.map, resource, record, walk.idField));
-    byResource.set(resource, id);
-  }
-  return id;
-};
+): string =>
+  answerOncePerRow(walk.oneCheck.rowIds, record, resource, () =>
+    rowId(record, identityKeyOfRow(walk.map, resource, record, walk.idField)),
+  );
 
 /** The nodes on the current path, each with the relation hops crossed when it was reached; a node leaves when its walk returns. */
 export type Visited = Map<string, number>;
@@ -128,13 +142,19 @@ const walkActionRules = <R extends string, T>(
   const rowRule = rowRules?.[actionOrRule];
   const rowRuleHolds =
     rowRule !== undefined &&
-    validateActionRule(rowRule, {
-      schema: walk.schema,
-      resource,
-      action: actionOrRule,
-      rowRules,
-    }).ok &&
-    issuesForRuleReadsOutsideLens(walk.map, walk.schema, resource, rowRule).length === 0;
+    answerOncePerRow(
+      walk.oneCheck.rowRulesThatHold,
+      record,
+      `${resource}\u0000${actionOrRule}`,
+      () =>
+        validateActionRule(rowRule, {
+          schema: walk.schema,
+          resource,
+          action: actionOrRule,
+          rowRules,
+        }).ok &&
+        issuesForRuleReadsOutsideLens(walk.map, walk.schema, resource, rowRule).length === 0,
+    );
   // Row-level override is additive (OR) with the schema rule — a per-record grant can only widen.
   const merged: ActionRule = rowRuleHolds ? { any: [schemaRule, rowRule] } : schemaRule;
   return walk.algebra.any([
