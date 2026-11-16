@@ -1,4 +1,4 @@
-## Unreleased — rules are judged in json-rules' own lens, spelled in the root
+## 0.23.0 — rules are judged in json-rules' own lens, spelled in the root
 
 **The change.** Every path a stored rule reads (a schema rule on first use, a row's
 `permissionRules` on each walk, an entitlement `where` when consulted) is judged with json-rules'
