@@ -1,5 +1,11 @@
 import { type Absent, type Condition, check as checkRule } from '@inixiative/json-rules';
-import { evaluate, identifyRowOncePerCheck, type Visited, type Walk } from './evaluate';
+import {
+  evaluate,
+  identifyRowOncePerCheck,
+  isOwnerNodeOnPath,
+  type Visited,
+  type Walk,
+} from './evaluate';
 import { asOwner, permixId } from './identity';
 import { lensesAtRow, whyWhereLeavesLensAtRow } from './lens';
 import { reachableFrom } from './reachableFrom';
@@ -51,7 +57,9 @@ export const entitled = <R extends string, T>(
     held.map(
       ({ anchor, where, owner, ref, grantsBelow }) =>
         () =>
-          !visited.has(
+          !isOwnerNodeOnPath(
+            walk,
+            visited,
             `${permixId(owner)}:${identifyRowOncePerCheck(walk, resource, record)}:${resource}:${action}`,
           ) &&
           (above

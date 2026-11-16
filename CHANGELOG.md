@@ -74,6 +74,11 @@ fits Kingdom's 313 rule reads and 368 rel hops.
   `entitled` skipped the owner walk that met it again. `paths` may now return more admissions, and
   may reach its limit (`PathLimitError`) where it did not. `check` and the grant check answer as
   before (no difference in 48,000 fuzzed cases).
+- **One check answers each node once, past its starting row.** A node reached after a hop (its
+  table, row object, resource and action, in its walk mode) is kept when no test in its walk found
+  a node on the path, with its footprint, and reused while nothing in the footprint is on the path.
+  A denial 6 hops down walks 28 nodes instead of 329. Row keys and a row's own rule verdicts are
+  also computed once per row per check. No answer changes.
 
 ### Options rejected
 

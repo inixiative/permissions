@@ -33,21 +33,46 @@ export type Walk<R extends string, T = boolean> = {
   /** Relation hops crossed on this path: a node met again after one is a data loop, which denies. */
   hops?: number;
   /** What this one check remembers; fresh for each check, shared by every copy of its walk. */
-  oneCheck: WhatOneCheckRemembers;
+  oneCheck: WhatOneCheckRemembers<T>;
 };
+
+/**
+ * A node's answer, kept only when no test in its walk found a node on the path. Its `footprint` is
+ * what its answer depends on: the answers of the nodes it walked or reused (each with its key) and
+ * the keys `entitled` tested; it holds while no key in it, at any depth, is on the path.
+ */
+type RememberedAnswer<T> = {
+  key: string;
+  answer: T;
+  footprint: Footprint<T> | undefined;
+  checkedAt: number;
+};
+type Footprint<T> = (string | RememberedAnswer<T>)[];
 
 /**
  * `rowIds`: a row's id on the walk (`rowId` of `identityKeyOfRow`), by row object and then resource.
  * `rowRulesThatHold`: whether a row's own rule for an action is well formed and reads inside the lens, by row object and then resource and action.
+ * `answers`: a node's remembered answer, by row object and then walk mode and node key; made on the first node reached after a hop.
+ * `nodesFoundOnPath`: how many tests in this check found a node on the path.
+ * `footprintOfThisNode`: the footprint so far of the node being walked; null while that node is at no hops, since it keeps nothing.
+ * `footprintChecks`: how many times a footprint has been checked against the path.
  */
-export type WhatOneCheckRemembers = {
+export type WhatOneCheckRemembers<T = unknown> = {
   rowIds: WeakMap<Row, Map<string, string>>;
   rowRulesThatHold: WeakMap<Row, Map<string, boolean>>;
+  answers: WeakMap<Row, Map<string, RememberedAnswer<T>>> | undefined;
+  nodesFoundOnPath: number;
+  footprintOfThisNode: Footprint<T> | undefined | null;
+  footprintChecks: number;
 };
 
-export const startOneCheck = (): WhatOneCheckRemembers => ({
+export const startOneCheck = <T>(): WhatOneCheckRemembers<T> => ({
   rowIds: new WeakMap(),
   rowRulesThatHold: new WeakMap(),
+  answers: undefined,
+  nodesFoundOnPath: 0,
+  footprintOfThisNode: null,
+  footprintChecks: 0,
 });
 
 const answerOncePerRow = <V>(
@@ -77,7 +102,55 @@ export const identifyRowOncePerCheck = <R extends string, T>(
 /** The nodes on the current path, each with the relation hops crossed when it was reached; a node leaves when its walk returns. */
 export type Visited = Map<string, number>;
 
+/** Whether node `key` is on the current path, counted on the check when it is. */
+const isNodeOnPath = <T>(oneCheck: WhatOneCheckRemembers<T>, visited: Visited, key: string) => {
+  if (!visited.has(key)) return false;
+  oneCheck.nodesFoundOnPath++;
+  return true;
+};
+
+/** `isNodeOnPath` for `entitled`'s owner test, which a node's answer depends on without walking it. */
+export const isOwnerNodeOnPath = <R extends string, T>(
+  walk: Walk<R, T>,
+  visited: Visited,
+  key: string,
+): boolean => {
+  addToFootprint(walk.oneCheck, key);
+  return isNodeOnPath(walk.oneCheck, visited, key);
+};
+
+const addToFootprint = <T>(
+  oneCheck: WhatOneCheckRemembers<T>,
+  item: string | RememberedAnswer<T>,
+) => {
+  if (oneCheck.footprintOfThisNode) oneCheck.footprintOfThisNode.push(item);
+  else if (oneCheck.footprintOfThisNode === undefined) oneCheck.footprintOfThisNode = [item];
+};
+
+const isFootprintOnPath = <T>(
+  footprint: Footprint<T>,
+  visited: Visited,
+  check: number,
+): boolean => {
+  for (const item of footprint) {
+    if (typeof item === 'string') {
+      if (visited.has(item)) return true;
+    } else if (item.checkedAt !== check) {
+      item.checkedAt = check;
+      if (visited.has(item.key)) return true;
+      if (item.footprint && isFootprintOnPath(item.footprint, visited, check)) return true;
+    }
+  }
+  return false;
+};
+
 const noRows: ReadonlySet<Row> = new Set();
+
+// why: under a list item an answer depends on the lens position; in the first pass, on which rows are above
+const modeOfWalk = <R extends string, T>({ above, under }: Walk<R, T>): string =>
+  above === undefined && under === undefined
+    ? ''
+    : `${above === undefined ? '' : above === noRows ? 'no rows above' : 'rows above'}|${under ? `${under.list}:${under.prefix.join('.')}` : ''}|`;
 
 export const evaluate = <R extends string, T>(
   walk: Walk<R, T>,
@@ -92,15 +165,8 @@ export const evaluate = <R extends string, T>(
   if (isNil(actionOrRule)) return algebra.none; // null = terminal deny
   if (typeof actionOrRule === 'boolean') return actionOrRule ? algebra.unit : algebra.none;
 
-  if (typeof actionOrRule === 'string') {
-    const action = actionOrRule;
-    // permix holds the actor's directly-granted (role-derived) actions — a grant short-circuits.
-    const granted = permix.check(resource, action, recordId(record));
-    return algebra.any([
-      () => (granted ? algebra.unit : algebra.none),
-      () => walkAction(walk, permix, resource, record, action, visited),
-    ]);
-  }
+  if (typeof actionOrRule === 'string')
+    return walkAction(walk, permix, resource, record, actionOrRule, visited);
   return walkRule(walk, permix, resource, record, actionOrRule, visited);
 };
 
@@ -116,17 +182,61 @@ const walkAction = <R extends string, T>(
   // a distinct node, not a cycle. Key by table too: an owner walk legitimately revisits the node.
   const key = `${permixId(permix)}:${identifyRowOncePerCheck(walk, resource, record)}:${resource}:${actionOrRule}`;
   const hops = walk.hops ?? 0;
+  const { algebra, oneCheck } = walk;
+  // permix holds the actor's directly-granted (role-derived) actions — a grant short-circuits.
+  const granted = () =>
+    permix.check(resource, actionOrRule, recordId(record)) ? algebra.unit : algebra.none;
   // why: a loop with no hop is a schema naming itself (a bug, it throws); one through a hop is data, and denies
-  if (visited.has(key))
-    return visited.get(key) === hops
-      ? walk.algebra.loop(resource, actionOrRule)
-      : walk.algebra.none;
-  visited.set(key, hops);
-  try {
-    return walkActionRules(walk, permix, resource, record, actionOrRule, visited);
-  } finally {
-    visited.delete(key);
+  if (isNodeOnPath(oneCheck, visited, key))
+    return algebra.any([
+      granted,
+      () => (visited.get(key) === hops ? algebra.loop(resource, actionOrRule) : algebra.none),
+    ]);
+  const walkRules = () => {
+    visited.set(key, hops);
+    try {
+      return walkActionRules(walk, permix, resource, record, actionOrRule, visited);
+    } finally {
+      visited.delete(key);
+    }
+  };
+  // why: a node at no hops is on the starting row, where the walk is shallow; only a hop makes it repeat (Aron, 2026-11-15)
+  if (hops === 0) return algebra.any([granted, walkRules]);
+  oneCheck.answers ??= new WeakMap();
+  let byNode = oneCheck.answers.get(record);
+  if (!byNode) {
+    byNode = new Map();
+    oneCheck.answers.set(record, byNode);
   }
+  const node = modeOfWalk(walk) + key;
+  const remembered = byNode.get(node);
+  if (
+    remembered &&
+    !(
+      remembered.footprint &&
+      isFootprintOnPath(remembered.footprint, visited, ++oneCheck.footprintChecks)
+    )
+  ) {
+    addToFootprint(oneCheck, remembered);
+    return remembered.answer;
+  }
+  const footprintOfCaller = oneCheck.footprintOfThisNode;
+  oneCheck.footprintOfThisNode = undefined;
+  const foundBefore = oneCheck.nodesFoundOnPath;
+  let answer: T;
+  let footprint: Footprint<T> | undefined;
+  try {
+    answer = algebra.any([granted, walkRules]);
+  } finally {
+    footprint = oneCheck.footprintOfThisNode;
+    oneCheck.footprintOfThisNode = footprintOfCaller;
+  }
+  if (oneCheck.nodesFoundOnPath === foundBefore) {
+    const kept: RememberedAnswer<T> = { key, answer, footprint, checkedAt: 0 };
+    byNode.set(node, kept);
+    addToFootprint(oneCheck, kept);
+  }
+  return answer;
 };
 
 const walkActionRules = <R extends string, T>(
