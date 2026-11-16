@@ -1,81 +1,56 @@
-import { listFields, type ValidationIssue, type ValidationResult } from '@inixiative/json-rules';
+import type { ValidationIssue, ValidationResult } from '@inixiative/json-rules';
 import { bridgeHop } from './bridgeHop';
-import { fieldOf, listOf, resolveField, type SchemaMap } from './schemaMap';
+import {
+  countRelationsOneRowHydrates,
+  issueRefusesTheRead,
+  issuesForReadsOutsideLens,
+  type LensesAtRow,
+  lensesAtRow,
+  type PositionUnderListItem,
+  relationLensLimits,
+  whyRelationPathCannotBeWalked,
+} from './lens';
+import { listOf, relationOf, type SchemaMap } from './schemaMap';
 import type { ActionRule, RebacSchema } from './types';
 import { validateActionRule } from './validateActionRule';
-
-// why: only what the declaration loads is on an item, so every walk under one must stay inside it
-type Under = {
-  list: string;
-  declared: readonly (readonly string[])[];
-  prefix: readonly string[];
-  seen: Set<string>;
-};
-
-const loaded = (under: Under, prefix: readonly string[]) =>
-  under.declared.some((path) => prefix.every((segment, index) => path[index] === segment));
-
-const notLoaded = (under: Under, prefix: readonly string[], path: string): ValidationIssue => ({
-  path,
-  code: 'down',
-  message: `\`${under.list}\` loads no \`${prefix.join('.')}\` under an item: name it in \`/// @permissions(down: [...])\``,
-});
-
-const relationsRead = (map: SchemaMap, resource: string, field: string): string[] => {
-  const read: string[] = [];
-  let current: string | null = resource;
-  for (const segment of field.split('.')) {
-    if (!current || fieldOf(map, current, segment)?.kind !== 'object') break;
-    read.push(segment);
-    current = resolveField(map, current, segment);
-  }
-  return read;
-};
 
 const relIssues = (
   map: SchemaMap,
   schema: RebacSchema,
-  resource: string,
+  at: LensesAtRow,
   rule: ActionRule,
   path: string,
-  under?: Under,
+  seen?: Set<string>,
 ): ValidationIssue[] => {
-  const follow = (landed: string, action: string, at: Under): ValidationIssue[] => {
-    const key = `${landed}\u0000${action}\u0000${at.prefix.join('.')}`;
-    if (at.seen.has(key)) return [];
-    at.seen.add(key);
+  const { resource, under } = at;
+  const follow = (landed: LensesAtRow, action: string): ValidationIssue[] => {
+    const key = `${landed.resource}\u0000${action}\u0000${landed.under?.prefix.join('.')}`;
+    if (!seen || seen.has(key)) return [];
+    seen.add(key);
     return relIssues(
       map,
       schema,
       landed,
-      schema.permissions[landed]?.actions[action] ?? null,
+      schema.permissions[landed.resource]?.actions[action] ?? null,
       path,
-      at,
+      seen,
     );
   };
   if (rule === null || typeof rule !== 'object') {
     if (typeof rule !== 'string') return [];
     if (!(rule in (schema.permissions[resource]?.actions ?? {})))
       return [{ path, code: 'action', message: `\`${resource}\` has no action \`${rule}\`` }];
-    return under ? follow(resource, rule, under) : [];
+    return under ? follow(at, rule) : [];
   }
   if ('any' in rule)
     return rule.any.flatMap((child, i) =>
-      relIssues(map, schema, resource, child, `${path}.any[${i}]`, under),
+      relIssues(map, schema, at, child, `${path}.any[${i}]`, seen),
     );
   if ('all' in rule)
     return rule.all.flatMap((child, i) =>
-      relIssues(map, schema, resource, child, `${path}.all[${i}]`, under),
+      relIssues(map, schema, at, child, `${path}.all[${i}]`, seen),
     );
-  if ('rule' in rule) {
-    if (!under) return [];
-    return listFields(rule.rule).flatMap((field) => {
-      const prefix = [...under.prefix, ...relationsRead(map, resource, field)];
-      return prefix.length > under.prefix.length && !loaded(under, prefix)
-        ? [notLoaded(under, prefix, path)]
-        : [];
-    });
-  }
+  if ('rule' in rule) return issuesForReadsOutsideLens(map, at, rule.rule, path, { actor: true });
   if ('arrayOperator' in rule) {
     if (under)
       return [
@@ -94,18 +69,39 @@ const relIssues = (
           message: `\`${resource}.${rule.rel}\` is not a declared list: mark the list field \`/// @permissions(down: [...])\``,
         },
       ];
-    return relIssues(map, schema, list.resource, rule.condition, `${path}.condition`, {
+    const item: PositionUnderListItem = {
       list: `${resource}.${rule.rel}`,
-      declared: list.paths,
+      listRelation: list,
       prefix: [],
-      seen: new Set(),
-    });
+    };
+    return relIssues(
+      map,
+      schema,
+      lensesAtRow(map, list.resource, item),
+      rule.condition,
+      `${path}.condition`,
+      new Set(),
+    );
   }
+  let from = at;
+  let run: string[] = [];
   let current = resource;
-  let prefix = under?.prefix ?? [];
+  const judge = (): ValidationIssue[] => {
+    const problem = whyRelationPathCannotBeWalked(map, from, run.join('.'));
+    return problem
+      ? [{ path, code: problem.code === 'down' ? 'down' : 'relation', message: problem.message }]
+      : [];
+  };
   for (const segment of rule.rel.split('.')) {
     const hop = bridgeHop(schema.bridges, current, segment);
-    if (hop && under)
+    if (!hop) {
+      run.push(segment);
+      const next = relationOf(map, current, segment);
+      if (!next) return judge();
+      current = next.resource;
+      continue;
+    }
+    if (under)
       return [
         {
           path,
@@ -113,73 +109,109 @@ const relIssues = (
           message: `\`${segment}\` is a bridge under an item of \`${under.list}\`: a walk under an item stays on the declared relations`,
         },
       ];
-    if (!hop && fieldOf(map, current, segment)?.isList)
-      return [
-        {
-          path,
-          code: 'relation',
-          message: `\`${current}.${segment}\` is a list: cross it with { rel, arrayOperator: 'any', condition }`,
-        },
-      ];
-    const next = hop ? hop.farResource : resolveField(map, current, segment);
-    if (!next)
-      return [{ path, code: 'relation', message: `\`${current}\` has no relation \`${segment}\`` }];
-    prefix = [...prefix, segment];
-    if (under && !loaded(under, prefix)) return [notLoaded(under, prefix, path)];
-    current = next;
+    const missed = judge();
+    if (missed.length) return missed;
+    current = hop.farResource;
+    from = lensesAtRow(map, current);
+    run = [];
   }
+  const missed = judge();
+  if (missed.length) return missed;
   if (!(rule.action in (schema.permissions[current]?.actions ?? {})))
     return [{ path, code: 'action', message: `\`${current}\` has no action \`${rule.action}\`` }];
-  return under ? follow(current, rule.action, { ...under, prefix }) : [];
+  const landed = from.under
+    ? lensesAtRow(map, current, { ...from.under, prefix: [...from.under.prefix, ...run] })
+    : lensesAtRow(map, current);
+  return under ? follow(landed, rule.action) : [];
 };
+
+const issuesOfEveryActionRule = (
+  schema: RebacSchema,
+  judgedInItsSchema: boolean,
+): ValidationIssue[] =>
+  Object.entries(schema.permissions).flatMap(([resource, permission]) =>
+    Object.entries(permission?.actions ?? {}).flatMap(([action, rule]) =>
+      validateActionRule(
+        rule,
+        judgedInItsSchema ? { schema, resource, action } : undefined,
+      ).errors.map((issue) => ({ ...issue, path: `${resource}.${action}${issue.path.slice(1)}` })),
+    ),
+  );
 
 /** Every action rule of a schema that is not well formed and positive, by `resource.action`. */
 export const schemaRuleIssues = (schema: RebacSchema): ValidationIssue[] =>
-  Object.entries(schema.permissions).flatMap(([resource, permission]) =>
-    Object.entries(permission?.actions ?? {}).flatMap(([action, rule]) =>
-      validateActionRule(rule).errors.map((issue) => ({
-        ...issue,
-        path: `${resource}.${action}${issue.path.slice(1)}`,
-      })),
-    ),
+  issuesOfEveryActionRule(schema, false);
+
+/** Every read of a well-formed action rule at `resource` outside the lens. */
+export const issuesForRuleReadsOutsideLens = (
+  map: SchemaMap,
+  schema: RebacSchema,
+  resource: string,
+  rule: ActionRule,
+  at = '$',
+): ValidationIssue[] =>
+  relIssues(map, schema, lensesAtRow(map, resource), rule, at).filter(
+    (issue) => issue.code !== 'action' && issueRefusesTheRead(issue),
   );
 
-/**
- * Every list arm of a schema that the map's declarations do not carry (code `down`), by
- * `resource.action`: an arm over an undeclared list, a relation walked or read under an item
- * outside the declared paths (followed through the actions the walk lands on), a second list or a
- * bridge under an item. A check refuses a schema that has one, on first use.
- */
-export const declarationIssues = (map: SchemaMap, schema: RebacSchema): ValidationIssue[] =>
-  Object.entries(schema.permissions).flatMap(([resource, permission]) =>
+// why: a resource with no model in the map has no lens, so nothing it reads could be refused
+const unmapped = (map: SchemaMap, schema: RebacSchema): ValidationIssue[] => {
+  const far = new Set(
+    (schema.bridges ?? []).flatMap((bridge) =>
+      bridge.endpoints.map((end) => `${end.fieldMap}:${end.model}`),
+    ),
+  );
+  return Object.keys(schema.permissions)
+    .filter((resource) => !map.resources[resource] && !far.has(resource))
+    .map((resource) => ({
+      path: resource,
+      code: 'lens',
+      message: `\`${resource}\` is not a resource in the map: add it to \`resources\`, or nothing it reads is checked`,
+    }));
+};
+
+// Every read, action and operator issue of a schema's well-formed rules, by `resource.action`.
+const readIssues = (map: SchemaMap, schema: RebacSchema): ValidationIssue[] => [
+  ...unmapped(map, schema),
+  ...Object.entries(schema.permissions).flatMap(([resource, permission]) =>
     Object.entries(permission?.actions ?? {}).flatMap(([action, rule]) =>
       validateActionRule(rule).ok
-        ? relIssues(map, schema, resource, rule, `${resource}.${action}`).filter(
-            (issue) => issue.code === 'down',
-          )
+        ? relIssues(map, schema, lensesAtRow(map, resource), rule, `${resource}.${action}`)
         : [],
     ),
-  );
+  ),
+];
+
+/** Every read of a schema's action rules outside the lens, by `resource.action`. */
+export const schemaIssuesRefusedOnFirstUse = (
+  map: SchemaMap,
+  schema: RebacSchema,
+): ValidationIssue[] =>
+  readIssues(map, schema).filter((issue) => issue.code !== 'action' && issueRefusesTheRead(issue));
+
+// why: a row that hydrates this much is doing too much; it is reported, not refused
+const lensWarnings = (map: SchemaMap, schema: RebacSchema): ValidationIssue[] =>
+  Object.keys(schema.permissions).flatMap((resource) => {
+    const size = countRelationsOneRowHydrates(map, resource);
+    return size > relationLensLimits.report
+      ? [
+          {
+            path: resource,
+            code: 'countRelationsOneRowHydrates',
+            message: `a \`${resource}\` row hydrates ${size} relations (over ${relationLensLimits.report}): split the walk, or mark an edge \`hydrate: false\``,
+          },
+        ]
+      : [];
+  });
 
 /**
- * A whole schema checked against the map, for a test or boot: every action rule well formed and
- * positive (`validateActionRule`), every `{ rel }` segment a to-one relation
- * or a bridge, every list crossed by a list arm declared (`/// @permissions(down: [...])`), every
- * relation walked or read under an item inside what that declaration loads (followed through the
- * actions the item's rule lands on), and every action a rule names defined where it lands. A rule
- * that names a relation the map doesn't have otherwise denies forever without saying why.
+ * A whole schema against the map, for a test or boot: well formed, positive, inside the lens,
+ * every action defined (`errors`), and every resource whose row hydrates too much (`warnings`).
  */
-export const validateSchema = (map: SchemaMap, schema: RebacSchema): ValidationResult => {
-  const errors: ValidationIssue[] = [];
-  for (const [resource, permission] of Object.entries(schema.permissions)) {
-    for (const [action, rule] of Object.entries(permission?.actions ?? {})) {
-      const at = `${resource}.${action}`;
-      const shape = validateActionRule(rule, { schema, resource, action });
-      errors.push(
-        ...shape.errors.map((issue) => ({ ...issue, path: `${at}${issue.path.slice(1)}` })),
-      );
-      errors.push(...relIssues(map, schema, resource, rule, at));
-    }
-  }
-  return { ok: errors.length === 0, errors };
+export const validateSchema = (
+  map: SchemaMap,
+  schema: RebacSchema,
+): ValidationResult & { warnings: ValidationIssue[] } => {
+  const errors = [...issuesOfEveryActionRule(schema, true), ...readIssues(map, schema)];
+  return { ok: errors.length === 0, errors, warnings: lensWarnings(map, schema) };
 };

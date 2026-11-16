@@ -46,7 +46,15 @@ describe('the copy rule reads what delegatedWhere builds as narrowing the held w
       'db:integration': { actions: { read: { rel: 'space', action: 'own' } } },
     },
   };
-  const map = mapOf({ 'db:integration': { space: 'db:space' } });
+  const map = mapOf(
+    { 'db:integration': { space: 'db:space' } },
+    {
+      'db:integration': ['provider', 'channel', 'team', 'secret'],
+      'db:doc': ['provider', 'channel', 'team', 'secret'],
+      'db:thread': ['provider', 'channel', 'team'],
+      'db:space': ['hidden'],
+    },
+  );
   const canGrant = createCanGrantEntitlement(map);
   const underS1 = (where?: Condition): EntitlementEntry => ({
     resource: 'db:integration',
@@ -97,7 +105,15 @@ describe('a negated schema rule is refused in the grant walk too', () => {
         },
       },
     };
-    const map = mapOf({ 'db:doc': { space: 'db:space' } });
+    const map = mapOf(
+      { 'db:doc': { space: 'db:space' } },
+      {
+        'db:integration': ['provider', 'channel', 'team', 'secret'],
+        'db:doc': ['provider', 'channel', 'team', 'secret'],
+        'db:thread': ['provider', 'channel', 'team'],
+        'db:space': ['hidden'],
+      },
+    );
     const writer = createPermissions();
     await writer.setup({ resource: 'db:space', id: 's1', actions: { own: true } });
     const entry: EntitlementEntry = {
@@ -120,7 +136,15 @@ describe('a list pin passes on at any depth: copies are judged by structure, the
       'db:thread': { actions: { read: { rel: 'space', action: 'own' } } },
     },
   };
-  const map = mapOf({ 'db:thread': { space: 'db:space' } });
+  const map = mapOf(
+    { 'db:thread': { space: 'db:space' } },
+    {
+      'db:integration': ['provider', 'channel', 'team', 'secret'],
+      'db:doc': ['provider', 'channel', 'team', 'secret'],
+      'db:thread': ['provider', 'channel', 'team'],
+      'db:space': ['hidden'],
+    },
+  );
   const canGrant = createCanGrantEntitlement(map);
   const check = createRebacCheck(map);
   const threads = (where: Condition): EntitlementEntry => ({
@@ -176,7 +200,15 @@ describe('liveness asks the anchor and the action along the chain, never a where
       'db:thread': { actions: { read: { rel: 'space', action: 'own' } } },
     },
   };
-  const map = mapOf({ 'db:thread': { space: 'db:space' } });
+  const map = mapOf(
+    { 'db:thread': { space: 'db:space' } },
+    {
+      'db:integration': ['provider', 'channel', 'team', 'secret'],
+      'db:doc': ['provider', 'channel', 'team', 'secret'],
+      'db:thread': ['provider', 'channel', 'team'],
+      'db:space': ['hidden'],
+    },
+  );
   const canGrant = createCanGrantEntitlement(map);
   const check = createRebacCheck(map);
   const threads = (spaceId: string, where?: Condition): EntitlementEntry => ({
@@ -234,7 +266,17 @@ describe('a negated schema rule throws for every caller', () => {
         },
       },
     };
-    const check = createRebacCheck(mapOf({ 'db:space': {} }));
+    const check = createRebacCheck(
+      mapOf(
+        { 'db:space': {} },
+        {
+          'db:integration': ['provider', 'channel', 'team', 'secret'],
+          'db:doc': ['provider', 'channel', 'team', 'secret'],
+          'db:thread': ['provider', 'channel', 'team'],
+          'db:space': ['hidden'],
+        },
+      ),
+    );
     const subject = { resource: 'db:space', record: { id: 's1' } };
     const superadmin = createPermissions();
     superadmin.setSuperadmin(true);

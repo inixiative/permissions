@@ -63,11 +63,14 @@ const schema: RebacSchema = {
 };
 const resources = ['db:organization', 'db:space', 'db:integration', 'kcp:thread'] as const;
 type Resource = (typeof resources)[number];
-const map = mapOf({
-  'db:space': { organization: 'db:organization' },
-  'db:integration': { space: 'db:space' },
-  'kcp:thread': { integration: 'db:integration' },
-});
+const map = mapOf(
+  {
+    'db:space': { organization: 'db:organization' },
+    'db:integration': { space: 'db:space' },
+    'kcp:thread': { integration: 'db:integration' },
+  },
+  { 'db:space': ['label'], 'db:integration': ['provider'] },
+);
 const rebac = createRebacCheck(map);
 const canGrant = createCanGrantEntitlement(map);
 const actionsOf = (resource: Resource) => Object.keys(schema.permissions[resource]?.actions ?? {});

@@ -1,0 +1,90 @@
+{
+  "names": ["db:board", "db:card", "db:account", "db:viewer"],
+  "resources": [
+    {
+      "rels": [],
+      "lists": [{ "name": "cards", "item": 1, "inverse": "board", "down": ["account"] }]
+    },
+    { "rels": [{ "name": "board", "target": 0 }, { "name": "account", "target": 2 }], "lists": [] },
+    { "rels": [{ "name": "board", "target": 0 }], "lists": [] },
+    { "rels": [{ "name": "board", "target": 0 }, { "name": "account", "target": 2 }], "lists": [] }
+  ],
+  "schema": {
+    "0": {
+      "read": {
+        "all": [
+          {
+            "rel": "cards",
+            "arrayOperator": "any",
+            "condition": { "rel": "account", "action": "read" }
+          },
+          "edit"
+        ]
+      },
+      "edit": null
+    },
+    "1": {},
+    "2": { "read": null },
+    "3": {
+      "read": {
+        "any": [
+          { "all": [{ "rel": "board", "action": "read" }, false] },
+          { "rel": "account", "action": "read" }
+        ]
+      }
+    }
+  },
+  "objects": [
+    { "res": 0, "id": "b1", "flag": "x", "links": {}, "lists": { "cards": [1] } },
+    { "res": 1, "id": "c1", "flag": "x", "links": { "board": 0, "account": 2 }, "lists": {} },
+    {
+      "res": 2,
+      "id": "a1",
+      "links": { "board": 0 },
+      "lists": {},
+      "permissionRules": {
+        "read": {
+          "all": [
+            { "rule": { "field": "flag", "operator": "equals", "value": null } },
+            { "rel": "board", "action": "read" }
+          ]
+        }
+      }
+    },
+    { "res": 3, "id": "v1", "flag": "x", "links": { "board": 0, "account": 2 }, "lists": {} }
+  ],
+  "tables": [
+    {
+      "grants": [],
+      "ents": [
+        {
+          "resource": 2,
+          "path": [],
+          "anchorId": "a1",
+          "actions": ["read"],
+          "ref": "accountRead",
+          "owner": 1
+        },
+        {
+          "resource": 0,
+          "path": [],
+          "anchorId": "b1",
+          "actions": ["edit"],
+          "ref": "boardEdit",
+          "owner": 1
+        }
+      ],
+      "actor": "User"
+    },
+    {
+      "grants": [{ "resource": 2, "action": "read" }, { "resource": 0, "action": "edit" }],
+      "ents": [],
+      "actor": null
+    }
+  ],
+  "query": { "object": 3, "action": "read" },
+  "grant": {
+    "ent": { "resource": 0, "path": [], "anchorId": "b1", "actions": ["read"] },
+    "placed": 0
+  }
+}

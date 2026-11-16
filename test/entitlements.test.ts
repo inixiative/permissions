@@ -63,7 +63,14 @@ const relations: Record<string, Record<string, string>> = {
   'db:integration': { space: 'db:space', replacedBy: 'db:integration' },
   'db:contact': { space: 'db:space' },
 };
-const check = createRebacCheck(mapOf(relations));
+const check = createRebacCheck(
+  mapOf(relations, {
+    'db:user': [],
+    'db:space': ['name', 'defaultProvider', 'archivedAt'],
+    'db:integration': ['provider'],
+    'db:contact': ['protected', 'name', 'userId', 'valueKey'],
+  }),
+);
 
 const o1 = { id: 'o1' };
 const o2 = { id: 'o2' };
@@ -527,7 +534,7 @@ describe('entitlements: an action on a model from an anchor, owner on the row', 
   });
 });
 
-describe('entitlements: edges the review asked for', () => {
+describe('entitlements: `from`, `where: false`, negation, superadmin owners, setup', () => {
   const manageS1: EntitlementEntry = {
     resource: 'db:space',
     anchor: AT_S1,

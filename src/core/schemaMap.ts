@@ -1,9 +1,15 @@
-import { type Condition, check as checkRule, type FieldMap } from '@inixiative/json-rules';
+import {
+  type Condition,
+  check as checkRule,
+  type FieldMap,
+  type LensNarrowing,
+  type ModelNarrowing,
+} from '@inixiative/json-rules';
 import { entitlementProblem } from './entitlementProblem';
 import { withExactStrings } from './exactStrings';
 import type { EntitlementEntry } from './permix';
-import { idField, recordId } from './recordId';
-import type { Row } from './types';
+import { hasNoValue, idField, recordId } from './recordId';
+import type { Anchor, Row } from './types';
 
 /** A polymorphic model's discriminator: `field` names the kind, `fkMap` the columns each kind carries. */
 export type PolymorphicAxis = { field: string; fkMap: Partial<Record<string, readonly string[]>> };
@@ -22,10 +28,7 @@ export type SchemaMap<R extends string = string> = {
   polymorphism?: Polymorphism;
 };
 
-/**
- * A to-one relation that owns its foreign key: where it leads, its columns, and on a polymorphic
- * record the kinds it admits (every kind whose registry columns hold the relation's columns).
- */
+/** A to-one relation the hydrator follows: where it leads, its key, and on a polymorphic record the kinds it admits. */
 export type Relation<R extends string = string> = {
   resource: R;
   from: readonly string[];
@@ -33,33 +36,35 @@ export type Relation<R extends string = string> = {
   kinds: { field: string; values: string[] } | null;
 };
 
-/**
- * A list relation the walk may cross, declared `/// @permissions(down: [...])` on the list field:
- * the items' resource, the items' foreign key back to the parent (`from` on the item, `to` on the
- * parent), and the dotted to-one paths loaded under each item.
- */
+/** A tree of relations in json-rules' spelling (`{ org: { relations: { creator: { relations: {} } } } }`). */
+export type SpelledRelationTree = Record<string, ModelNarrowing>;
+
+/** A list declared `/// @permissions(down: [...])`: the items' resource, their key back to the parent, and the declared paths. */
 export type ListRelation<R extends string = string> = {
   resource: R;
   from: readonly string[];
   to: readonly string[];
-  paths: readonly (readonly string[])[];
+  down: SpelledRelationTree;
 };
 
 type MapIndex = {
   resources: Map<string, string>;
-  relations: Map<string, Relation | null>;
+  relations: Map<string, Relation | string>;
   lists: Map<string, ListRelation>;
   marks: Map<string, ReadonlySet<string>>;
+  toOnes: Map<string, [string, Relation][]>;
+  idColumns: Map<string, readonly string[]>;
+  lenses: Map<string, LensNarrowing | null>;
+  lensSizes: Map<string, number>;
 };
 
 type Annotated = { annotations?: { permissions?: Record<string, unknown> } };
 
 /** A field's `/// @permissions(...)` annotation, as prisma-map carries it. */
-export const permissionsAnnotation = (field: unknown): Record<string, unknown> | undefined =>
+const permissionsAnnotation = (field: unknown): Record<string, unknown> | undefined =>
   (field as Annotated | undefined)?.annotations?.permissions;
 
-export const skipsHydration = (field: unknown): boolean =>
-  permissionsAnnotation(field)?.hydrate === false;
+const skipsHydration = (field: unknown): boolean => permissionsAnnotation(field)?.hydrate === false;
 
 const annotationKeys = ['hydrate', 'down', 'place'];
 const placeableTypes = ['String', 'Int', 'Boolean'];
@@ -78,9 +83,13 @@ export const indexMap = (map: SchemaMap): MapIndex => {
   }
   const index: MapIndex = {
     resources,
-    relations: new Map<string, Relation | null>(),
+    relations: new Map<string, Relation | string>(),
     lists: new Map(),
     marks: new Map(),
+    toOnes: new Map(),
+    idColumns: new Map(),
+    lenses: new Map(),
+    lensSizes: new Map(),
   };
   indexes.set(map, index);
   try {
@@ -164,20 +173,19 @@ const listFor = (map: SchemaMap, resource: string, name: string, down: unknown):
     throw new Error(
       `${at}: \`down\` is a list of dotted relation paths, \`[forumUser.fanUser, forumUser.brandUser]\`, got ${JSON.stringify(down)}`,
     );
-  const paths = (down as string[]).map((path) => path.split('.'));
-  for (const path of paths) {
+  const tree: SpelledRelationTree = {};
+  for (const path of (down as string[]).map((dotted) => dotted.split('.'))) {
+    let branch = tree;
     let current = item;
     for (const [depth, segment] of path.entries()) {
-      const entry = map.fieldMap.models[map.resources[current] as string]?.fields[segment];
-      const relation = relationOf(map, current, segment);
-      if (!relation)
-        throw new Error(
-          `${at}: \`${path.join('.')}\`: \`${segment}\` is not a to-one relation of \`${current}\` that owns its foreign key and leads to a resource`,
-        );
+      const relation = followedToOneRelationOrWhyNot(map, current, segment);
+      if (typeof relation === 'string')
+        throw new Error(`${at}: \`${path.join('.')}\`: ${relation}`);
       if (depth === 0 && segment === inverse[0])
         throw new Error(`${at}: \`${path.join('.')}\` goes back up the list it came down`);
-      if (skipsHydration(entry))
-        throw new Error(`${at}: \`${path.join('.')}\`: \`${segment}\` is \`hydrate: false\``);
+      const next: ModelNarrowing = branch[segment] ?? { relations: {} };
+      branch[segment] = next;
+      branch = next.relations as SpelledRelationTree;
       current = relation.resource;
     }
   }
@@ -185,9 +193,13 @@ const listFor = (map: SchemaMap, resource: string, name: string, down: unknown):
     resource: item,
     from: inverse[1].fromFields ?? [],
     to: inverse[1].toFields ?? [],
-    paths,
+    down: tree,
   };
 };
+
+/** A column of its model (a scalar or an enum, Json and scalar lists included), not a relation. */
+const isColumn = (field: { kind: string }): boolean =>
+  field.kind === 'scalar' || field.kind === 'enum';
 
 /** The declared list `segment` of `resource`, or null: an undeclared list is never crossed. */
 export const listOf = <R extends string>(
@@ -212,21 +224,12 @@ export const listsOf = <R extends string>(
 const marksOf = <R extends string>(map: SchemaMap<R>, resource: R): ReadonlySet<string> =>
   indexMap(map as SchemaMap).marks.get(resource) ?? new Set();
 
-const resourceOf = <R extends string>(map: SchemaMap<R>, model: string): R | null =>
+export const resourceOf = <R extends string>(map: SchemaMap<R>, model: string): R | null =>
   (indexMap(map as SchemaMap).resources.get(model) as R | undefined) ?? null;
 
 export const fieldOf = <R extends string>(map: SchemaMap<R>, resource: R, segment: string) => {
   const model = map.resources[resource];
   return model ? map.fieldMap.models[model]?.fields[segment] : undefined;
-};
-
-export const resolveField = <R extends string>(
-  map: SchemaMap<R>,
-  resource: R,
-  segment: string,
-): R | null => {
-  const field = fieldOf(map, resource, segment);
-  return field?.kind === 'object' ? resourceOf(map, field.type) : null;
 };
 
 const kindsOf = (axes: readonly PolymorphicAxis[], columns: readonly string[]) => {
@@ -239,26 +242,43 @@ const kindsOf = (axes: readonly PolymorphicAxis[], columns: readonly string[]) =
   return null;
 };
 
+/** `segment` of `resource` as a relation the hydrator follows, or why it is not one. */
+export const followedToOneRelationOrWhyNot = <R extends string>(
+  map: SchemaMap<R>,
+  resource: R,
+  segment: string,
+): Relation<R> | string => {
+  const cache = indexMap(map as SchemaMap).relations;
+  const key = `${resource}\u0000${segment}`;
+  if (!cache.has(key)) cache.set(key, toOneFor(map, resource, segment));
+  return cache.get(key) as Relation<R> | string;
+};
+
 export const relationOf = <R extends string>(
   map: SchemaMap<R>,
   resource: R,
   segment: string,
 ): Relation<R> | null => {
-  const cache = indexMap(map as SchemaMap).relations;
-  const key = `${resource}\u0000${segment}`;
-  if (!cache.has(key)) cache.set(key, relationFor(map, resource, segment));
-  return (cache.get(key) as Relation<R> | null | undefined) ?? null;
+  const relation = followedToOneRelationOrWhyNot(map, resource, segment);
+  return typeof relation === 'string' ? null : relation;
 };
 
-const relationFor = <R extends string>(
+const toOneFor = <R extends string>(
   map: SchemaMap<R>,
   resource: R,
   segment: string,
-): Relation<R> | null => {
+): Relation<R> | string => {
   const field = fieldOf(map, resource, segment);
-  if (field?.kind !== 'object' || field.isList || !field.fromFields?.length) return null;
+  const at = `\`${resource}.${segment}\``;
+  if (field?.kind === 'bridge') return `${at} is a bridge: cross it with { rel, action }`;
+  if (field?.kind !== 'object' || field.isList) return `${at} is not a to-one relation`;
+  if (skipsHydration(field))
+    return `${at} is \`hydrate: false\`: nothing loads it; drop the annotation or read it from \`${field.type}\``;
+  if (!field.fromFields?.length)
+    return `${at} keeps its foreign key on \`${field.type}\`: nothing loads it; write the rule on \`${field.type}\`, or hold the key on this model`;
   const target = resourceOf(map, field.type);
-  if (!target) return null;
+  if (!target)
+    return `${at} leads to \`${field.type}\`, which is not a resource in the map: nothing loads it`;
   const axes = map.polymorphism?.[map.resources[resource]]?.axes ?? [];
   return {
     resource: target,
@@ -315,7 +335,7 @@ const statedAt = (leaves: Leaf[], prefix: string, accepts: (field: string) => bo
 const pinned = <R extends string>(map: SchemaMap<R>, resource: R, leaves: Leaf[]): Row =>
   statedAt(leaves, '', (name) => {
     const field = fieldOf(map, resource, name);
-    return !name.includes('.') && field?.kind !== 'object' && !field?.isList;
+    return !name.includes('.') && (!field || (isColumn(field) && !field.isList));
   });
 
 const admits = (leaves: Leaf[], field: string, value: string) =>
@@ -328,12 +348,63 @@ export const keysFrom = (relation: Pick<Relation, 'from' | 'to'>, parent: Row): 
   Object.fromEntries(
     relation.from.flatMap((column, index) => {
       const value = parent[relation.to[index] as string];
-      return value == null || value === '' ? [] : [[column, value]];
+      return hasNoValue(value) ? [] : [[column, value]];
     }),
   );
 
-const relationNames = <R extends string>(map: SchemaMap<R>, resource: R): string[] =>
-  Object.keys(map.fieldMap.models[map.resources[resource]]?.fields ?? {});
+type Keyed = {
+  fields: Record<string, { isId?: boolean }>;
+  indexes?: { kind: string; fields: string[] }[];
+};
+
+/** The one encoding of a row's key: its resource and the columns that pick it, in column order. */
+export const keyFromResourceAndColumns = (resource: string, where: Row): string =>
+  `${resource}\u0000${JSON.stringify(Object.entries(where).sort(([a], [b]) => a.localeCompare(b)))}`;
+
+// why: the engine id field is what the app loads by (Zealot's `uuid`), so it wins over the model's `isId`
+/** A row's key: the engine id field when the model has it and the row a value, else the model's id columns, else undefined (the object). */
+export const identityKeyOfRow = (
+  map: SchemaMap,
+  resource: string,
+  record: Row,
+  field = idField(),
+): string | undefined => {
+  const id = fieldOf(map, resource, field) ? recordId(record, field) : undefined;
+  if (id !== undefined) return keyFromResourceAndColumns(resource, { [field]: id });
+  const { idColumns } = indexMap(map);
+  if (!idColumns.has(resource)) {
+    const model = map.fieldMap.models[map.resources[resource] as string] as Keyed | undefined;
+    const single = Object.entries(model?.fields ?? {})
+      .filter(([, entry]) => entry.isId)
+      .map(([name]) => name);
+    idColumns.set(
+      resource,
+      single.length ? single : (model?.indexes?.find((index) => index.kind === 'id')?.fields ?? []),
+    );
+  }
+  const columns = idColumns.get(resource) as readonly string[];
+  const values = columns.map((column) => [column, recordId(record, column)] as const);
+  return values.length && values.every(([, value]) => value !== undefined)
+    ? keyFromResourceAndColumns(resource, Object.fromEntries(values))
+    : undefined;
+};
+
+/** Every to-one relation of `resource` the hydrator follows, by field name. */
+export const followedToOneRelationsOf = <R extends string>(
+  map: SchemaMap<R>,
+  resource: R,
+): [string, Relation<R>][] => {
+  const { toOnes } = indexMap(map as SchemaMap);
+  if (!toOnes.has(resource))
+    toOnes.set(
+      resource,
+      Object.keys(map.fieldMap.models[map.resources[resource]]?.fields ?? {}).flatMap((name) => {
+        const relation = relationOf(map, resource, name);
+        return relation ? [[name, relation] as [string, Relation]] : [];
+      }),
+    );
+  return toOnes.get(resource) as [string, Relation<R>][];
+};
 
 const ownerRelationOf = <R extends string>(
   map: SchemaMap<R>,
@@ -343,9 +414,50 @@ const ownerRelationOf = <R extends string>(
 ): string | undefined => {
   const axis = map.polymorphism?.[map.resources[resource]]?.axes.find((a) => a.field === field);
   const columns = [...(axis?.fkMap[value] ?? [])].sort().join(',');
-  return relationNames(map, resource).find(
-    (name) => [...(relationOf(map, resource, name)?.from ?? [])].sort().join(',') === columns,
-  );
+  return followedToOneRelationsOf(map, resource).find(
+    ([, relation]) => [...relation.from].sort().join(',') === columns,
+  )?.[0];
+};
+
+/** The rows `segments` reaches from `row` by followed to-ones, start included; it stops at a missing one (with `kinds`, a kind its step does not admit). */
+export const rowsAlongAnchorPath = <R extends string>(
+  map: SchemaMap<R>,
+  resource: R,
+  row: Row,
+  segments: readonly string[],
+  kinds = false,
+): { resource: R; row: Row }[] => {
+  const steps = [{ resource, row }];
+  for (const segment of segments) {
+    const { resource: current, row: at } = steps[steps.length - 1] as { resource: R; row: Row };
+    const relation = relationOf(map, current, segment);
+    const next = at[segment];
+    if (!relation || !next || typeof next !== 'object' || Array.isArray(next)) break;
+    if (
+      kinds &&
+      relation.kinds &&
+      !relation.kinds.values.includes(at[relation.kinds.field] as string)
+    )
+      break;
+    steps.push({ resource: relation.resource, row: next as Row });
+  }
+  return steps;
+};
+
+/** The row `anchor` names, when `row`'s path along `anchor.path` reaches it (with `kinds`, each step one its relation admits); else undefined. */
+export const anchorRowReachedFrom = <R extends string>(
+  map: SchemaMap<R>,
+  resource: R,
+  row: Row,
+  anchor: Anchor,
+  kinds = false,
+  field = idField(),
+): Row | undefined => {
+  const segments = anchor.path?.split('.') ?? [];
+  const end = rowsAlongAnchorPath(map, resource, row, segments, kinds)[segments.length];
+  return end?.resource === anchor.resource && recordId(end.row, field) === anchor.id
+    ? end.row
+    : undefined;
 };
 
 const chainOf = <R extends string>(
@@ -353,20 +465,10 @@ const chainOf = <R extends string>(
   resource: R,
   row: Row,
   segments: string[],
-): Map<R, Row> => {
-  const chain = new Map<R, Row>([[resource, row]]);
-  let current = resource;
-  let at = row;
-  for (const segment of segments) {
-    const relation = relationOf(map, current, segment);
-    const next = at[segment] as Row | undefined;
-    if (!relation || !next) break;
-    current = relation.resource;
-    at = next;
-    chain.set(current, at);
-  }
-  return chain;
-};
+): Map<R, Row> =>
+  new Map(
+    rowsAlongAnchorPath(map, resource, row, segments).map((step) => [step.resource, step.row]),
+  );
 
 const placeTowards = <R extends string>(
   map: SchemaMap<R>,
@@ -377,9 +479,7 @@ const placeTowards = <R extends string>(
 ): Row | null => {
   const row: Row = {};
   let reached = false;
-  for (const name of relationNames(map, resource)) {
-    const relation = relationOf(map, resource, name);
-    if (!relation) continue;
+  for (const [name, relation] of followedToOneRelationsOf(map, resource)) {
     const parent =
       chain.get(relation.resource) ??
       (depth > 1 && !seen.has(relation.resource)
@@ -392,16 +492,7 @@ const placeTowards = <R extends string>(
   return reached ? row : null;
 };
 
-/**
- * The records of `resource` that sit under the hydrated `anchor` (a record of `anchorResource`)
- * along `path` (dotted to-one relation names that own their foreign keys): at each step the foreign
- * keys whose values the parent knows, composite ones included, and the parent attached under the
- * relation. On a polymorphic step there is one record per kind the relation admits, each with its
- * owner placed under the anchor along every relation that leads there; a root leaf of `where` on
- * the first step's kind field (the `where` itself, or a leaf of its top `all`) drops the kinds it
- * fails. Ids below the anchor stay unknown. Empty when the path does not lead to the anchor's
- * resource.
- */
+/** The stand-in records of `resource` under the hydrated `anchor` along `path`, one per polymorphic kind the path admits (README, Granting one). */
 export const placeUnder = <R extends string>(
   map: SchemaMap<R>,
   resource: R,
@@ -481,43 +572,25 @@ export const placeEntitlement = <R extends string>(
   return placed.length ? placed : null;
 };
 
-/**
- * The hydrated rows above the records a granted entry reaches: its anchor row when the entry sits
- * under it by a path, and every row above the anchor. A self-anchored entry's anchor is the
- * granted record itself, so it is left out. The anchor is the object `placed` holds at the end of
- * the entry's path (each step a to-one relation that owns its foreign key), and it must be the
- * entry's anchor (resource and id); the rows above are the objects it holds under such relations,
- * followed up. Membership is object identity, so a row `placeUnder` built below the anchor, an
- * owner it placed beside one, and anything a `where` pins onto the placed record are never in it.
- * Empty when `placed` does not lead to the entry's anchor.
- */
+/** The hydrated rows above the records a granted entry reaches, by object; a self-anchored entry's own anchor left out. */
 export const rowsAbove = <R extends string>(
   map: SchemaMap<R>,
   entry: EntitlementEntry,
   placed: Row,
 ): ReadonlySet<Row> => {
   const rows = new Set<Row>();
-  let resource = entry.resource as R;
-  let anchor = placed;
-  for (const segment of entry.anchor.path?.split('.') ?? []) {
-    const relation = relationOf(map, resource, segment);
-    const parent = anchor[segment] as Row | null | undefined;
-    if (!relation || !parent || typeof parent !== 'object' || Array.isArray(parent)) return rows;
-    resource = relation.resource;
-    anchor = parent;
-  }
-  if (resource !== entry.anchor.resource || recordId(anchor) !== entry.anchor.id) return rows;
+  const anchorRow = anchorRowReachedFrom(map, entry.resource as R, placed, entry.anchor);
+  if (!anchorRow) return rows;
   const climb = (current: R, row: Row) => {
     if (rows.has(row)) return;
     rows.add(row);
-    for (const name of relationNames(map, current)) {
-      const relation = relationOf(map, current, name);
+    for (const [name, relation] of followedToOneRelationsOf(map, current)) {
       const parent = row[name] as Row | null | undefined;
-      if (relation && parent && typeof parent === 'object' && !Array.isArray(parent))
+      if (parent && typeof parent === 'object' && !Array.isArray(parent))
         climb(relation.resource, parent);
     }
   };
-  climb(resource, anchor);
-  if (entry.anchor.path === undefined) rows.delete(anchor);
+  climb(entry.anchor.resource as R, anchorRow);
+  if (entry.anchor.path === undefined) rows.delete(anchorRow);
   return rows;
 };

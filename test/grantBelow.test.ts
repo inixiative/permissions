@@ -20,7 +20,7 @@ import {
   wellFormedEntitlements,
   withoutRedundantEntitlements,
 } from '../index';
-import { mapOf } from './schemaMaps';
+import { mapOf, stringColumn } from './schemaMaps';
 
 // The grant check's first pass also counts an entitlement the writer holds when it is marked
 // `grantsBelow`, has no `where`, and the walk meets it on a hydrated row above the granted record
@@ -114,16 +114,23 @@ describe('the member case: operate on M, anchored at M, no where, backed by the 
       },
     },
   };
-  const map = mapOf({
-    'db:organizationUser': { user: 'db:user', organization: 'db:organization' },
-    'db:integration': {
-      user: 'db:user',
-      organization: 'db:organization',
-      organizationUser: 'db:organizationUser',
+  const map = mapOf(
+    {
+      'db:organizationUser': { user: 'db:user', organization: 'db:organization' },
+      'db:integration': {
+        user: 'db:user',
+        organization: 'db:organization',
+        organizationUser: 'db:organizationUser',
+      },
+      'db:integrationResource': { integration: 'db:integration' },
+      'kcp:thread': { integrationResource: 'db:integrationResource' },
     },
-    'db:integrationResource': { integration: 'db:integration' },
-    'kcp:thread': { integrationResource: 'db:integrationResource' },
-  });
+    {
+      'db:organizationUser': ['role'],
+      'db:integration': ['ownerModel'],
+      'db:integrationResource': ['enabled'],
+    },
+  );
   const rebac = createRebacCheck(map);
   const canGrant = createCanGrantEntitlement(map);
 
@@ -343,11 +350,14 @@ const schema: RebacSchema = {
     },
   },
 };
-const map = mapOf({
-  'db:space': { organization: 'db:organization' },
-  'db:integration': { space: 'db:space' },
-  'kcp:thread': { integration: 'db:integration' },
-});
+const map = mapOf(
+  {
+    'db:space': { organization: 'db:organization' },
+    'db:integration': { space: 'db:space' },
+    'kcp:thread': { integration: 'db:integration' },
+  },
+  { 'db:space': ['label'], 'db:integration': ['provider'] },
+);
 const rebac = createRebacCheck(map);
 const paths = createRebacPaths(map);
 const canGrant = createCanGrantEntitlement(map);
@@ -606,7 +616,7 @@ describe('the mark: a row without grantsBelow never counts in the first pass', (
   });
 });
 
-describe('still refused: an entitlement with a where never counts in the first pass', () => {
+describe('refused: an entitlement with a where never counts in the first pass', () => {
   const draft = eq('label', 'draft');
   const row = integrationsOfS1(['manage']);
 
@@ -668,7 +678,7 @@ describe('still refused: an entitlement with a where never counts in the first p
   });
 });
 
-describe('still refused: combining, sideways, another anchor, a rewritten where', () => {
+describe('refused: combining, sideways, another anchor, a rewritten where', () => {
   const slack = eq('provider', 'slack');
   const teams = eq('provider', 'teams');
 
@@ -720,7 +730,7 @@ describe('still refused: combining, sideways, another anchor, a rewritten where'
 // the granted record, not above it, so it never counts: without this the rows below would be
 // re-anchored and combined for one row, and R99 reversed (review F1). Every row here is hydrated
 // as the database returns it, every held row is marked, and no `where` is involved.
-describe('still refused: an entitlement on the granted record itself (self-anchored entries)', () => {
+describe('refused: an entitlement on the granted record itself (self-anchored entries)', () => {
   const i1 = integrationIn({ ...s1, label: null });
   const t1 = { id: 't1', integrationId: 'i1', integration: i1 };
 
@@ -767,14 +777,14 @@ describe('still refused: an entitlement on the granted record itself (self-ancho
     expect(await grants(holding([readOfI1, postOfS1]), both, t1)).toBe(false);
   });
 
-  test('a self-anchored copy still passes, and rows above the granted one still count', async () => {
+  test('a self-anchored copy passes, and rows above the granted one count', async () => {
     expect(await grants(holding([manageS1]), manageS1, s1)).toBe(true);
     const manageI1 = entry('db:integration', { resource: 'db:integration', id: 'i1' }, ['manage']);
     expect(await grants(holding([manageS1]), manageI1, i1)).toBe(true);
   });
 });
 
-describe('still refused: an entitlement met below the anchor, on a placed record', () => {
+describe('refused: an entitlement met below the anchor, on a placed record', () => {
   test('held on the granted resource itself, at the placed record: only the copy pass applies', async () => {
     const writer = holding([below(integrationsOfS1(['manage']))]);
     const threads = entry(
@@ -838,7 +848,12 @@ describe('what counts as above: rows the anchor holds under a to-one relation th
       fieldMap: {
         models: {
           ...owning.fieldMap.models,
-          'db:space': { fields: { profile: { ...profile, fromFields: [], toFields: [] } } },
+          'db:space': {
+            fields: {
+              ...owning.fieldMap.models['db:space']?.fields,
+              profile: { ...profile, fromFields: [], toFields: [] },
+            },
+          },
         },
       } as SchemaMap['fieldMap'],
     };
@@ -856,8 +871,10 @@ describe('what counts as above: rows the anchor holds under a to-one relation th
       return placed?.every((record) => check(permix, profiled, row, record)) === true;
     };
     expect(on(owning, byEntitlement)).toBe(true);
-    expect(on(inverse, byEntitlement)).toBe(false);
-    expect(on(inverse, byRole)).toBe(true);
+    expect(on(owning, byRole)).toBe(true);
+    // keyed on the other side, nothing hydrates it: no walk reads it, from above or by role
+    expect(() => on(inverse, byEntitlement)).toThrow('keeps its foreign key on `db:profile`');
+    expect(() => on(inverse, byRole)).toThrow('keeps its foreign key on `db:profile`');
   });
 
   test('a row reached across a bridge is not above: the first pass crosses no bridge', async () => {
@@ -877,7 +894,7 @@ describe('what counts as above: rows the anchor holds under a to-one relation th
         'db:integration': { actions: { manage: { rel: 'space', action: 'manage' } } },
       },
     };
-    const lib = mapOf({ 'db:integration': { space: 'db:space' } });
+    const lib = mapOf({ 'db:integration': { space: 'db:space' } }, { 'db:space': ['accountId'] });
     const space = { id: 's1', accountId: 'a1' };
     const subject = { resource: 'db:integration', record: { id: 'i1', spaceId: 's1', space } };
     const data = { 'crm:Account': [{ id: 'a1' }] };
@@ -895,6 +912,7 @@ describe('what counts as above: rows the anchor holds under a to-one relation th
 
   // The held entitlement's own path is tested on the real row, kinds included (`reaches`).
   test('a held entitlement whose path crosses a polymorphic step counts only for a row of that kind', async () => {
+    const column = stringColumn;
     const toOne = (type: string, from: string) => ({
       kind: 'object' as const,
       type,
@@ -911,15 +929,25 @@ describe('what counts as above: rows the anchor holds under a to-one relation th
       },
       fieldMap: {
         models: {
-          Organization: { fields: {} },
-          User: { fields: {} },
+          Organization: { fields: { id: column } },
+          User: { fields: { id: column } },
           Integration: {
             fields: {
+              id: column,
+              ownerModel: column,
+              organizationId: column,
+              userId: column,
               organization: toOne('Organization', 'organizationId'),
               user: toOne('User', 'userId'),
             },
           },
-          Thread: { fields: { integration: toOne('Integration', 'integrationId') } },
+          Thread: {
+            fields: {
+              id: column,
+              integrationId: column,
+              integration: toOne('Integration', 'integrationId'),
+            },
+          },
         },
       },
       polymorphism: {
@@ -994,7 +1022,7 @@ describe('upstream conditions', () => {
       expect(await grants(w, newRow, s1)).toBe(false);
     });
 
-    test('W still copies its own row: the copy pass ignores every where in liveness, as on main', async () => {
+    test('W copies its own row: the copy pass ignores every where in liveness', async () => {
       expect(await grants(w, wRow, s1)).toBe(true);
     });
 
@@ -1059,7 +1087,7 @@ describe('upstream conditions', () => {
       expect(await grants(holding([wRow], unlensed), newRow, s1)).toBe(true);
     });
 
-    test('W still copies its own row: a lensed chain is handed on by the copy pass', async () => {
+    test('W copies its own row: a lensed chain is handed on by the copy pass', async () => {
       expect(await grants(w, wRow, s1)).toBe(true);
     });
 

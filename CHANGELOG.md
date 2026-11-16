@@ -1,3 +1,101 @@
+## Unreleased — rules are judged in json-rules' own lens, spelled in the root
+
+**The change.** Every path a stored rule reads (a schema rule on first use, a row's
+`permissionRules` on each walk, an entitlement `where` when consulted) is judged with json-rules'
+`validateRuleInLens` and `walkLensPath`, against an ordinary json-rules `LensNarrowing` per
+resource whose `root.relations` spell every chain of to-one relations the hydrator follows. Under
+a list item the lens is the rest of the declared `down` paths at each landing. The hydrator loads
+every to-one of every row, one object per stored row, so a loop is the real cyclic graph. `check()`
+reads the hydrated row itself. README: [What a rule may read](README.md#what-a-rule-may-read-the-relation-lens).
+
+**Why.** Every leak the reviews found was a rule reading something hydration never loaded: a
+request body's list read by index or in brackets, a relation keyed on the other side read as null,
+a path past the hydrator's cycle cut, a `where` read on a list or on `__actor`, a computed key on a
+row reached by `{ rel }`, a schema or a `where` edited after it was judged. json-rules' lens
+already judges paths; its own documentation says a model reached another way is spelled under
+`root`, and spelled, it holds siblings, refuses lists, made-up keys and unspelled revisits, and
+fits Kingdom's 313 rule reads and 368 rel hops.
+
+- **`docs/VERBS.md`**: every operation has one verb, a name that says the action and one owner
+  module, enforced by `test/verbs.test.ts` (every exported function is listed; the lens calls, the
+  annotation read, the owning-key classification and the freeze each live in one module). Why:
+  the lens work's first names (`built`, `anchored`, `explain`, `refuses`, `judgeOnce`) said nothing,
+  and unreadable names hide parallel machinery from review. The public name is
+  `whyEntitlementWhereLeavesLens`.
+- **Limits that throw, never cut.** Chains of at most 20 relations; a row's lens counted one kind
+  per false-polymorphic model (Kingdom's largest: 444): `validateSchema` warns over 1,000
+  (`warnings`, `countRelationsOneRowHydrates`), building throws over 10,000. A hydration throws past 10,000 loads.
+- **A loop made by data denies; it never throws.** Back at the same row and action after a
+  relation hop, that branch counts as nothing; with no hop between, it is a schema naming itself
+  and throws. The stored copy of the starting record is that record, so a forged root does not
+  pass by reaching itself.
+- **The caller's record is never registered**: a loop back to it loads the stored row. Under a list
+  item only the declared `down` tree exists: every relation field the declaration does not load
+  (to-one or list, `hydrate: false` or keyed on the other side) is dropped from an item, whatever
+  `loadMany` returned; a declared path is loaded as written, never linked; and a list arm met
+  under an item denies, wherever its rule came from.
+- **Stored rules are judged at their own resource.** A row's `permissionRules` and an entitlement
+  `where` are general rules, valid where the row is reached directly; on a list item what they
+  read outside the declaration is unknown, so that arm fails and siblings still decide. The list
+  arm's own `condition` keeps the strict check against `down`.
+- **The grant check's first pass is main's**: a data loop can place a row above itself (u1 created
+  its own org), and the writer holds the action there by the schema.
+- **Rows are known by their key**: the engine id field when the model has it and the row a value
+  (it is what the app loads by), else the model's id columns (`isId`, or a composite `@@id`), else
+  the object (a stand-in). One encoder, `keyFromResourceAndColumns`, keys rows for the hydrator and for identity (a `paths` admission is keyed by its own `JSON.stringify`).
+- `validateSchema` reports json-rules' `operator_kind_mismatch` (a check never refuses on it).
+  `invalid_value` is left off: it would fail 64 of this repo's tests only because the fixture
+  helper types every column `String` (`test/schemaMaps.ts`); the owner decides later.
+- The freeze costs about 15% in json-rules' evaluator; it stays.
+- The list arm's `arrayOperator === 'any'` guard is gone (a frozen, judged schema cannot carry
+  another). The bridge guard and `absent: 'unknown'` under an item stay.
+- One anchor-path walk (`rowsAlongAnchorPath`) under `chainOf`, placement and `anchorRowReachedFrom`, the one test that a record's path reaches its anchor (`entitled` and `rowsAbove`);
+  one delegation walker (`delegationReach`, with `pureDelegates` or `allDelegates`) replaces the
+  cycle test's and `reachableFrom`'s, which is cached per frozen schema.
+
+### Breaking
+
+- `RebacCheck` takes four arguments: the `visited` set is gone (no caller seeded it). An app wrapper that passes it through (Kingdom's and template's `check.ts`) drops the argument.
+- A schema that reads outside the lens is refused on first use, `{ rel }` hops included. Kingdom,
+  template and Tribe carry one such arm, `integration.integration` in `db:token.create`.
+- A rule reads only fields the model has, wherever it came from, a rule passed to `check`
+  included (the owner: "we should be using real models and real maps"); declare a computed value
+  in the map to read it.
+- A path back to a model is refused (`org.creator.org.name`, `rel: 'org.creator'` from a user):
+  read it in two hops. An index into a scalar list (`mentions.0`) is refused; use `contains`.
+- A schema resource missing from `resources`, and not a bridge's far end, is refused.
+- The schema is frozen on first use, an entitlement's `where` when first judged.
+- A hydrated record with a cycle is cyclic (`JSON.stringify` throws on it).
+- `createHydrator` no longer deletes values under relations it does not follow; it takes
+  `(resource, record)`. `ListRelation.paths` is `down` (json-rules' spelling).
+  `declarationIssues` and `resolveField` are gone; `whyEntitlementWhereLeavesLens` is new; `validateSchema`
+  also returns `warnings`. A `hydrate: false` relation is no anchor-path, `rel` or `rowsAbove` step.
+- **`paths` reports the admissions through a node a finished sibling walked.** `visited` holds only
+  the nodes on the current path; a finished node used to stay in the map its siblings shared, and
+  `entitled` skipped the owner walk that met it again. `paths` may now return more admissions, and
+  may reach its limit (`PathLimitError`) where it did not. `check` and the grant check answer as
+  before (no difference in 48,000 fuzzed cases).
+- **One check answers each node once, past its starting row.** A node reached after a hop (its
+  table, row object, resource and action, in its walk mode) is kept when no test in its walk found
+  a node on the path, with its footprint, and reused while nothing in the footprint is on the path.
+  A denial 6 hops down walks 28 nodes instead of 329. Row keys and a row's own rule verdicts are
+  also computed once per row per check. No answer changes.
+
+### Options rejected
+
+- **A second lens in permissions** (the first build: a node graph, a record view, a path walk):
+  about 175 lines parallel to json-rules' lens, and each reason given against json-rules failed
+  when run.
+- **A by-model mode in json-rules** (a model's relations at every visit): not needed; spelling the
+  tree in the root does it with json-rules as it is.
+- **A projection of the record** (json-rules `projectRows`): with every read judged, no admitted
+  read changes under it; it turns Decimals
+  into numbers, and costs about 22 ms on Kingdom's largest tree against 0.014 ms for `check`.
+- **The actor in a lens field of every model**: it admits `org.__actor.record.id`, which reads
+  nothing and passes `equals null`; it is a field of the rule's own row only.
+- **Counting every polymorphic arm** in the size limit: a row hydrates one kind; all arms would put
+  four Kingdom resources over 1,000.
+
 ## 0.22.0 — grants below a held row; a list arm; marks that join a stand-in
 
 Three additions to what a schema and a grant can say, with the adversarial reviews' findings

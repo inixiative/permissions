@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { type FieldMap, Operator } from '@inixiative/json-rules';
+import { Operator } from '@inixiative/json-rules';
 import {
   createCanGrantEntitlement,
   createPermissions,
@@ -8,8 +8,6 @@ import {
   type PermissionEntry,
   placeEntitlement,
   type RebacSchema,
-  type Row,
-  type SchemaMap,
 } from '../index';
 import { mapOf } from './schemaMaps';
 
@@ -17,7 +15,10 @@ const relations = {
   'db:space': { organization: 'db:organization' },
   'db:integration': { space: 'db:space' },
 };
-const flat = mapOf(relations);
+const flat = mapOf(relations, {
+  'db:space': ['name', 'label'],
+  'db:integration': ['label', 'priority'],
+});
 const schema: RebacSchema = {
   permissions: {
     'db:organization': { actions: { own: null, manage: 'own' } },
@@ -71,7 +72,7 @@ describe('what a grant pins onto its pseudo records', () => {
       where: { field: 'priority', operator: 'greaterThan', value: 5 },
       actions: { manage: true },
     } as EntitlementEntry;
-    const placed = placeEntitlement(flat, e, s1)!;
+    const placed = placeEntitlement(flat, e, s1) ?? [];
     expect(placed.every((r) => !('priority' in r))).toBe(true);
     const reader = createPermissions();
     return reader
@@ -89,7 +90,7 @@ describe('what a grant pins onto its pseudo records', () => {
       where: { field: 'label', operator: 'equals', value: 'Ops', caseInsensitive: true },
       actions: { label: true },
     } as EntitlementEntry;
-    const placed = placeEntitlement(flat, e, s1)!;
+    const placed = placeEntitlement(flat, e, s1) ?? [];
     const reader = createPermissions();
     await reader.setup({
       resource: 'db:space',
@@ -105,7 +106,7 @@ describe('what a grant pins onto its pseudo records', () => {
       where: { field: 'space.name', operator: 'equals', value: 'x' },
       actions: { manage: true },
     } as EntitlementEntry;
-    expect(placeEntitlement(flat, e, s1)!.every((r) => !('space.name' in r))).toBe(true);
+    expect(placeEntitlement(flat, e, s1)?.every((r) => !('space.name' in r))).toBe(true);
   });
 });
 

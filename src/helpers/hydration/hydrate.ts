@@ -1,15 +1,16 @@
-import { idField } from '../../core/recordId';
+import { hasNoValue, idField } from '../../core/recordId';
 import {
+  followedToOneRelationsOf,
   indexMap,
+  keyFromResourceAndColumns,
   keysFrom,
   listsOf,
   type Relation,
   relationOf,
   type SchemaMap,
-  skipsHydration,
+  type SpelledRelationTree,
 } from '../../core/schemaMap';
 import type { Row } from '../../core/types';
-
 /**
  * What the hydrator needs: the schema map the checks walk, and `load`, one read of a `resource`'s
  * record by its target columns (`{ id }` — `permissions.idField` — or every column of a composite key). `load` is the cache
@@ -26,119 +27,135 @@ export type HydrateDeps<R extends string = string> = {
   loadMany?: (resource: R, where: Row) => Promise<Row[]>;
 };
 
-type Tree = Map<string, Tree>;
-
-const treeOf = (paths: readonly (readonly string[])[]): Tree => {
-  const tree: Tree = new Map();
-  for (const path of paths) {
-    let at = tree;
-    for (const segment of path) {
-      const next: Tree = at.get(segment) ?? new Map();
-      at.set(segment, next);
-      at = next;
-    }
-  }
-  return tree;
-};
-
 const whereOf = (relation: Relation, record: Row): Row | null => {
   const where: Row = {};
   for (const [index, column] of relation.from.entries()) {
     const value = record[column];
-    if (value == null || value === '') return null;
+    if (hasNoValue(value)) return null;
     where[relation.to[index] ?? idField()] = value;
   }
   return where;
 };
 
-const keyOf = (resource: string, where: Row): string =>
-  `${resource}\u0000${JSON.stringify(Object.entries(where).sort(([a], [b]) => a.localeCompare(b)))}`;
+/** The most `load`/`loadMany` calls one hydration makes before it throws. */
+export const hydrationLimits = { loads: 10_000 };
 
-/**
- * Build a recursive hydrator over a schema map: every to-one relation that owns its foreign key and
- * leads to a resource in the map is loaded and attached, recursively, so the rebac `check` never
- * sees an under-hydrated relation. A missing relation can then only mean the key is null (a real
- * deny), not a loading artifact. Composite keys and non-id targets load by every column the target
- * names. A polymorphic record gets every relation whose columns are set, whatever its kind.
- *
- * The hydrator owns every to-one relation of the model, followed or not: the result holds the row
- * it loaded there, or nothing. A value the record already carried under one (a request body's
- * `conversation: {...}`) is dropped. A relation tagged `/// @permissions(hydrate: false)` (a
- * prisma-map annotation) or one whose key is on the other side is not followed, so it ends empty.
- * A list that is not declared is never crossed by a `rel`, and is left as given.
- *
- * A list relation tagged `/// @permissions(down: [forumUser.fanUser, forumUser.brandUser])` is
- * loaded one jump down wherever its model is hydrated above an item: one `loadMany` by the items'
- * foreign key, replacing whatever the record held under that field (`[]` when the record has no
- * key), then under each item only the declared to-one paths, through `load`, each owned the same
- * way. Nothing else loads from an item or from the rows on those paths: no upward hydration, no
- * second list, and their other to-one relations end empty.
- *
- * `ancestors`, the records on the path from the root, cuts an edge back to one of them, so
- * hydration terminates on a self-referential key or an A to B to A loop. It is forked per branch, so
- * a parent reached on two paths is hydrated on both; `pending` loads it once.
- */
+type Run = {
+  raw: Map<string, Promise<Row | null>>;
+  rows: Map<string, Promise<Row | null>>;
+  work: Promise<void>[];
+  loads: number;
+};
+
+/** A hydrator that loads every to-one of every row, and each declared list (README, Helper: hydration). */
 export const createHydrator = <R extends string>({ map, load, loadMany }: HydrateDeps<R>) => {
   if (indexMap(map as SchemaMap).lists.size && !loadMany)
     throw new Error('the map declares a list (`@permissions(down: ...)`): pass `loadMany`');
-  const once = (
-    resource: R,
-    where: Row,
-    pending: Map<string, Promise<Row | null>>,
-  ): Promise<Row | null> => {
-    const key = keyOf(resource, where);
-    let loading = pending.get(key);
+  const countLoadAgainstBudget = (run: Run, resource: R) => {
+    if (++run.loads > hydrationLimits.loads)
+      throw new Error(
+        `hydrating \`${resource}\` passed ${hydrationLimits.loads} loads: a chain that long is not a permission walk`,
+      );
+  };
+  const loadOnce = (run: Run, resource: R, where: Row): Promise<Row | null> => {
+    const key = keyFromResourceAndColumns(resource, where);
+    let loading = run.raw.get(key);
     if (!loading) {
+      countLoadAgainstBudget(run, resource);
       loading = load(resource, where);
-      pending.set(key, loading);
+      run.raw.set(key, loading);
     }
     return loading;
   };
-  const hydrate = async (
+  // why: a row stored once is one object wherever it is reached, so a loop is the real cyclic graph
+  const storedRowAsOneSharedObject = (
+    run: Run,
+    relation: Relation<R>,
+    where: Row,
+  ): Promise<Row | null> => {
+    const key = keyFromResourceAndColumns(relation.resource, where);
+    let row = run.rows.get(key);
+    if (!row) {
+      let resolve: (value: Row | null) => void = () => {};
+      row = new Promise((done) => {
+        resolve = done;
+      });
+      run.rows.set(key, row);
+      run.work.push(
+        (async () => {
+          const stored = await loadOnce(run, relation.resource, where);
+          const object = stored ? { ...stored } : null;
+          resolve(object);
+          if (object && stored)
+            await loadFollowedRelationsOnto(run, relation.resource, object, stored);
+        })(),
+      );
+    }
+    return row;
+  };
+  const loadFollowedRelationsOnto = async (
+    run: Run,
     resource: R,
+    result: Row,
     record: Row,
-    pending: Map<string, Promise<Row | null>> = new Map(),
-    ancestors: ReadonlySet<string> = new Set(),
-    tree?: Tree,
-  ): Promise<Row> => {
-    const result: Row = { ...record };
-    const fields = map.fieldMap.models[map.resources[resource]]?.fields ?? {};
-    const lists = (tree ? [] : listsOf(map, resource)).map(async ([name, list]) => {
+  ): Promise<void> => {
+    const lists = listsOf(map, resource).map(async ([name, list]) => {
       const where = keysFrom(list, record);
       const complete = Object.keys(where).length === list.from.length;
+      if (complete) countLoadAgainstBudget(run, list.resource);
       const items = complete
         ? await (loadMany as NonNullable<typeof loadMany>)(list.resource, where)
         : [];
-      const below = treeOf(list.paths);
       result[name] = await Promise.all(
-        items.map((item) => hydrate(list.resource, item, pending, ancestors, below)),
+        items.map((item) =>
+          loadOnlyDeclaredPathsUnderListItem(run, list.resource, item, list.down),
+        ),
       );
     });
     await Promise.all([
       ...lists,
-      ...Object.entries(fields).map(async ([name, field]) => {
-        // why: a value under a to-one relation is the caller's claim until the hydrator loads it
-        if (field.kind === 'object' && !field.isList) delete result[name];
-        const below = tree?.get(name);
-        if (tree ? !below : skipsHydration(field)) return;
-        const relation = relationOf(map, resource, name);
-        const where = relation && whereOf(relation, record);
-        if (!relation || !where) return;
-        const key = keyOf(relation.resource, where);
-        // why: a declared path is finite; only upward hydration can loop
-        if (!tree && ancestors.has(key)) return;
-        const related = await once(relation.resource, where, pending);
-        if (related)
-          result[name] = await hydrate(
-            relation.resource,
-            related,
-            pending,
-            new Set(ancestors).add(key),
-            below,
-          );
+      ...followedToOneRelationsOf(map, resource).map(async ([name, relation]) => {
+        delete result[name];
+        const where = whereOf(relation, record);
+        const row = where && (await storedRowAsOneSharedObject(run, relation, where));
+        if (row) result[name] = row;
       }),
     ]);
+  };
+  // why: under an item only the declared paths exist, loaded as written and never linked
+  const loadOnlyDeclaredPathsUnderListItem = async (
+    run: Run,
+    resource: R,
+    record: Row,
+    tree: SpelledRelationTree,
+  ): Promise<Row> => {
+    const result: Row = { ...record };
+    for (const [name, field] of Object.entries(
+      map.fieldMap.models[map.resources[resource]]?.fields ?? {},
+    ))
+      if (field.kind === 'object' || field.kind === 'bridge') delete result[name];
+    await Promise.all(
+      Object.entries(tree).map(async ([name, below]) => {
+        delete result[name];
+        const relation = relationOf(map, resource, name);
+        const where = relation && whereOf(relation, record);
+        const stored = where && relation && (await loadOnce(run, relation.resource, where));
+        if (stored && relation)
+          result[name] = await loadOnlyDeclaredPathsUnderListItem(
+            run,
+            relation.resource,
+            stored,
+            (below.relations ?? {}) as SpelledRelationTree,
+          );
+      }),
+    );
     return result;
   };
-  return hydrate;
+  return async (resource: R, record: Row): Promise<Row> => {
+    const run: Run = { raw: new Map(), rows: new Map(), work: [], loads: 0 };
+    const result: Row = { ...record };
+    await loadFollowedRelationsOnto(run, resource, result, record);
+    while (run.work.length) await Promise.all(run.work.splice(0));
+    return result;
+  };
 };

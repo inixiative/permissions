@@ -1,11 +1,17 @@
 import { type BridgeDictionary, indexBridges } from '@inixiative/json-rules';
 import type { Algebra } from './algebra';
-import { evaluate } from './evaluate';
+import { evaluate, startOneCheck } from './evaluate';
 import { withExactStrings } from './exactStrings';
+import { answerOnce, freezeThenJudgeOnce } from './freezeThenJudgeOnce';
+import { idField } from './recordId';
 import { indexMap, type SchemaMap } from './schemaMap';
 import type { ActionRule, CheckOptions, PermixLike, RebacSchema, Row, Subject } from './types';
 import { validateActionRule } from './validateActionRule';
-import { declarationIssues, schemaRuleIssues } from './validateSchema';
+import {
+  issuesForRuleReadsOutsideLens,
+  schemaIssuesRefusedOnFirstUse,
+  schemaRuleIssues,
+} from './validateSchema';
 
 const refuse = (what: string) => {
   throw new Error(
@@ -13,19 +19,19 @@ const refuse = (what: string) => {
   );
 };
 
-const judged = new WeakMap<object, WeakSet<object>>();
-
-// why: a negated rule, or a walk under a list item outside its declaration, answers on what nothing loaded
-const assertSchema = (map: SchemaMap, schema: RebacSchema) => {
-  const known = judged.get(map) ?? new WeakSet();
-  if (known.has(schema)) return;
-  const [negated] = schemaRuleIssues(schema);
-  if (negated) refuse(`\`${negated.path}\``);
-  const [undeclared] = declarationIssues(map, schema);
-  if (undeclared)
-    throw new Error(`\`${undeclared.path}\`: ${undeclared.message} (run validateSchema)`);
-  judged.set(map, known.add(schema));
+const outsideLens = ({ path, message }: { path: string; message: string }) => {
+  throw new Error(`\`${path}\`: ${message} (run validateSchema)`);
 };
+
+// why: a negated rule, or a read outside the lens, answers on what nothing loaded
+const assertSchema = (map: SchemaMap, schema: RebacSchema) =>
+  freezeThenJudgeOnce(schema, map, () => {
+    const [negated] = schemaRuleIssues(schema);
+    if (negated) refuse(`\`${negated.path}\``);
+    const [outside] = schemaIssuesRefusedOnFirstUse(map, schema);
+    if (outside) outsideLens(outside);
+    return true;
+  });
 
 export const createWalker = <R extends string, T>(
   map: SchemaMap<R>,
@@ -34,21 +40,31 @@ export const createWalker = <R extends string, T>(
   ignoreWheres = false,
 ) => {
   indexMap(map as SchemaMap);
+  // why: an inline rule passed again as the same object is judged once (and frozen); a fresh literal each call is judged each time
+  const inlineKeys = new WeakMap<object, Map<string, object>>();
+  const inlineKey = (schema: object, resource: string): object =>
+    answerOnce(inlineKeys, schema, resource, () => ({}));
   return (
     permix: PermixLike,
     schema: RebacSchema<R>,
     subject: Subject<R>,
     actionOrRule: ActionRule,
-    visited: Set<string> = new Set(),
     above?: ReadonlySet<Row>,
   ): T => {
     assertSchema(map as SchemaMap, schema);
-    if (
-      typeof actionOrRule === 'object' &&
-      actionOrRule !== null &&
-      !validateActionRule(actionOrRule).ok
-    )
-      refuse('the rule asked');
+    if (typeof actionOrRule === 'object' && actionOrRule !== null)
+      freezeThenJudgeOnce(actionOrRule, inlineKey(schema, subject.resource), () => {
+        if (!validateActionRule(actionOrRule).ok) refuse('the rule asked');
+        const [outside] = issuesForRuleReadsOutsideLens(
+          map as SchemaMap,
+          schema as RebacSchema,
+          subject.resource,
+          actionOrRule,
+        );
+        if (outside) outsideLens(outside);
+        return true;
+      });
+    const record = subject.record;
     // Built lazily on the first bridge hop: a check that never crosses a bridge must not pay for —
     // or be crashed by (indexBridges throws on malformed `data`) — a dictionary it never reads.
     let built = false;
@@ -64,12 +80,22 @@ export const createWalker = <R extends string, T>(
     };
     return withExactStrings(() =>
       evaluate(
-        { map, absent, schema, getDict, algebra, ignoreWheres, ...(above ? { above } : {}) },
+        {
+          map,
+          absent,
+          schema,
+          getDict,
+          algebra,
+          ignoreWheres,
+          idField: idField(),
+          oneCheck: startOneCheck(),
+          ...(above ? { above } : {}),
+        },
         permix,
         subject.resource,
-        subject.record,
+        record,
         actionOrRule,
-        visited,
+        new Map(),
       ),
     );
   };

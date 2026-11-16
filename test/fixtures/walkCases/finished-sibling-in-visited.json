@@ -1,0 +1,91 @@
+{
+  "names": ["db:space", "db:organization"],
+  "resources": [
+    { "rels": [{ "name": "organization", "target": 1 }], "lists": [] },
+    {
+      "rels": [{ "name": "primarySpace", "target": 0 }],
+      "lists": [{ "name": "spaces", "item": 0, "inverse": "organization", "down": [] }]
+    }
+  ],
+  "schema": {
+    "0": { "read": null, "edit": null, "share": null },
+    "1": { "read": { "rel": "primarySpace", "action": "share" }, "edit": null }
+  },
+  "objects": [
+    {
+      "res": 0,
+      "id": "s1",
+      "flag": "y",
+      "links": { "organization": 4 },
+      "lists": {},
+      "permissionRules": { "share": { "rel": "organization", "action": "read" } }
+    },
+    { "res": 0, "id": "s1", "flag": "x", "links": {}, "lists": {} },
+    { "res": 0, "id": "s2", "flag": "y", "links": { "organization": 4 }, "lists": {} },
+    { "res": 1, "id": "o1", "flag": "y", "links": {}, "lists": { "spaces": [] } },
+    {
+      "res": 1,
+      "id": "o1",
+      "flag": "y",
+      "links": { "primarySpace": 2 },
+      "lists": { "spaces": [] }
+    },
+    { "res": 1, "id": "o2", "flag": "y", "links": {}, "lists": { "spaces": [] } }
+  ],
+  "tables": [
+    {
+      "grants": [],
+      "ents": [
+        {
+          "resource": 0,
+          "path": ["organization"],
+          "anchorId": "o1",
+          "grantsBelow": true,
+          "actions": ["read", "share"],
+          "ref": "holder1",
+          "owner": 1
+        }
+      ],
+      "actor": "User"
+    },
+    {
+      "grants": [],
+      "ents": [
+        {
+          "resource": 0,
+          "path": ["organization"],
+          "anchorId": "o1",
+          "grantsBelow": true,
+          "actions": ["edit", "share"],
+          "ref": "owner0",
+          "owner": 2
+        }
+      ],
+      "actor": null
+    },
+    {
+      "grants": [{ "resource": 0, "id": "s2", "action": "share" }],
+      "ents": [
+        {
+          "resource": 1,
+          "path": [],
+          "anchorId": "o1",
+          "actions": ["read", "share"],
+          "ref": "third2",
+          "owner": 0
+        }
+      ],
+      "actor": "User"
+    }
+  ],
+  "query": { "object": 0, "action": "share" },
+  "grant": {
+    "ent": {
+      "resource": 1,
+      "path": ["primarySpace"],
+      "anchorId": "s2",
+      "actions": ["read", "share"]
+    },
+    "placed": 5
+  }
+}

@@ -3,11 +3,14 @@ import { Operator } from '@inixiative/json-rules';
 import { type RebacSchema, validateSchema } from '../index';
 import { mapOf } from './schemaMaps';
 
-const map = mapOf({
-  document: { organization: 'organization', author: 'user', folder: 'folder' },
-  folder: { organization: 'organization', archive: 'archive' },
-  organization: { billing: 'billing' },
-});
+const map = mapOf(
+  {
+    document: { organization: 'organization', author: 'user', folder: 'folder' },
+    folder: { organization: 'organization', archive: 'archive' },
+    organization: { billing: 'billing' },
+  },
+  { user: ['name'] },
+);
 
 const schema: RebacSchema = {
   permissions: {
@@ -29,7 +32,7 @@ const schema: RebacSchema = {
 
 describe('validateSchema', () => {
   test('a schema whose rels resolve and whose actions exist is valid', () => {
-    expect(validateSchema(map, schema)).toEqual({ ok: true, errors: [] });
+    expect(validateSchema(map, schema)).toEqual({ ok: true, errors: [], warnings: [] });
   });
 
   test('names a relation the map does not have', () => {

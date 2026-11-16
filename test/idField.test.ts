@@ -11,7 +11,9 @@ const schema: RebacSchema = {
   },
 };
 
-const check = createRebacCheck(mapOf({ document: { organization: 'organization' } }));
+const check = createRebacCheck(
+  mapOf({ document: { organization: 'organization' } }, { organization: ['uuid'] }),
+);
 
 const granted = async (id: string) => {
   const permix = createPermissions();

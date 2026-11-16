@@ -1,4 +1,4 @@
-export type Result = { name: string; p50: number; p99: number; mean: number };
+type Result = { name: string; p50: number; p99: number; mean: number };
 
 const percentile = (sorted: number[], p: number) =>
   sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * p))] ?? 0;

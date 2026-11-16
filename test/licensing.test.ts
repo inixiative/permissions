@@ -65,11 +65,14 @@ const schema: RebacSchema = {
   },
 };
 const check = createRebacCheck(
-  mapOf({
-    'db:product': { distributor: 'db:distributor' },
-    'db:space': { organization: 'db:organization' },
-    'db:order': { space: 'db:space', product: 'db:product' },
-  }),
+  mapOf(
+    {
+      'db:product': { distributor: 'db:distributor' },
+      'db:space': { organization: 'db:organization' },
+      'db:order': { space: 'db:space', product: 'db:product' },
+    },
+    { 'db:product': ['line'] },
+  ),
 );
 
 type Level = 'retail' | 'wholesale';

@@ -1,15 +1,11 @@
 import { describe, expect, test } from 'bun:test';
-import { type FieldMap, Operator } from '@inixiative/json-rules';
+import { Operator } from '@inixiative/json-rules';
 import {
-  createCanGrantEntitlement,
   createPermissions,
   createRebacCheck,
   type EntitlementEntry,
   type PermissionEntry,
-  placeEntitlement,
   type RebacSchema,
-  type Row,
-  type SchemaMap,
 } from '../index';
 import { mapOf } from './schemaMaps';
 
@@ -17,7 +13,7 @@ const relations = {
   'db:space': { organization: 'db:organization' },
   'db:integration': { space: 'db:space' },
 };
-const flat = mapOf(relations);
+const flat = mapOf(relations, { 'db:space': ['label'], 'db:integration': ['label', 'priority'] });
 const schema: RebacSchema = {
   permissions: {
     'db:organization': { actions: { own: null, manage: 'own' } },

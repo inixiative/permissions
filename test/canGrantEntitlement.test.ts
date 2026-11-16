@@ -64,8 +64,14 @@ const relations: Record<string, Record<string, string>> = {
   'db:space': { organization: 'db:organization' },
   'db:integration': { space: 'db:space' },
 };
-const canGrantEntitlement = createCanGrantEntitlement(mapOf(relations));
-const rebac = createRebacCheck(mapOf(relations));
+const columns = {
+  'db:user': [],
+  'db:organization': ['role'],
+  'db:space': ['label', 'name', 'role'],
+  'db:integration': ['provider', 'name'],
+};
+const canGrantEntitlement = createCanGrantEntitlement(mapOf(relations, columns));
+const rebac = createRebacCheck(mapOf(relations, columns));
 const check = (permix: Permix, resource: string, record: Row, action: string) =>
   rebac(permix, schema, { resource, record }, action);
 
@@ -180,7 +186,7 @@ describe('canGrantEntitlement: never more than the writer could do from that anc
 
   test('an anchor off the resource tree grants nothing', async () => {
     const offTree = entry('db:integration', at('db:user', 'u1', 'user'), ['read']);
-    expect(placeEntitlement(mapOf(relations), offTree, { id: 'u1' })).toBeNull();
+    expect(placeEntitlement(mapOf(relations, columns), offTree, { id: 'u1' })).toBeNull();
   });
 
   test('a where only narrows: the writer must cover the whole collection at that anchor', async () => {
@@ -259,7 +265,7 @@ describe('canGrantEntitlement on a placed record: a field it does not carry is u
     holder.setActor({ model: 'User', record: { id: 'h1' } });
     const integrations = entry('db:integration', at('db:space', 's1', 'space'), ['manage']);
     const grants = (granted: EntitlementEntry) =>
-      (placeEntitlement(mapOf(relations), granted, s1) ?? []).every((record) =>
+      (placeEntitlement(mapOf(relations, columns), granted, s1) ?? []).every((record) =>
         may(holder, granted, record),
       );
     expect(grants(integrations)).toBe(false);
@@ -406,8 +412,8 @@ describe('passing on a lower action asks the grantor about that action, not the 
 test('an entitlement that grants no action is malformed: refused at setup and at placement', async () => {
   const nothing = entry('db:space', at('db:space', 's1'), []);
   const none = { ...nothing, actions: { own: false } };
-  expect(placeEntitlement(mapOf(relations), nothing, s1)).toBeNull();
-  expect(placeEntitlement(mapOf(relations), none, s1)).toBeNull();
+  expect(placeEntitlement(mapOf(relations, columns), nothing, s1)).toBeNull();
+  expect(placeEntitlement(mapOf(relations, columns), none, s1)).toBeNull();
   await expect(
     createPermissions().setup([none], { owner: await holding('db:space', 's1', ['own']) }),
   ).rejects.toThrow();

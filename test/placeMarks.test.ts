@@ -14,6 +14,7 @@ import {
   validateSchema,
 } from '../index';
 import { annotate, loadModels } from './fixtures/load';
+import { stringColumn } from './schemaMaps';
 
 // Kingdom's surface → integrationResource → integration slice (schemas/kingdom.prisma), parsed by
 // prisma-map. `IntegrationResource.kind` and `.enabled` read `/// @permissions(place: true)`.
@@ -134,7 +135,7 @@ const granted = async (
 
 describe('Kingdom’s wide row: every channel of integration i1', () => {
   test('the one-form schema validates', () => {
-    expect(validateSchema(marked, schema)).toEqual({ ok: true, errors: [] });
+    expect(validateSchema(marked, schema)).toEqual({ ok: true, errors: [], warnings: [] });
   });
 
   test('with the marks, the stated values join the stand-in resource', () => {
@@ -238,10 +239,7 @@ describe('what fills a stand-in, and what never does', () => {
   });
 
   test('a leaf through a relation that is not the entry’s path fills nothing', () => {
-    const [placed] = placedOn(
-      marked,
-      withWhere(equals('projectIntegrationResource.kind', 'channel')),
-    );
+    const [placed] = placedOn(marked, withWhere(equals('projectIntegrationResource.id', 'pir1')));
     expect(placed).toEqual({ integrationResource: { integrationId: 'i1', integration: i1 } });
   });
 
@@ -309,7 +307,7 @@ describe('where the mark is refused, when the map is first used', () => {
 });
 
 describe('a polymorphic stand-in: the mark joins it, the path still sets its kind and keys', () => {
-  const scalar = { kind: 'scalar', type: 'String' } as const;
+  const scalar = stringColumn;
   const toOne = (type: string, fromFields: string[], toFields: string[]) =>
     ({ kind: 'object', type, isList: false, fromFields, toFields }) as const;
   const map: SchemaMap = {
@@ -429,7 +427,7 @@ describe('Kingdom’s project scope: a grant anchored at the project-resource jo
   });
 
   test('granted once the rule reaches the resource through the link; marks play no part', async () => {
-    expect(validateSchema(marked, linked)).toEqual({ ok: true, errors: [] });
+    expect(validateSchema(marked, linked)).toEqual({ ok: true, errors: [], warnings: [] });
     expect(await granted(marked, linked, atJoinRow, pir1)).toBe(true);
     expect(await granted(unmarked, linked, atJoinRow, pir1)).toBe(true);
     const canGrant = createCanGrantEntitlement(marked);
@@ -486,7 +484,7 @@ describe('Kingdom’s project scope: a grant anchored at the project-resource jo
 });
 
 // The adversarial review's reproductions for part B and the project scope.
-describe('review: a marked field stated twice (B-1)', () => {
+describe('a marked field stated twice', () => {
   const kinds = (...stated: string[]): EntitlementEntry => ({
     ...everyChannel,
     where: {
@@ -531,7 +529,7 @@ describe('review: a marked field stated twice (B-1)', () => {
   });
 });
 
-describe('review: Kingdom’s project scope, as the review corrected it (B-2, B-3)', () => {
+describe('a project scope: a join-row entry and an anchor through the link', () => {
   const viaLink = 'projectIntegrationResource.integrationResource';
   const foreign = resource('r9', {
     ...integration('i9'),
@@ -554,7 +552,7 @@ describe('review: Kingdom’s project scope, as the review corrected it (B-2, B-
   // B-2: the rule cannot tie the two carriers together on a stand-in, so the surface record must
   // derive its direct resource from the link it carries. This pins what a record that does not
   // do so is admitted as.
-  test('B-2 a join-row entry judges the link: a record carrying another direct resource passes', async () => {
+  test('a join-row entry judges the link: a record carrying another direct resource passes', async () => {
     const sends = await sendsAs(atJoinRow);
     expect(sends(call(r1, pir1))).toBe(true);
     expect(sends(call(r2, pir1))).toBe(true);
@@ -575,7 +573,7 @@ describe('review: Kingdom’s project scope, as the review corrected it (B-2, B-
     actions: { '*': true },
   };
 
-  test('B-3 a project scope anchors at the integration, through the link: the marks fill two levels down', async () => {
+  test('a project scope anchors at the integration, through the link: the marks fill two levels down', async () => {
     expect(placedOn(marked, inProject)).toEqual([
       {
         projectIntegrationResource: {
@@ -596,7 +594,7 @@ describe('review: Kingdom’s project scope, as the review corrected it (B-2, B-
       expect(canGrant(projectOnly, linked, inProject, placed)).toBe(false);
   });
 
-  test('B-3 at read it follows the project’s links live, and nothing outside the project or the kind', async () => {
+  test('at read it follows the project’s links live, and nothing outside the project or the kind', async () => {
     const sends = await sendsAs(inProject);
     expect(sends(through(link('a', p1, r1)))).toBe(true);
     expect(sends(through(link('b', p1, r2)))).toBe(true);

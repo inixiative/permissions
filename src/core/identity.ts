@@ -1,8 +1,6 @@
-import type { Actor, PermixLike } from './types';
+import type { Actor, PermixLike, Row } from './types';
 
-// Stable identity for cycle detection that does NOT depend on `record.id` — an id may be absent or
-// collide across resources, both of which would make an id-based key falsely report a cycle. A
-// WeakMap assigns each visited object a process-unique number; entries are GC'd with the objects.
+// A process-unique number per object, for a row with no key (`identityKeyOfRow`) and for a table.
 const identity = (): ((value: object) => number) => {
   let counter = 0;
   const ids = new WeakMap<object, number>();
@@ -15,7 +13,7 @@ const identity = (): ((value: object) => number) => {
     return id;
   };
 };
-export const nodeId = identity();
+const nodeId = identity();
 const tableId = identity();
 
 // An entitlement's owner walk runs on a slice of the owner's table (its grants, the request's
@@ -34,3 +32,7 @@ export const asOwner = (owner: PermixLike, actor: Actor | null): PermixLike => {
   origin.set(slice, origin.get(owner) ?? owner);
   return slice;
 };
+
+/** A row's identity on a walk: its key (`identityKeyOfRow`) when it has one, so a row loaded twice is one row; else the object. */
+export const rowId = (record: Row, key: string | undefined): string =>
+  key === undefined ? `#${nodeId(record)}` : `=${key}`;

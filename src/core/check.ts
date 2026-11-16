@@ -8,7 +8,6 @@ export type RebacCheck<R extends string = string> = (
   schema: RebacSchema<R>,
   subject: Subject<R>,
   actionOrRule: ActionRule,
-  visited?: Set<string>,
 ) => boolean;
 
 /**
@@ -19,12 +18,16 @@ export type RebacCheck<R extends string = string> = (
  * `schema.bridges`: the join-key scalar on the record looks the far row up in a `BridgeDictionary`
  * the engine builds from `subject.data`; a far row absent there denies the walk. `string` delegates
  * (rbac via permix or schema), `{ rule }` is an ABAC predicate over the record and the actor (read
- * by path at `__actor`), `any`/`all` compose. Cycles throw rather than loop.
+ * by path at `__actor`), `any`/`all` compose. A loop through a relation denies; a rule naming
+ * itself on one record throws.
  */
 export const createRebacCheck = <R extends string = string>(
   map: SchemaMap<R>,
   { absent = 'null' }: CheckOptions = {},
-): RebacCheck<R> => createWalker(map, absent, booleanAlgebra);
+): RebacCheck<R> => {
+  const walker = createWalker(map, absent, booleanAlgebra);
+  return (permix, schema, subject, actionOrRule) => walker(permix, schema, subject, actionOrRule);
+};
 
 export type RebacPaths<R extends string = string> = (
   permix: PermixLike,
