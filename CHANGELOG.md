@@ -1,4 +1,4 @@
-## Unreleased (0.24.0) — the schema map is `@inixiative/field-map`'s, on json-rules 4.2
+## 0.24.0 — the schema map is `@inixiative/field-map`'s, on json-rules 4.2
 
 **The change.** `SchemaMap.fieldMap` is a [`@inixiative/field-map`](https://github.com/inixiative/field-map)
 `FieldMap`, and every read of it goes through field-map's own-property readers (`modelOf`,
