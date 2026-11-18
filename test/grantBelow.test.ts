@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { fieldOf, modelOf } from '@inixiative/field-map';
 import { type Condition, Operator } from '@inixiative/json-rules';
 import {
   coversEntitlement,
@@ -842,7 +843,8 @@ describe('what counts as above: rows the anchor holds under a to-one relation th
       'db:space': { profile: 'db:profile' },
       'db:integration': { space: 'db:space' },
     });
-    const profile = owning.fieldMap.models['db:space']?.fields.profile;
+    const profile = fieldOf(owning.fieldMap, 'db:space', 'profile');
+    if (profile?.kind !== 'object') throw new Error('db:space.profile is a relation');
     const inverse: SchemaMap = {
       ...owning,
       fieldMap: {
@@ -850,12 +852,12 @@ describe('what counts as above: rows the anchor holds under a to-one relation th
           ...owning.fieldMap.models,
           'db:space': {
             fields: {
-              ...owning.fieldMap.models['db:space']?.fields,
+              ...modelOf(owning.fieldMap, 'db:space')?.fields,
               profile: { ...profile, fromFields: [], toFields: [] },
             },
           },
         },
-      } as SchemaMap['fieldMap'],
+      },
     };
     const p1 = { id: 'p1' };
     const space = { id: 's1', profile: p1 };

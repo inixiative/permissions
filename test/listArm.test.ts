@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import type { AnnoValue } from '@inixiative/field-map';
+import type { AnnoValue, FieldMap } from '@inixiative/field-map';
 import { type Bridge, engineGlobals } from '@inixiative/json-rules';
 import {
   type ActionRule,
@@ -813,7 +813,7 @@ describe('one list per walk', () => {
         },
         User: { fields: { uuid: scalar } },
       },
-    } as SchemaMap['fieldMap'],
+    },
   };
   const inner: ActionRule = {
     rel: 'cs',
@@ -1141,7 +1141,7 @@ describe('validation edges under an item', () => {
 
 describe('what the hydrator does not follow, no check reads', () => {
   test('a value under hydrate: false, or under a to-one keyed on the other side, is left and never read', async () => {
-    const fieldMap = {
+    const fieldMap: FieldMap = {
       models: {
         Message: {
           fields: {
@@ -1165,7 +1165,7 @@ describe('what the hydrator does not follow, no check reads', () => {
     };
     const lib: SchemaMap = {
       resources: { 'db:message': 'Message', 'db:conversation': 'Conversation' },
-      fieldMap: fieldMap as SchemaMap['fieldMap'],
+      fieldMap,
     };
     const hydrate = createHydrator({ map: lib, load: async () => null });
     const hydrated = await hydrate('db:message', {

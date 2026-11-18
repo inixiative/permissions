@@ -3,8 +3,9 @@ import {
   type FieldMap,
   fieldOf,
   hasColumn,
+  isScalarField,
+  type ModelEntry,
   modelOf,
-  own,
   type RelationField,
 } from '@inixiative/field-map';
 import {
@@ -126,7 +127,7 @@ const indexAnnotations = (map: SchemaMap, index: MapIndex) => {
       if ('down' in annotation)
         index.lists.set(`${resource}\u0000${name}`, listFor(map, resource, name, annotation.down));
       if ('place' in annotation) {
-        const problem = placeProblem(map, model, name, field, annotation.place);
+        const problem = placeProblem(map, model, fields, name, field, annotation.place);
         if (problem) throw new Error(`${at}: \`place\` ${problem}`);
         marks.add(name);
       }
@@ -138,15 +139,15 @@ const indexAnnotations = (map: SchemaMap, index: MapIndex) => {
 const placeProblem = (
   map: SchemaMap,
   model: string,
+  fields: ModelEntry['fields'],
   name: string,
   field: FieldEntry,
   value: unknown,
 ) => {
-  const fields = modelOf(map.fieldMap, model)?.fields ?? {};
   if (value !== true) return 'is true or absent';
   if (!hasColumn(field)) return 'marks a scalar or enum field';
   if (field.isList) return 'never marks a list';
-  if ((field.kind === 'scalar' && field.isId) || name === idField()) return 'never marks an id';
+  if ((isScalarField(field) && field.isId) || name === idField()) return 'never marks an id';
   if (
     Object.values(fields).some(
       (other) => other.kind === 'object' && other.fromFields?.includes(name),
@@ -374,12 +375,14 @@ export const identityKeyOfRow = (
   field = idField(),
 ): string | undefined => {
   const model = modelOf(map.fieldMap, map.resources[resource] as string);
-  const id = own(model?.fields, field) ? recordId(record, field) : undefined;
+  const id = fieldOf(map.fieldMap, map.resources[resource] as string, field)
+    ? recordId(record, field)
+    : undefined;
   if (id !== undefined) return keyFromResourceAndColumns(resource, { [field]: id });
   const { idColumns } = indexMap(map);
   if (!idColumns.has(resource)) {
     const single = Object.entries(model?.fields ?? {})
-      .filter(([, entry]) => entry.kind === 'scalar' && entry.isId)
+      .filter(([, entry]) => isScalarField(entry) && entry.isId)
       .map(([name]) => name);
     idColumns.set(
       resource,

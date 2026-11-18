@@ -892,7 +892,7 @@ describe('the starting record: a row is known by resource and id', () => {
           },
         },
       },
-    } as unknown as SchemaMap;
+    } satisfies SchemaMap;
     const stored = { org: 'o', key: 'k', name: 'Una', parentOrg: 'o', parentKey: 'k' };
     const load = createHydrator({ map: nodes, load: async () => stored });
     const forged = await load('node', { ...stored, name: 'EVIL' });
@@ -1425,7 +1425,7 @@ describe('a row’s key', () => {
           Pair: { fields: { a: col, b: col }, indexes: [{ kind: 'id', fields: ['a', 'b'] }] },
         },
       },
-    } as unknown as SchemaMap;
+    } satisfies SchemaMap;
     expect(identityKeyOfRow(pair, 'pair', { a: 'x\u0000', b: 'y' })).not.toBe(
       identityKeyOfRow(pair, 'pair', { a: 'x', b: '\u0000y' }),
     );

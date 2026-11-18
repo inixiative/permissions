@@ -36,7 +36,7 @@ what.
 
 | Verb | Owner | Rule (`test/verbs.test.ts`) |
 | --- | --- | --- |
-| read a model or a field of the schema map | `@inixiative/field-map` (`modelOf`, `fieldOf`, `own`, `hasColumn`) | No `.models[...]` or `.fields[...]` index read in `src`: every read is own-property, through field-map's readers. |
+| read a model or a field of the schema map | `@inixiative/field-map` (`modelOf`, `fieldOf`; kind tests `hasColumn`, `isScalarField`) | No `.models[...]` or `.fields[...]` index read in `src`: every read is own-property, through field-map's readers. |
 | decide which relations hydration follows | `src/core/schemaMap.ts` (`followedToOneRelationOrWhyNot`, `followedToOneRelationsOf`, `listOf`) | No `.fromFields` read elsewhere: an owning key is classified once. |
 | read a `@permissions(...)` annotation | `src/core/schemaMap.ts` (`permissionsAnnotation`) | No `annotations.permissions` read elsewhere. |
 | build a json-rules lens and judge a path against it | `src/core/lens.ts` | `validateRuleInLens` and `walkLensPath` are called nowhere else. |
