@@ -1,3 +1,4 @@
+import { modelOf } from '@inixiative/field-map';
 import { hasNoValue, idField } from '../../core/recordId';
 import {
   followedToOneRelationsOf,
@@ -131,9 +132,9 @@ export const createHydrator = <R extends string>({ map, load, loadMany }: Hydrat
   ): Promise<Row> => {
     const result: Row = { ...record };
     for (const [name, field] of Object.entries(
-      map.fieldMap.models[map.resources[resource]]?.fields ?? {},
+      modelOf(map.fieldMap, map.resources[resource])?.fields ?? {},
     ))
-      if (field.kind === 'object' || field.kind === 'bridge') delete result[name];
+      if (field.kind === 'object') delete result[name];
     await Promise.all(
       Object.entries(tree).map(async ([name, below]) => {
         delete result[name];

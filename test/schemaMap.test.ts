@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import type { FieldMap } from '@inixiative/json-rules';
+import type { FieldMap } from '@inixiative/field-map';
 import {
   type Anchor,
   createCanGrantEntitlement,

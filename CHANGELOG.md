@@ -1,3 +1,32 @@
+## Unreleased (0.24.0) — the schema map is `@inixiative/field-map`'s, on json-rules 4.2
+
+**The change.** `SchemaMap.fieldMap` is a [`@inixiative/field-map`](https://github.com/inixiative/field-map)
+`FieldMap`, and every read of it goes through field-map's own-property readers (`modelOf`,
+`fieldOf`, `own`, `hasColumn`). json-rules is `^4.2.0`, which reads the same map as its
+`LensFieldMap` with no cast. Pass the map `field-map generate` writes: `fieldMap: prismaMap`.
+
+**Why.** One schema package for every building block (Aron, 2026-11-18; plan
+`docs/plans/field-map-package.md` in the inixiative workspace). The map's shape was declared three
+times here (json-rules' `FieldMap`, a local `Annotated` for `annotations`, a local `Keyed` for
+`isId` and `indexes`) and read by index, so a model or field named after an `Object.prototype`
+key resolved. field-map's types carry `isId`, `annotations` and `indexes`, strictly and readonly.
+
+- **`SchemaMap.fieldMap: FieldMap` from field-map**, not json-rules' `LensFieldMap`: the map
+  permissions walks is the app's schema. Bridges reach the walk through `schema.bridges`, never as
+  fields of the map, so the two branches that looked for a `bridge` field in it are gone.
+- **Gone:** the local `fieldOf(map, resource, segment)`, `isColumn`, `Annotated`, `Keyed` and the
+  `isId` casts. `docs/VERBS.md` and `test/verbs.test.ts` add the rule: no `.models[...]` or
+  `.fields[...]` index read in `src`.
+- **A stricter map type.** A scalar's `type` is one of field-map's `SCALAR_TYPES`, and every entry
+  is readonly. A generated map passes as is; a hand-written one with a free-form scalar `type`
+  stops compiling.
+- **json-rules 4.0's lens gate** (a plain path past a to-many relation is refused) changes nothing
+  here: the relation lens already spells only to-one chains, and a list is crossed only by the
+  list arm. The full check passes unchanged.
+- Tests build their maps with field-map's types; `test/fixtures/load.ts` returns a new map instead
+  of writing into a readonly entry.
+- New dependency: `@inixiative/field-map` `^0.1.0`.
+
 ## 0.23.0 — rules are judged in json-rules' own lens, spelled in the root
 
 **The change.** Every path a stored rule reads (a schema rule on first use, a row's

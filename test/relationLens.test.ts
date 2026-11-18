@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import type { Condition, FieldMap, FieldMapEntry } from '@inixiative/json-rules';
+import type { FieldMap, RelationField, ScalarField, ScalarType } from '@inixiative/field-map';
+import type { Condition } from '@inixiative/json-rules';
 import {
   type ActionRule,
   createCanGrantEntitlement,
@@ -29,20 +30,22 @@ import { loadModels } from './fixtures/load';
 // json-rules' own lens, spelled in the root, decides which paths a rule may name; the hydrator
 // loads every row it can reach. Each case below returned true on 0.22.0 (the adversarial review's probes, T1–T8).
 
-const column = (type: string, extra: Partial<FieldMapEntry> = {}): FieldMapEntry => ({
+type Extra<F> = Omit<F, 'kind' | 'type'>;
+
+const column = (type: ScalarType, extra: Extra<ScalarField> = {}): ScalarField => ({
   kind: 'scalar',
   type,
   isList: false,
   ...extra,
 });
-const toOne = (type: string, key?: string, extra: Partial<FieldMapEntry> = {}): FieldMapEntry => ({
+const toOne = (type: string, key?: string, extra: Extra<RelationField> = {}): RelationField => ({
   kind: 'object',
   type,
   isList: false,
   ...(key ? { fromFields: [key], toFields: ['id'] } : {}),
   ...extra,
 });
-const toMany = (type: string, extra: Partial<FieldMapEntry> = {}): FieldMapEntry => ({
+const toMany = (type: string, extra: Extra<RelationField> = {}): RelationField => ({
   kind: 'object',
   type,
   isList: true,
@@ -94,7 +97,7 @@ const fieldMap: FieldMap = {
         messages: toMany('Message', {
           relationName: 'MessageConversation',
           annotations: { permissions: { down: ['author.org.creator'] } },
-        } as Partial<FieldMapEntry>),
+        }),
         drafts: toMany('Draft', { relationName: 'DraftConversation' }),
       },
     },
@@ -644,7 +647,7 @@ describe('the root, item paths, unknown resources and wheres on an item', () => 
               tasks: toMany('Task', {
                 relationName: 'TaskProject',
                 annotations: { permissions: { down: ['assignee.mentor.mentor.org'] } },
-              } as Partial<FieldMapEntry>),
+              }),
             },
           },
           Task: {
@@ -1285,7 +1288,7 @@ describe('one down boundary: an item holds only its declared tree', () => {
             messages: toMany('Message', {
               relationName: 'CM',
               annotations: { permissions: { down: ['author'] } },
-            } as Partial<FieldMapEntry>),
+            }),
           },
         },
         Message: {
@@ -1301,12 +1304,12 @@ describe('one down boundary: an item holds only its declared tree', () => {
             hiddenOrg: toOne('Org', 'hiddenOrgId', {
               relationName: 'MH',
               annotations: { permissions: { hydrate: false } },
-            } as Partial<FieldMapEntry>),
+            }),
             profile: toOne('Profile', undefined, { relationName: 'MP' }),
             reactions: toMany('Reaction', {
               relationName: 'MR',
               annotations: { permissions: { down: [] } },
-            } as Partial<FieldMapEntry>),
+            }),
           },
         },
       },
@@ -1399,7 +1402,7 @@ describe('a row’s key', () => {
       fieldMap: {
         models: {
           Brand: {
-            fields: { id: column('Int', { isId: true } as Partial<FieldMapEntry>), uuid: col },
+            fields: { id: column('Int', { isId: true }), uuid: col },
           },
         },
       },

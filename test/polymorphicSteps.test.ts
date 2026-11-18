@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { type FieldMap, Operator } from '@inixiative/json-rules';
+import type { FieldMap } from '@inixiative/field-map';
+import { Operator } from '@inixiative/json-rules';
 import {
   createCanGrantEntitlement,
   createPermissions,
