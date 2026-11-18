@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import type { Condition, FieldMap } from '@inixiative/json-rules';
+import type { AnnoValue, FieldMap, ScalarType } from '@inixiative/field-map';
+import type { Condition } from '@inixiative/json-rules';
 import {
   type ActionRule,
   createCanGrantEntitlement,
@@ -16,8 +17,8 @@ import {
 import { annotate, loadModels } from './fixtures/load';
 import { stringColumn } from './schemaMaps';
 
-// Kingdom's surface → integrationResource → integration slice (schemas/kingdom.prisma), parsed by
-// prisma-map. `IntegrationResource.kind` and `.enabled` read `/// @permissions(place: true)`.
+// Kingdom's surface → integrationResource → integration slice (schemas/kingdom.prisma), read by
+// field-map. `IntegrationResource.kind` and `.enabled` read `/// @permissions(place: true)`.
 const models = loadModels('kingdom');
 const resources = {
   'db:organization': 'Organization',
@@ -260,7 +261,7 @@ describe('what fills a stand-in, and what never does', () => {
 
 describe('where the mark is refused, when the map is first used', () => {
   const boot =
-    (model: string, field: string, value: unknown = true, base = models) =>
+    (model: string, field: string, value: AnnoValue = true, base = models) =>
     () =>
       createRebacCheck(mapOver(annotate(base, model, field, { place: value })));
 
@@ -277,7 +278,11 @@ describe('where the mark is refused, when the map is first used', () => {
   });
 
   test('a discriminator, a list, Float and Decimal', () => {
-    const scalar = (type: string, isList = false) => ({ kind: 'scalar' as const, type, isList });
+    const scalar = (type: ScalarType, isList = false) => ({
+      kind: 'scalar' as const,
+      type,
+      isList,
+    });
     const fieldMap: FieldMap = {
       models: {
         Thing: {
@@ -333,7 +338,7 @@ describe('a polymorphic stand-in: the mark joins it, the path still sets its kin
             ownerModel: scalar,
             organizationId: scalar,
             spaceId: scalar,
-            status: { ...scalar, annotations: { permissions: { place: true } } } as typeof scalar,
+            status: { ...scalar, annotations: { permissions: { place: true } } },
             organization: toOne('Organization', ['organizationId'], ['id']),
             space: toOne('Space', ['organizationId', 'spaceId'], ['organizationId', 'id']),
           },

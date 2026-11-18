@@ -1,3 +1,4 @@
+import { fieldOf, hasColumn, modelOf } from '@inixiative/field-map';
 import {
   type Condition,
   type LensNarrowing,
@@ -9,7 +10,6 @@ import {
 } from '@inixiative/json-rules';
 import { freezeThenJudgeOnce } from './freezeThenJudgeOnce';
 import {
-  fieldOf,
   followedToOneRelationOrWhyNot,
   followedToOneRelationsOf,
   indexMap,
@@ -48,16 +48,13 @@ const lensAnchoredAtModel = (
   relations: SpelledRelationTree,
   actor: boolean,
 ): LensNarrowing => {
-  const models = map.fieldMap.models;
+  const entry = modelOf(map.fieldMap, model);
   const fieldMap = actor
     ? {
         ...map.fieldMap,
         models: {
-          ...models,
-          [model]: {
-            ...models[model],
-            fields: { ...models[model]?.fields, __actor: actorAsJsonField },
-          },
+          ...map.fieldMap.models,
+          [model]: { ...entry, fields: { ...entry?.fields, __actor: actorAsJsonField } },
         },
       }
     : map.fieldMap;
@@ -199,7 +196,7 @@ const whyPathLeavesLens = (
   const segment = segments[resolution.index] as string;
   const last = resolution.hops.at(-1);
   const resource = last ? (resourceOf(map, last.entry.type) ?? last.entry.type) : at.resource;
-  const field = fieldOf(map, resource, segment);
+  const field = fieldOf(map.fieldMap, map.resources[resource], segment);
   if (resolution.outcome === 'pastScalar')
     return {
       code: 'lens',
@@ -245,8 +242,8 @@ export const whyRelationPathCannotBeWalked = (
     message: `\`${at.resource}\` has no relation \`${segment}\``,
   });
   if (!at.under && segments.length === 1) {
-    const field = fieldOf(map, at.resource, path);
-    if (!field || field.kind === 'scalar' || field.kind === 'enum') return noRelation(path);
+    const field = fieldOf(map.fieldMap, map.resources[at.resource], path);
+    if (!field || hasColumn(field)) return noRelation(path);
     if (field.kind === 'object' && field.isList)
       return { code: 'lens', message: messageForPathIntoRelationList(map, at.resource, path) };
     const relation = followedToOneRelationOrWhyNot(map, at.resource, path);
@@ -254,7 +251,10 @@ export const whyRelationPathCannotBeWalked = (
   }
   if (!at.lens) return noRelation(segments[0] as string);
   const resolution = walkLensPath(at.lens, path);
-  if (resolution.outcome === 'missing' && !fieldOf(map, at.resource, segments[0] as string))
+  if (
+    resolution.outcome === 'missing' &&
+    !fieldOf(map.fieldMap, map.resources[at.resource], segments[0] as string)
+  )
     return noRelation(segments[0] as string);
   if (resolution.outcome !== 'resolved') return whyPathLeavesLens(map, at, path, resolution);
   return resolution.terminal.entry.kind === 'object' ? null : noRelation(path);

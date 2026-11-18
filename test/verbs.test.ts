@@ -24,6 +24,11 @@ const SOURCES = walk(join(ROOT, 'src')).map((file) => ({ file, code: code(file) 
 
 const RULES: { verb: string; pattern: RegExp; owners: string[] }[] = [
   {
+    verb: 'read a model or a field of the schema map (field-map)',
+    pattern: /\.(models|fields)\??\.?\[/,
+    owners: [],
+  },
+  {
     verb: 'decide which relations hydration follows',
     pattern: /\.fromFields/,
     owners: ['src/core/schemaMap.ts'],
@@ -47,7 +52,7 @@ const RULES: { verb: string; pattern: RegExp; owners: string[] }[] = [
 
 describe('one implementation per verb (docs/VERBS.md)', () => {
   for (const { verb, pattern, owners } of RULES)
-    test(`${verb}: only in ${owners.join(', ')}`, () => {
+    test(`${verb}: only in ${owners.join(', ') || '@inixiative/field-map'}`, () => {
       const elsewhere = SOURCES.filter(
         (source) => !owners.includes(source.file) && pattern.test(source.code),
       ).map((source) => source.file);

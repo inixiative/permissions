@@ -10,7 +10,7 @@ One check, over your own data, that covers:
 - **RuBAC:** rules as data: every condition is a serializable [`@inixiative/json-rules`](https://github.com/inixiative/json-rules) rule, positive by design (`validateActionRule` refuses the rest), the same AST everywhere it appears.
 - **Delegation (entitlements):** attenuated grants a holder passes on (copied, narrowed, lowered, never widened), each re-checked live at every link of its chain and at every tenant boundary it crosses.
 
-It decides on your own records: the checks walk them through the schema map you pass (which model each resource is, its relations and foreign keys, and its polymorphic models' kinds; in the inixiative stack that is a [`@inixiative/prisma-map`](https://github.com/inixiative/prisma-map) map), reached through a `load` you provide. There is no separate authorization store and no relationship tuples to sync. Nothing in it imports a database layer: the `createHydrator` helper walks the schema map and calls your `load`, which is also where caching goes. The core is small enough to read, and it depends only on json-rules and lodash-es; the optional helpers for delegation and hydration sit outside it. MIT licensed.
+It decides on your own records: the checks walk them through the schema map you pass (which model each resource is, its relations and foreign keys, and its polymorphic models' kinds; an [`@inixiative/field-map`](https://github.com/inixiative/field-map) map), reached through a `load` you provide. There is no separate authorization store and no relationship tuples to sync. Nothing in it imports a database layer: the `createHydrator` helper walks the schema map and calls your `load`, which is also where caching goes. The core is small enough to read, and it depends only on json-rules, field-map and lodash-es; the optional helpers for delegation and hydration sit outside it. MIT licensed.
 
 Everything you configure it with is plain JSON: the schema's rules, role grants, entitlements, `Permissions`. So
 they can live in your database, be composed like any other data, and be authored at runtime. A
@@ -282,8 +282,8 @@ import { engineGlobals } from '@inixiative/json-rules';
 import { createRebacCheck, type SchemaMap } from '@inixiative/permissions';
 
 // the schema the walk reads: which fieldMap model each resource is, its relations and foreign keys
-// (a json-rules FieldMap, whose `models` are structurally a prisma-map), and the polymorphic models' kinds
-const map: SchemaMap = { resources, fieldMap: { models: prismaMap }, polymorphism };
+// (an @inixiative/field-map FieldMap, as `field-map generate` writes it), and the polymorphic models' kinds
+const map: SchemaMap = { resources, fieldMap: prismaMap, polymorphism };
 // the field a record's grants are keyed by: `id` unless set (`uuid`, `_id`, `ID`…), once, at boot
 engineGlobals.set('permissions.idField', 'uuid');
 const check = createRebacCheck(map);
@@ -593,7 +593,7 @@ surface model needs no copied `resourceKind` column.
 **`@permissions(...)` is read strictly.** Three keys: `hydrate: false` on a relation, `down:
 [...]` on a list relation, `place: true` on a scalar. On first use of a map every annotation on a
 resource's model is read, and an unknown key, an empty annotation, a malformed value, or `down`
-beside `hydrate: false` throws. prisma-map keeps a malformed value without complaint (`down:
+beside `hydrate: false` throws. field-map keeps a malformed value without complaint (`down:
 a.b` arrives as a string, `place: yes` as `'yes'`), so a typo would otherwise be a silently
 missing list or mark. Annotations on models that are not resources are not read.
 
@@ -837,13 +837,13 @@ hydration, your wrapper caches across calls. A map that declares a list
 key back to the parent; return every row or throw, since a truncated list denies real members.
 
 ```ts
-import { buildPrismaMapV7 } from '@inixiative/prisma-map';
 import { createHydrator, createRebacCheck, type SchemaMap } from '@inixiative/permissions';
+// written by `bunx field-map generate` after `prisma generate`
+import { prismaMap } from './generated/prismaMap.gen';
 
-const prismaMap = buildPrismaMapV7();
 const map: SchemaMap = {
   resources: { document: 'Document', team: 'Team' },
-  fieldMap: { models: prismaMap },
+  fieldMap: prismaMap,
   polymorphism, // your false-polymorphism registry, if you have one
 };
 
@@ -880,7 +880,7 @@ check(permix, schema, { resource: 'document', record: doc }, 'manage');
 - **Polymorphic records** get every relation whose columns are set, whatever the kind: hydration does
   not know which check comes next.
 - **Skipping an edge:** a relation tagged `/// @permissions(hydrate: false)` in the Prisma schema (a
-  prisma-map annotation) is not followed, and so is outside the lens: no rule reads it and no
+  field-map annotation) is not followed, and so is outside the lens: no rule reads it and no
   `rel` walks it. Use it for an edge that is not part of ownership, or to break a loop in the
   schema.
 - **Cycles:** a stored row is one object wherever the hydrator reaches it, so a loop is the real

@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import type { AnnoValue, FieldMap } from '@inixiative/field-map';
 import { type Bridge, engineGlobals } from '@inixiative/json-rules';
 import {
   type ActionRule,
@@ -23,7 +24,7 @@ import {
 import { annotate, loadModels } from './fixtures/load';
 import { stringColumn } from './schemaMaps';
 
-// Zealot's conversation slice (schemas/zealot.prisma), parsed by prisma-map. The list field reads
+// Zealot's conversation slice (schemas/zealot.prisma), as field-map reads it. The list field reads
 //   /// @permissions(down: [forumUser.fanUser.user, forumUser.brandUser.user])
 //   participants ConversationParticipant[]
 const models = loadModels('zealot');
@@ -579,11 +580,11 @@ describe('validateSchema: what a list arm may cross and read', () => {
 });
 
 describe('the declaration, read strictly when the map is first used', () => {
-  const boot = (model: string, field: string, permissions: Record<string, unknown>) => () =>
+  const boot = (model: string, field: string, permissions: Record<string, AnnoValue>) => () =>
     createRebacCheck(mapOver(annotate(models, model, field, permissions)));
-  const down = (value: unknown) => boot('Conversation', 'participants', { down: value });
+  const down = (value: AnnoValue) => boot('Conversation', 'participants', { down: value });
 
-  test('a value prisma-map mangled is refused, not guessed at', () => {
+  test('a value field-map keeps mangled is refused, not guessed at', () => {
     expect(down('participants[forumUser')).toThrow(/list of dotted relation paths/);
     expect(down(['{ forumUser: [userUuid'])).toThrow(/list of dotted relation paths/);
     expect(down('forumUser.fanUser')).toThrow(/list of dotted relation paths/);
@@ -605,8 +606,12 @@ describe('the declaration, read strictly when the map is first used', () => {
 
   test('a list with no foreign key back (an implicit many-to-many) is refused', () => {
     const copy = annotate(models, 'Conversation', 'participants', { down: [] });
-    delete copy.ConversationParticipant?.fields.conversation;
-    expect(() => createRebacCheck(mapOver(copy))).toThrow(/exactly one foreign key back/);
+    const { conversation: _back, ...fields } = copy.ConversationParticipant?.fields ?? {};
+    const withoutBack = {
+      ...copy,
+      ConversationParticipant: { ...copy.ConversationParticipant, fields },
+    };
+    expect(() => createRebacCheck(mapOver(withoutBack))).toThrow(/exactly one foreign key back/);
   });
 });
 
@@ -808,7 +813,7 @@ describe('one list per walk', () => {
         },
         User: { fields: { uuid: scalar } },
       },
-    } as SchemaMap['fieldMap'],
+    },
   };
   const inner: ActionRule = {
     rel: 'cs',
@@ -1136,7 +1141,7 @@ describe('validation edges under an item', () => {
 
 describe('what the hydrator does not follow, no check reads', () => {
   test('a value under hydrate: false, or under a to-one keyed on the other side, is left and never read', async () => {
-    const fieldMap = {
+    const fieldMap: FieldMap = {
       models: {
         Message: {
           fields: {
@@ -1160,7 +1165,7 @@ describe('what the hydrator does not follow, no check reads', () => {
     };
     const lib: SchemaMap = {
       resources: { 'db:message': 'Message', 'db:conversation': 'Conversation' },
-      fieldMap: fieldMap as SchemaMap['fieldMap'],
+      fieldMap,
     };
     const hydrate = createHydrator({ map: lib, load: async () => null });
     const hydrated = await hydrate('db:message', {

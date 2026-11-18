@@ -1,7 +1,16 @@
 import {
+  type FieldEntry,
+  type FieldMap,
+  fieldOf,
+  hasColumn,
+  isScalarField,
+  type ModelEntry,
+  modelOf,
+  type RelationField,
+} from '@inixiative/field-map';
+import {
   type Condition,
   check as checkRule,
-  type FieldMap,
   type LensNarrowing,
   type ModelNarrowing,
 } from '@inixiative/json-rules';
@@ -19,8 +28,8 @@ export type Polymorphism = Partial<Record<string, { axes: readonly PolymorphicAx
 
 /**
  * The schema the checks walk: `resources` names the `fieldMap` model behind each resource, the
- * `fieldMap` (json-rules, structurally a prisma-map) lists each model's relations and foreign keys,
- * and `polymorphism` says which kind a relation makes a polymorphic record.
+ * `fieldMap` (an `@inixiative/field-map` map) lists each model's relations and foreign keys, and
+ * `polymorphism` says which kind a relation makes a polymorphic record.
  */
 export type SchemaMap<R extends string = string> = {
   resources: Record<R, string>;
@@ -58,13 +67,11 @@ type MapIndex = {
   lensSizes: Map<string, number>;
 };
 
-type Annotated = { annotations?: { permissions?: Record<string, unknown> } };
+/** A field's `/// @permissions(...)` annotation, as field-map carries it. */
+const permissionsAnnotation = (field: FieldEntry | undefined) => field?.annotations?.permissions;
 
-/** A field's `/// @permissions(...)` annotation, as prisma-map carries it. */
-const permissionsAnnotation = (field: unknown): Record<string, unknown> | undefined =>
-  (field as Annotated | undefined)?.annotations?.permissions;
-
-const skipsHydration = (field: unknown): boolean => permissionsAnnotation(field)?.hydrate === false;
+const skipsHydration = (field: FieldEntry | undefined): boolean =>
+  permissionsAnnotation(field)?.hydrate === false;
 
 const annotationKeys = ['hydrate', 'down', 'place'];
 const placeableTypes = ['String', 'Int', 'Boolean'];
@@ -101,10 +108,10 @@ export const indexMap = (map: SchemaMap): MapIndex => {
   return index;
 };
 
-// why: prisma-map keeps a malformed annotation value without complaint, so every one is read strictly here
+// why: field-map keeps a malformed annotation value without complaint, so every one is read strictly here
 const indexAnnotations = (map: SchemaMap, index: MapIndex) => {
   for (const [resource, model] of Object.entries(map.resources)) {
-    const fields = map.fieldMap.models[model]?.fields ?? {};
+    const fields = modelOf(map.fieldMap, model)?.fields ?? {};
     const marks = new Set<string>();
     for (const [name, field] of Object.entries(fields)) {
       const annotation = permissionsAnnotation(field);
@@ -120,7 +127,7 @@ const indexAnnotations = (map: SchemaMap, index: MapIndex) => {
       if ('down' in annotation)
         index.lists.set(`${resource}\u0000${name}`, listFor(map, resource, name, annotation.down));
       if ('place' in annotation) {
-        const problem = placeProblem(map, model, name, annotation.place);
+        const problem = placeProblem(map, model, fields, name, field, annotation.place);
         if (problem) throw new Error(`${at}: \`place\` ${problem}`);
         marks.add(name);
       }
@@ -129,14 +136,23 @@ const indexAnnotations = (map: SchemaMap, index: MapIndex) => {
   }
 };
 
-const placeProblem = (map: SchemaMap, model: string, name: string, value: unknown) => {
-  const fields = map.fieldMap.models[model]?.fields ?? {};
-  const field = fields[name] as (typeof fields)[string] & { isId?: boolean };
+const placeProblem = (
+  map: SchemaMap,
+  model: string,
+  fields: ModelEntry['fields'],
+  name: string,
+  field: FieldEntry,
+  value: unknown,
+) => {
   if (value !== true) return 'is true or absent';
-  if (field.kind !== 'scalar' && field.kind !== 'enum') return 'marks a scalar or enum field';
+  if (!hasColumn(field)) return 'marks a scalar or enum field';
   if (field.isList) return 'never marks a list';
-  if (field.isId || name === idField()) return 'never marks an id';
-  if (Object.values(fields).some((other) => other.fromFields?.includes(name)))
+  if ((isScalarField(field) && field.isId) || name === idField()) return 'never marks an id';
+  if (
+    Object.values(fields).some(
+      (other) => other.kind === 'object' && other.fromFields?.includes(name),
+    )
+  )
     return 'never marks a relation key: the path sets it';
   if (map.polymorphism?.[model]?.axes.some((axis) => axis.field === name))
     return 'never marks a discriminator: the path sets the kind';
@@ -148,18 +164,22 @@ const placeProblem = (map: SchemaMap, model: string, name: string, value: unknow
 const listFor = (map: SchemaMap, resource: string, name: string, down: unknown): ListRelation => {
   const model = map.resources[resource] as string;
   const at = `${model}.${name} @permissions`;
-  const field = map.fieldMap.models[model]?.fields[name];
+  const field = fieldOf(map.fieldMap, model, name);
   if (field?.kind !== 'object' || !field.isList)
     throw new Error(`${at}: \`down\` sits on a list relation`);
   const item = resourceOf(map, field.type);
   if (!item) throw new Error(`${at}: ${field.type} is not a resource in the map`);
-  const back = Object.entries(map.fieldMap.models[field.type]?.fields ?? {}).filter(
-    ([, other]) =>
-      other.kind === 'object' &&
-      !other.isList &&
-      other.type === model &&
-      other.fromFields?.length &&
-      (!field.relationName || !other.relationName || other.relationName === field.relationName),
+  const back = Object.entries(modelOf(map.fieldMap, field.type)?.fields ?? {}).filter(
+    (entry): entry is [string, RelationField] => {
+      const other = entry[1];
+      return (
+        other.kind === 'object' &&
+        !other.isList &&
+        other.type === model &&
+        Boolean(other.fromFields?.length) &&
+        (!field.relationName || !other.relationName || other.relationName === field.relationName)
+      );
+    },
   );
   const [inverse] = back;
   if (back.length !== 1 || !inverse)
@@ -197,10 +217,6 @@ const listFor = (map: SchemaMap, resource: string, name: string, down: unknown):
   };
 };
 
-/** A column of its model (a scalar or an enum, Json and scalar lists included), not a relation. */
-const isColumn = (field: { kind: string }): boolean =>
-  field.kind === 'scalar' || field.kind === 'enum';
-
 /** The declared list `segment` of `resource`, or null: an undeclared list is never crossed. */
 export const listOf = <R extends string>(
   map: SchemaMap<R>,
@@ -226,11 +242,6 @@ const marksOf = <R extends string>(map: SchemaMap<R>, resource: R): ReadonlySet<
 
 export const resourceOf = <R extends string>(map: SchemaMap<R>, model: string): R | null =>
   (indexMap(map as SchemaMap).resources.get(model) as R | undefined) ?? null;
-
-export const fieldOf = <R extends string>(map: SchemaMap<R>, resource: R, segment: string) => {
-  const model = map.resources[resource];
-  return model ? map.fieldMap.models[model]?.fields[segment] : undefined;
-};
 
 const kindsOf = (axes: readonly PolymorphicAxis[], columns: readonly string[]) => {
   for (const axis of axes) {
@@ -268,9 +279,8 @@ const toOneFor = <R extends string>(
   resource: R,
   segment: string,
 ): Relation<R> | string => {
-  const field = fieldOf(map, resource, segment);
+  const field = fieldOf(map.fieldMap, map.resources[resource], segment);
   const at = `\`${resource}.${segment}\``;
-  if (field?.kind === 'bridge') return `${at} is a bridge: cross it with { rel, action }`;
   if (field?.kind !== 'object' || field.isList) return `${at} is not a to-one relation`;
   if (skipsHydration(field))
     return `${at} is \`hydrate: false\`: nothing loads it; drop the annotation or read it from \`${field.type}\``;
@@ -334,8 +344,8 @@ const statedAt = (leaves: Leaf[], prefix: string, accepts: (field: string) => bo
 // why: an object or a list pinned onto a stand-in would be a relation or a list the walk then reads
 const pinned = <R extends string>(map: SchemaMap<R>, resource: R, leaves: Leaf[]): Row =>
   statedAt(leaves, '', (name) => {
-    const field = fieldOf(map, resource, name);
-    return !name.includes('.') && (!field || (isColumn(field) && !field.isList));
+    const field = fieldOf(map.fieldMap, map.resources[resource], name);
+    return !name.includes('.') && (!field || (hasColumn(field) && !field.isList));
   });
 
 const admits = (leaves: Leaf[], field: string, value: string) =>
@@ -352,11 +362,6 @@ export const keysFrom = (relation: Pick<Relation, 'from' | 'to'>, parent: Row): 
     }),
   );
 
-type Keyed = {
-  fields: Record<string, { isId?: boolean }>;
-  indexes?: { kind: string; fields: string[] }[];
-};
-
 /** The one encoding of a row's key: its resource and the columns that pick it, in column order. */
 export const keyFromResourceAndColumns = (resource: string, where: Row): string =>
   `${resource}\u0000${JSON.stringify(Object.entries(where).sort(([a], [b]) => a.localeCompare(b)))}`;
@@ -369,13 +374,15 @@ export const identityKeyOfRow = (
   record: Row,
   field = idField(),
 ): string | undefined => {
-  const id = fieldOf(map, resource, field) ? recordId(record, field) : undefined;
+  const model = modelOf(map.fieldMap, map.resources[resource] as string);
+  const id = fieldOf(map.fieldMap, map.resources[resource] as string, field)
+    ? recordId(record, field)
+    : undefined;
   if (id !== undefined) return keyFromResourceAndColumns(resource, { [field]: id });
   const { idColumns } = indexMap(map);
   if (!idColumns.has(resource)) {
-    const model = map.fieldMap.models[map.resources[resource] as string] as Keyed | undefined;
     const single = Object.entries(model?.fields ?? {})
-      .filter(([, entry]) => entry.isId)
+      .filter(([, entry]) => isScalarField(entry) && entry.isId)
       .map(([name]) => name);
     idColumns.set(
       resource,
@@ -398,7 +405,7 @@ export const followedToOneRelationsOf = <R extends string>(
   if (!toOnes.has(resource))
     toOnes.set(
       resource,
-      Object.keys(map.fieldMap.models[map.resources[resource]]?.fields ?? {}).flatMap((name) => {
+      Object.keys(modelOf(map.fieldMap, map.resources[resource])?.fields ?? {}).flatMap((name) => {
         const relation = relationOf(map, resource, name);
         return relation ? [[name, relation] as [string, Relation]] : [];
       }),
