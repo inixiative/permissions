@@ -152,6 +152,10 @@ actorMatches('ownerId', 'User', 'id')
 // → all: [actor:Session.model = 'User', actor:User.id exists, ownerId equals actor:User.id]
 ```
 
+- A kind check on its own is a rule too (Aron 11-19: "actor token is this, or any of actor token,
+  actor user. That's a totally valid check also"): `actorIs(['Token', 'User'])` →
+  `actor:Session.model in ['Token', 'User']`; `sideIs('owner', ['Organization', 'Space'])` →
+  `ownerModel in [...]` (template's `ownerModelIsOneOf`).
 - A kind left out of a fan-out has no branch and denies.
 - The actor gets a discriminator again, on the session row: every actor's `actor:Session` row
   carries `model` (an enum of the declared kinds, pseudo kinds included), so "who is acting" is a
