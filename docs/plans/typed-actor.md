@@ -92,10 +92,12 @@ slot in the `actor` map (`actor:User.impersonatedBy`, injected onto the row), an
 ## Tests
 
 - Each probe line above, as `validateSchema` and `issuesForRuleReadsOutsideLens` report it.
-- A check with a user actor reads `__actor.user.id`; with a token actor `__actor.user.*` is absent
-  and a rule on it does not hold.
-- `setActor` with an undeclared model throws; an `Internal` actor has `model` and no slot.
-- `__actor` still never resolves in a `where` or on a related row (`org.__actor`).
+- A check with a user actor reads `actor:User.id`; with a token actor `actor:User.*` is absent and
+  a rule on it does not hold.
+- `setActor` with an undeclared model throws when a walk starts.
+- The actor never resolves in a `where`, on a related row (`org.actor:User`), or past its own
+  columns.
+- Every `__actor.*` read is refused.
 
 ## Superseded
 
