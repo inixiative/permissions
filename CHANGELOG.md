@@ -1,3 +1,15 @@
+## 0.25.0 — the lenses a rule is judged in are exported
+
+- **`lensesAtRow(map, resource)`** and **`lensesAtListItem(map, resource, field)`** (with the types
+  `LensesAtRow`, `PositionUnderListItem`): the json-rules lenses a read is judged in, at a row or at
+  an item of a declared list (null when the list is not declared). `validateSchema`'s list arm
+  reads `lensesAtListItem`, so there is one way to place a walk under an item.
+- **Why.** rules-builder's permission builder built its own views of a resource (every column and
+  relation, `__actor` on every model, its own `@permissions(down)` parse), which offered paths this
+  library refuses (a path back to a model, an undeclared list's item, `__actor` past the row a rule
+  is read on). An editor that reads these lenses offers what `validateSchema` accepts and nothing
+  else (plan `rules-builder/docs/plans/0.34-computation-and-evaluation.md`).
+
 ## 0.24.0 — the schema map is `@inixiative/field-map`'s, on json-rules 4.2
 
 **The change.** `SchemaMap.fieldMap` is a [`@inixiative/field-map`](https://github.com/inixiative/field-map)

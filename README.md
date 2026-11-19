@@ -905,6 +905,11 @@ and declare in the map any computed value a rule reads.
   action a rule names defined where it lands. Same `{ ok, errors }`, each issue's `path` starting
   `resource.action`. `whyEntitlementWhereLeavesLens(map, resource, where)` is the lens check of one
   entitlement `where`, for an app that validates a row before saving it.
+- `lensesAtRow(map, resource)` returns the json-rules lenses a read is judged in at one row: `rule`
+  (with `__actor`) for a `{ rule }`, `lens` for a `where` or a path. `lensesAtListItem(map,
+  resource, field)` returns them at an item of a declared list (what its `down` paths load), or
+  null when `field` is not a declared list. An editor authors rules in them, so it offers exactly
+  what `validateSchema` accepts (rules-builder's permission builder does).
 - `schemaRuleIssues(schema)` returns the issues of every schema rule that is not well formed and
   positive, without the map or the cycle check. It is the test a check runs on a schema's first use
   before it throws.

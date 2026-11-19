@@ -3,7 +3,13 @@ export * from './src/core/delegatedWhere';
 export type { PermissionsEngineGlobals } from './src/core/engineGlobals';
 export * from './src/core/entitlementProblem';
 export * from './src/core/grant';
-export { whyEntitlementWhereLeavesLens } from './src/core/lens';
+export {
+  type LensesAtRow,
+  lensesAtListItem,
+  lensesAtRow,
+  type PositionUnderListItem,
+  whyEntitlementWhereLeavesLens,
+} from './src/core/lens';
 export * from './src/core/permix';
 export { reachableFrom } from './src/core/reachableFrom';
 export * from './src/core/redundantEntitlements';

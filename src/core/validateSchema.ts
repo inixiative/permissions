@@ -5,12 +5,12 @@ import {
   issueRefusesTheRead,
   issuesForReadsOutsideLens,
   type LensesAtRow,
+  lensesAtListItem,
   lensesAtRow,
-  type PositionUnderListItem,
   relationLensLimits,
   whyRelationPathCannotBeWalked,
 } from './lens';
-import { listOf, relationOf, type SchemaMap } from './schemaMap';
+import { relationOf, type SchemaMap } from './schemaMap';
 import type { ActionRule, RebacSchema } from './types';
 import { validateActionRule } from './validateActionRule';
 
@@ -60,8 +60,8 @@ const relIssues = (
           message: `\`${resource}.${rule.rel}\` is a second list under an item of \`${under.list}\`: one list per walk`,
         },
       ];
-    const list = listOf(map, resource, rule.rel);
-    if (!list)
+    const item = lensesAtListItem(map, resource, rule.rel);
+    if (!item)
       return [
         {
           path,
@@ -69,19 +69,7 @@ const relIssues = (
           message: `\`${resource}.${rule.rel}\` is not a declared list: mark the list field \`/// @permissions(down: [...])\``,
         },
       ];
-    const item: PositionUnderListItem = {
-      list: `${resource}.${rule.rel}`,
-      listRelation: list,
-      prefix: [],
-    };
-    return relIssues(
-      map,
-      schema,
-      lensesAtRow(map, list.resource, item),
-      rule.condition,
-      `${path}.condition`,
-      new Set(),
-    );
+    return relIssues(map, schema, item, rule.condition, `${path}.condition`, new Set());
   }
   let from = at;
   let run: string[] = [];
