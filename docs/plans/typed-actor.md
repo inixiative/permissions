@@ -29,57 +29,56 @@ change the actor.
 
 ## Change
 
-Agreed shape (Aron 11-15: "I'm fine with those being properly discriminated"; 11-19: slot names are
-the app's model names, `token` in template, `apiToken` in Zealot).
+Aron 11-19: "Instead of the DB prefix, we should have the actor prefix, right? Then we can remove
+the `__actor`. We can just use a normal prefix of `actor:`." So the actor is a json-rules bridge to
+a map named `actor`, read with json-rules' own bridge spelling, and `__actor` goes.
 
-1. **The app declares who can act**, on the `SchemaMap` (the object every check already takes):
+1. **The app declares who can act**, on the `SchemaMap`: `actors: ['User', 'Token']` (Zealot:
+   `['User', 'ApiToken']`), models of `fieldMap`. The app's `ActorModel` constant is derived from it.
+2. **The rule lens bridges to the actor.** `lensAnchoredAtModel` builds the rule lens over
+   `stitchFieldMaps({ maps: { app: fieldMap, actor: <the declared models> }, bridges })`, one
+   one-to-one bridge from the anchored model to each `actor:<Model>`, and turns each on at the root
+   (`relations: { 'actor:User': {}, 'actor:Token': {} }`), nothing below. Rules read
+   `actor:User.email`, `actor:Token.ownerModel`, `path: 'actor:User.id'`; which kind is acting is
+   `{ field: 'actor:Token.id', operator: 'exists' }`, positive, so `model` and its enum go. Probed on
+   json-rules 4.2 (`validateRuleInLens`):
+   - accepted: `actor:User.email`, `actor:Token.ownerModel`, `actor:User.id exists`,
+     `ownerId = path actor:User.id`;
+   - refused: `actor:Usr.email`, `actor:User.nope` (no such path), `actor:User.org.id` (a relation of
+     the actor is not turned on).
+   The plain lens (a `where`) has no actor bridge, so a `where` still cannot read the actor.
+3. **The check puts the actor's row under its bridge key.** `setActor({ model, record })` is
+   unchanged for the app; where `evaluate.ts` injected `__actor` it now writes
+   `{ ...record, ['actor:' + model]: actor.record }` (one exported function, which Zealot's
+   `actionReachable` also calls). `check()` is bridge-unaware and reads the key by plain property
+   access, as json-rules documents for every bridge. A model not in `actors` throws once when a walk
+   starts.
+4. **Only the actor's own columns** (Aron 11-19: "you can put the token into a relation check").
+5. **Hard cut:** `__actor` is gone from the lens and the row; every `__actor.*` read is refused.
+6. **The enum fix stays** (found by the first review): `issuesForReadsOutsideLens` keeps json-rules'
+   `value_not_allowed`, for every rule.
 
-   ```ts
-   actors: {
-     kinds: { User: 'user', Token: 'token' },      // actor model → its slot; Zealot: { User: 'user', ApiToken: 'apiToken', Internal: null }
-     fields?: { impersonatedBy: { kind: 'scalar', type: 'String' } }, // on the actor, beside the slots
-   }
-   ```
+### What the bridge's `on` means here
 
-   A kind whose slot is `null` acts with no row (Zealot's `Internal`). A kind with a slot names a
-   model of `fieldMap`; two kinds may not share a slot (the map is refused). Keyed by model, since
-   the injection looks up `actor.model`. The app's `ActorModel` constant is derived from it (one
-   declaration, not two).
-2. **The rule lens types the actor.** `lensAnchoredAtModel` adds to the rule lens's copy of the map
-   a model `__Actor` with `model` (an enum `__ActorKind` of the declared kinds), the declared
-   `fields`, and one to-one relation per slot to its model; the anchored model gets
-   `__actor: { kind: 'object', type: '__Actor' }`; the root spells
-   `__actor: { relations: { <slot>: {} … } }`. The refusal message for an `__actor` read branches:
-   in a `where` it is "a `where` reads the record alone", in a `{ rule }` it is the ordinary
-   not-in-lens message (today it says the `where` text for both, `lens.ts:318`). Probed on
-   json-rules 4.2 (`validateRuleInLens`) and on permissions' own path (`validateSchema`,
-   `createRebacCheck`, `lensesAtListItem`), by the review:
-   - `__actor.user.email`, `__actor.token.ownerModel`, `__actor.impersonatedBy`, `path: '__actor.user.id'`: accepted;
-   - `__actor.usr.email`, `__actor.record.email`: refused (`not_in_lens`);
-   - `__actor.user.org.id`: refused (a relation of the actor is not turned on);
-   - `__actor.model = 'Bogus'`: refused by json-rules (`value_not_allowed`) but **kept by
-     permissions**: `issuesForReadsOutsideLens` passes on only path and operator codes
-     (`lens.ts:295-316`), so every app's out-of-enum value is accepted today. Fixed in general here:
-     `value_not_allowed` is kept for every rule, not only the actor's.
-   - unchanged: the hydrator (it walks `map.fieldMap`, not the rule lens's copy),
-     `countRelationsOneRowHydrates`, `delegatedWhere`, a `where`'s refusal of `__actor`.
-3. **The check injects the slots.** `setActor({ model, record, ...fields })` is unchanged for the
-   app. One exported function, `actorAsRuleReadsIt(map, actor)` (name to settle with the verbs doc),
-   turns it into `{ model, [slot(model)]: record, ...fields }`; `evaluate.ts` calls it where it
-   injects `__actor`, and Zealot's `actionReachable` calls it instead of passing the raw actor. A
-   model not in `kinds` throws once when a walk starts (`walker.ts`), since `createPermissions` takes
-   no map.
-4. **Only the actor's own columns.** Related rows are not readable (Aron 11-19: "you can put the
-   token into a relation check"). A rule that needs the actor's position says it as a relation from
-   the record (`{ rel, action }` or an entitlement), as every rule surveyed already does.
-5. **Hard cut.** A map without `actors` gets an `__Actor` with `model` only (an empty enum), so
-   every `__actor.record.*` read is refused and each app declares its actors in the release that
-   takes this (no backwards compatibility, CLAUDE.md).
+A json-rules bridge names a join (`on` on each side). The actor is not joined; it is the presented
+credential. The bridge is lens metadata only (json-rules' `check` never reads `on`), so the
+endpoints carry each side's id (`on: 'id'`). Open for the review: whether that fiction leaks
+anywhere `on` is read (`toPrisma`, `toSql`, `indexBridges`, permissions' `bridgeHop`), and whether
+the actor bridges belong in the schema's `bridges` at all. They don't today: `{ rel: 'actor:Token',
+action }` would be a hop to the actor's row, a new kind of check, not asked for.
+
+### Actor-level fields and a row-less actor
+
+Zealot's `impersonatedBy` sits on the actor, not its row, and its `Internal` actor has no row. With
+no `__actor` object they need a home: `impersonatedBy` as a declared column of the acting model's
+slot in the `actor` map (`actor:User.impersonatedBy`, injected onto the row), and `Internal` as an
+`actor:Internal` model with no columns but `id`. Open for the review and for Aron.
 
 ## Re-spelling (each app, in the PR that takes the release)
 
-- template, Kingdom, Tribe: `__actor.record.ownerModel` → `__actor.token.ownerModel`; declare
-  `actors: { kinds: { User: 'user', Token: 'token' } }` in `packages/db/src/schemaMap.ts`.
+- template, Kingdom, Tribe: `__actor.model = 'User'` → `actor:User.id exists`;
+  `__actor.record.ownerModel` → `actor:Token.ownerModel`; declare `actors: ['User', 'Token']` in
+  `packages/db/src/schemaMap.ts`; re-spell the `rebac-schema-never-reads-full` CI fixture.
 - Zealot (a ticket for Alexandre, never merged by an agent): Zealot is on permissions 0.21.1 and
   json-rules 3.22, so this rides the json-rules 4 / field-map cut-over (ZLT-7009). Then
   `record.ownerType` / `record.parentTokenUuid` → `apiToken.*`; `record.uuid` → `user.uuid` (a token
@@ -98,9 +97,14 @@ the app's model names, `token` in template, `apiToken` in Zealot).
 - `setActor` with an undeclared model throws; an `Internal` actor has `model` and no slot.
 - `__actor` still never resolves in a `where` or on a related row (`org.__actor`).
 
+## Superseded
+
+The first draft typed `__actor` as a synthetic `__Actor` model with one slot per kind. Aron chose the
+`actor:` bridge instead (11-19), which uses json-rules' bridge spelling and drops `__actor`. The
+review's findings that still apply are folded in above.
+
 ## Settled by the review
 
-- `kinds` keyed by model (above).
 - No per-slot `omits` for sensitive columns: a rule on a Token row can read `keyHash` today, so
   cutting it only under `__actor` would be a special case. If sensitive columns should leave every
   rule lens, that is a general narrowing on the map, filed separately.
