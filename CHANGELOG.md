@@ -4,6 +4,11 @@
   `LensesAtRow`, `PositionUnderListItem`): the json-rules lenses a read is judged in, at a row or at
   an item of a declared list (null when the list is not declared). `validateSchema`'s list arm
   reads `lensesAtListItem`, so there is one way to place a walk under an item.
+- **`relationHopsFrom(map, schema, at, walked?)`**, **`declaredListsOf(map, resource)`** and
+  **`issuesForRuleReadsOutsideLens`** are exported: the hops a `{ rel }` may take next (to-one
+  relations and bridges, each with where it lands), the lists a list arm may cross, and the lens
+  issues of a rule outside the schema. `validateSchema` and `relationHopsFrom` share one walk of a
+  `{ rel }` path (`walkRelationPath`), so what is offered is what is accepted.
 - **Why.** rules-builder's permission builder built its own views of a resource (every column and
   relation, `__actor` on every model, its own `@permissions(down)` parse), which offered paths this
   library refuses (a path back to a model, an undeclared list's item, `__actor` past the row a rule

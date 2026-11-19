@@ -22,7 +22,14 @@ export {
 } from './src/core/schemaMap';
 export type * from './src/core/types';
 export * from './src/core/validateActionRule';
-export { schemaRuleIssues, validateSchema } from './src/core/validateSchema';
+export {
+  declaredListsOf,
+  issuesForRuleReadsOutsideLens,
+  type RelationHop,
+  relationHopsFrom,
+  schemaRuleIssues,
+  validateSchema,
+} from './src/core/validateSchema';
 export * from './src/helpers/delegation/capAtRole';
 export * from './src/helpers/delegation/delegate';
 export * from './src/helpers/delegation/permissions';

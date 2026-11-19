@@ -910,6 +910,11 @@ and declare in the map any computed value a rule reads.
   resource, field)` returns them at an item of a declared list (what its `down` paths load), or
   null when `field` is not a declared list. An editor authors rules in them, so it offers exactly
   what `validateSchema` accepts (rules-builder's permission builder does).
+- `relationHopsFrom(map, schema, at, walked?)` returns the segments a `{ rel }` may take next from
+  `at` after the dotted `walked` path: each followed to-one relation and bridge whose walk
+  `validateSchema` accepts, with the resource it lands on. `declaredListsOf(map, resource)` returns
+  the fields a list arm may cross. `issuesForRuleReadsOutsideLens(map, schema, resource, rule)`
+  judges one rule that is not in the schema (a transition's permission side, a draft).
 - `schemaRuleIssues(schema)` returns the issues of every schema rule that is not well formed and
   positive, without the map or the cycle check. It is the test a check runs on a schema's first use
   before it throws.
