@@ -382,8 +382,8 @@ permix.setActor({ model: 'Token', record: token }); // a token
   columns only; what the actor is related to is a `{ rel }` from the record.
 - **An actor that is not acting is unknown, never null.** Every declared `actor:` key is written on
   the record a rule reads (the acting row, the others empty), so a record can never carry an actor
-  of its own, and the check reads what a record does not carry as unknown (`absent: 'unknown'`, the
-  default): `ownerId equals actor:User.id` never holds for a token, or for nobody, even where
+  of its own, and the check reads what a record does not carry as unknown, always (json-rules
+  `absent: 'unknown'`; records must carry every column their rules read): `ownerId equals actor:User.id` never holds for a token, or for nobody, even where
   `ownerId` is null. A rule that needs someone acting still says who (`actor:User.id exists`).
 - **Only at the row a rule is read on.** A `where` reads the record alone, so an `actor:` path there
   is refused; `org.actor:User` is not a path.

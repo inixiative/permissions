@@ -69,13 +69,17 @@ export const actorPartsOfRuleLens = (
 };
 
 /**
- * The record a `{ rule }` is checked on: every declared actor key written, the acting row under
- * `actor:<model>`, the session under `actor:Session`, the others empty, so a row can never carry
- * an actor of its own. A map that declares no actors has no actor in its rule lens, so a rule that
- * reads one is refused before it runs. Throws for an actor whose model a declaring map leaves out.
+ * The record a `{ rule }` is checked on: any `actor:` key the record brought dropped, then every
+ * declared actor key written (the acting row under `actor:<model>`, the session under
+ * `actor:Session`, the others empty), so a record never carries an actor of its own. Throws for an
+ * acting model a map that declares actors leaves out; a map that declares none has no actor in
+ * its rule lens.
  */
 export const recordWithActor = (map: SchemaMap, record: Row, actor: Actor | null): Row => {
-  if (!map.actors) return record;
+  const own: Row = Object.fromEntries(
+    Object.entries(record).filter(([key]) => !key.startsWith(`${actorMapName}:`)),
+  );
+  if (!map.actors) return own;
   const models = declaredActorModels(map);
   if (actor && !models.includes(actor.model))
     throw new Error(
@@ -84,6 +88,6 @@ export const recordWithActor = (map: SchemaMap, record: Row, actor: Actor | null
   const keys: Row = Object.fromEntries(
     models.map((model) => [actorKey(model), model === actor?.model ? actor.record : undefined]),
   );
-  if (map.actors?.session) keys[actorKey(actorSessionModel)] = actor?.session;
-  return { ...record, ...keys };
+  if (map.actors.session) keys[actorKey(actorSessionModel)] = actor?.session;
+  return { ...own, ...keys };
 };

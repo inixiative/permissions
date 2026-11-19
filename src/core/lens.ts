@@ -41,7 +41,7 @@ export type LensesAtRow = {
   under?: PositionUnderListItem;
 };
 
-// why: the actor is supplied at the row a rule is read on, so only that model bridges to it
+// why: the actor is supplied at the row a rule is read on, so only that model bridges to it; the rule lens judges reads, it never projects rows
 const lensAnchoredAtModel = (
   map: SchemaMap,
   model: string,

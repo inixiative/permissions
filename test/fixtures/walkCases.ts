@@ -192,9 +192,6 @@ export const outcomesOfWalkCase = async (walkCase: WalkCase) => {
   const placed = rows[walkCase.grant.placed] ?? record;
   return {
     check: outcome(() => createRebacCheck(map)(holder, schema, subject, action)),
-    checkUnknown: outcome(() =>
-      createRebacCheck(map, { absent: 'unknown' })(holder, schema, subject, action),
-    ),
     paths: outcome(() => createRebacPaths(map, { limit: 2 })(holder, schema, subject, action)),
     grant: outcome(() =>
       createCanGrantEntitlement(map)(

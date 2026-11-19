@@ -60,10 +60,6 @@ export type Subject<R extends string = string> = {
  */
 export type Anchor = { resource: string; id: string; path?: string };
 
-export type CheckOptions = {
-  absent?: Absent;
-};
-
 /**
  * An installed entitlement, as the engine reads it back: it applies to a record only when the
  * record's hydrated `anchor.path` reaches the anchor, `where` holds, and the `owner` (the table of whoever granted

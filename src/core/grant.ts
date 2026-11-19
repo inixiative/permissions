@@ -37,8 +37,8 @@ const narrows = (held: Entitlement, entry: EntitlementEntry) => {
 export const createCanGrantEntitlement = <R extends string = string>(
   map: SchemaMap<R>,
 ): CanGrantEntitlement<R> => {
-  const check = createWalker(map, 'unknown', booleanAlgebra);
-  const backs = createWalker(map, 'unknown', booleanAlgebra, true);
+  const check = createWalker(map, booleanAlgebra);
+  const backs = createWalker(map, booleanAlgebra, true);
 
   return (permix, schema, entry, placed) => {
     if (

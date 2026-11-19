@@ -15,14 +15,16 @@ join ("a different type of bridging where it doesn't need the `on`"). Plan:
   `actor:Token.ownerModel`, `path: 'actor:User.id'` read; `actor:Usr.*`, `actor:User.nope`,
   `actor:User.org.*`, `org.actor:User`, an `actor:` path in a `where` and every `__actor.*` are
   refused. `__actor` is gone.
-- **`recordWithActor(map, record, actor)`** writes every declared actor key (the acting row, the
-  others empty), so a record can never carry an actor of its own; an acting model a declaring map
-  leaves out throws.
-- **`absent` defaults to `'unknown'`** in `createRebacCheck` and `createRebacPaths`: a value the
-  record does not carry is unknown, never null, so `ownerId equals actor:User.id` never holds for a
-  token or nobody, even where `ownerId` is null (Aron: "Empty is undefined, not null"). Records
-  that carry their columns (Prisma rows, null for null) read as before; a record missing a column
-  a rule reads no longer passes `equals null` on it. Pass `{ absent: 'null' }` for the old reading.
+- **`recordWithActor(map, record, actor)`** drops any `actor:` key the record brought and writes
+  every declared actor key (the acting row, the others empty), so a record never carries an actor
+  of its own; an acting model a declaring map leaves out throws.
+- **A check reads a value the record does not carry as unknown, never null** (json-rules
+  `absent: 'unknown'`, always; the `absent` option and `CheckOptions` are gone, since `'null'`
+  would let a token, or nobody, match `ownerId equals actor:User.id` where `ownerId` is null).
+  Aron: "Empty is undefined, not null." Records that carry their columns (Prisma rows, null for
+  null) read as before. A record missing a column a rule reads no longer passes `equals null`,
+  `in [null]` or an `equals path` on it, so a caller's records must carry every column its rules
+  read (the UI included).
 - **An enum value outside its enum is a schema error** (json-rules `value_not_allowed`, kept for
   every rule, reported by `validateSchema` like an operator that does not fit its field).
 - **`RebacSchema.bridges` is `JoinedBridge[]`** (json-rules 4.3): a supplied bridge is never a

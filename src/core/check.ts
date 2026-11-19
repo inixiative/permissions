@@ -1,6 +1,6 @@
 import { type Admission, booleanAlgebra, pathsAlgebra } from './algebra';
 import type { SchemaMap } from './schemaMap';
-import type { ActionRule, CheckOptions, PermixLike, RebacSchema, Subject } from './types';
+import type { ActionRule, PermixLike, RebacSchema, Subject } from './types';
 import { createWalker } from './walker';
 
 export type RebacCheck<R extends string = string> = (
@@ -19,14 +19,11 @@ export type RebacCheck<R extends string = string> = (
  * the engine builds from `subject.data`; a far row absent there denies the walk. `string` delegates
  * (rbac via permix or schema), `{ rule }` is an ABAC predicate over the record and the actor (read
  * as `actor:<Model>.<column>`), `any`/`all` compose. A value the record does not carry (an actor
- * that is not acting) is unknown, never null (`absent: 'unknown'`). A loop through a relation denies; a rule naming
+ * that is not acting) is unknown, never null (json-rules `absent: 'unknown'`, always). A loop through a relation denies; a rule naming
  * itself on one record throws.
  */
-export const createRebacCheck = <R extends string = string>(
-  map: SchemaMap<R>,
-  { absent = 'unknown' }: CheckOptions = {},
-): RebacCheck<R> => {
-  const walker = createWalker(map, absent, booleanAlgebra);
+export const createRebacCheck = <R extends string = string>(map: SchemaMap<R>): RebacCheck<R> => {
+  const walker = createWalker(map, booleanAlgebra);
   return (permix, schema, subject, actionOrRule) => walker(permix, schema, subject, actionOrRule);
 };
 
@@ -37,7 +34,7 @@ export type RebacPaths<R extends string = string> = (
   actionOrRule: ActionRule,
 ) => Admission[];
 
-export type PathsOptions = CheckOptions & { limit?: number };
+export type PathsOptions = { limit?: number };
 
 /**
  * Every way a check is admitted, on the same walk `check` runs: one {@link Admission} per way, each
@@ -48,9 +45,9 @@ export type PathsOptions = CheckOptions & { limit?: number };
  */
 export const createRebacPaths = <R extends string = string>(
   map: SchemaMap<R>,
-  { absent = 'unknown', limit = 20 }: PathsOptions = {},
+  { limit = 20 }: PathsOptions = {},
 ): RebacPaths<R> => {
-  const walker = createWalker(map, absent, pathsAlgebra(limit));
+  const walker = createWalker(map, pathsAlgebra(limit));
   return (permix, schema, subject, actionOrRule) => walker(permix, schema, subject, actionOrRule);
 };
 

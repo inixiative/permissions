@@ -5,7 +5,7 @@ import { withExactStrings } from './exactStrings';
 import { answerOnce, freezeThenJudgeOnce } from './freezeThenJudgeOnce';
 import { idField } from './recordId';
 import { indexMap, type SchemaMap } from './schemaMap';
-import type { ActionRule, CheckOptions, PermixLike, RebacSchema, Row, Subject } from './types';
+import type { ActionRule, PermixLike, RebacSchema, Row, Subject } from './types';
 import { validateActionRule } from './validateActionRule';
 import {
   issuesForRuleReadsOutsideLens,
@@ -33,9 +33,11 @@ const assertSchema = (map: SchemaMap, schema: RebacSchema) =>
     return true;
   });
 
+// why: a value a record does not carry (an actor that is not acting) is unknown, never null
+const absent = 'unknown';
+
 export const createWalker = <R extends string, T>(
   map: SchemaMap<R>,
-  absent: CheckOptions['absent'] & {},
   algebra: Algebra<T>,
   ignoreWheres = false,
 ) => {

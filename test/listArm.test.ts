@@ -758,12 +758,11 @@ describe('what a record may carry into a check', () => {
     );
     const rowRule = { ...c1, permissionRules: { isParticipant: reads } };
     expect(check(otto, schema, on(rowRule), 'isParticipant')).toBe(false);
-    // off an item the same read keeps the check's own `absent`: unknown by default, null if asked
+    // off an item the same read is unknown too: a check never reads a missing value as null
     const offItem: ActionRule = {
       rule: { field: 'brand.deletedAt', operator: 'equals', value: null },
     };
     expect(check(otto, schema, on(c1), offItem)).toBe(false);
-    expect(createRebacCheck(map, { absent: 'null' })(otto, schema, on(c1), offItem)).toBe(true);
   });
 
   test('the same read written in the schema is refused on first use', async () => {

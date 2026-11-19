@@ -28,7 +28,8 @@ export type Polymorphism = Partial<Record<string, { axes: readonly PolymorphicAx
 
 /**
  * Who can act. A `{ rule }` reads the acting row as `actor:<Model>` (its own columns, over a
- * json-rules supplied bridge) and the session as `actor:Session`.
+ * json-rules supplied bridge) and the session as `actor:Session`. Read once per map: the lenses
+ * are built and cached per map object, so a map is not changed after its first check.
  */
 export type ActorDeclaration = {
   /** Models of `fieldMap` that can act (`'User'`, `'Token'`). */

@@ -68,6 +68,13 @@ describe('the actor: actor:<Model> over a supplied bridge', () => {
     });
   });
 
+  test('a map that declares no actors still drops an actor a record brought', () => {
+    const { actors: _none, ...noActors } = map;
+    expect(recordWithActor(noActors, { id: 'd', 'actor:User': { id: 'forged' } }, user)).toEqual({
+      id: 'd',
+    });
+  });
+
   test('the session is its own supplied row', () => {
     const impersonated = {
       rule: { field: 'actor:Session.impersonatedBy', operator: Operator.exists },
