@@ -118,3 +118,48 @@ review's findings that still apply are folded in above.
 - Keeping `value_not_allowed` tightens every app's rules, not only the actor's: an enum value that
   isn't in the enum becomes a schema error. I expect none in template, Kingdom or Tribe; the build
   would show any.
+
+## The fan-out: the standard shape of a polymorphic check (Aron 11-19)
+
+Aron 11-19: "Most polymorphic permission checks are fanned out, and so each branch of it should
+check its fan, or each branch should check its own branch." And: "we have to start checking the
+model. Because it has to be all positive rules": a pseudo kind (`Default`, `Internal`, `admin`) has
+no row and no id, so `exists` cannot name it, and "the id does not exist" is not a positive rule.
+"This is a standard shape that we should be moving towards."
+
+So permissions exports the blocks, built from the map's polymorphism registry (`map.polymorphism`
+axes) and the actor declaration, so no app restates its kinds:
+
+```ts
+// a false-polymorphic side: one branch per kind, each checking its own model first
+sideFanOut('owner', {
+  Organization: { rel: 'organization', action: 'manage' },
+  Space:        { rel: 'space', action: 'manage' },
+  User:         actorMatches('ownerUserId', 'User', 'id'),
+  Default:      true,                      // a pseudo kind: its model check is the whole branch
+})
+// → any: [ all: [ownerModel = 'Organization', { rel: 'organization', action: 'manage' }],
+//          all: [ownerModel = 'Space', { rel: 'space', action: 'manage' }],
+//          all: [ownerModel = 'User', ownerUserId exists, ownerUserId equals actor:User.id],
+//          ownerModel = 'Default' ]
+
+// the actor: the same fan-out over who is acting
+actorFanOut({ User: …, Token: …, Internal: true })
+// each branch: all: [actor:Session.model = '<kind>', …]
+
+// the leaf: the actor kind, then exists, then match
+actorMatches('ownerId', 'User', 'id')
+// → all: [actor:Session.model = 'User', actor:User.id exists, ownerId equals actor:User.id]
+```
+
+- A kind left out of a fan-out has no branch and denies.
+- The actor gets a discriminator again, on the session row: every actor's `actor:Session` row
+  carries `model` (an enum of the declared kinds, pseudo kinds included), so "who is acting" is a
+  positive model check. The declaration gains pseudo kinds:
+  `actors: { models: ['User', 'Token'], pseudo: ['Internal'], session? }`.
+- The blocks return ordinary `ActionRule` values: validation, the walk and the builder see plain
+  rules. The walk infers nothing from the registry (no implicit kind check on a `{ rel }` hop):
+  under the full owner chain a Space-owned row also carries its organization, and a rule may mean
+  to walk it.
+- Template's `ownerModelIsOneOf` / `actorMayPerformActionOnOwner` become `sideFanOut`; `actorIsUser`
+  a one-branch `actorFanOut`. Names to settle against `docs/VERBS.md`.
