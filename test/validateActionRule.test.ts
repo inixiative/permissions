@@ -21,7 +21,8 @@ describe('validateActionRule: an action rule, checked like json-rules checks a c
   });
 
   it('checks a rule branch with json-rules: positive rules only', () => {
-    expect(ok({ rule: { field: 'role', operator: Operator.equals, value: null } })).toBe(true);
+    expect(ok({ rule: { field: 'role', operator: Operator.equals, value: 'owner' } })).toBe(true);
+    expect(ok({ rule: { field: 'role', operator: Operator.equals, value: null } })).toBe(false);
     expect(ok({ rule: true })).toBe(true);
     expect(ok({ rule: { operator: 'not-a-real-operator' } })).toBe(false);
     expect(ok({ rule: { field: 'role', operator: Operator.isEmpty } })).toBe(false);

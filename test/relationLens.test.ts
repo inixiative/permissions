@@ -183,8 +183,11 @@ const actorAs = (id: string, entitlements: EntitlementEntry[] = []): PermixLike 
 const ruled = (resource: string, rule: ActionRule): RebacSchema => ({
   permissions: { [resource]: { actions: { act: rule } } },
 });
-const reads = (field: string, value: unknown = null): ActionRule => ({
-  rule: { field, operator: 'equals', value } as Condition,
+// A read of `field`: `exists`, or `equals value` (a rule names what is there, never a null).
+const reads = (field: string, value?: unknown): ActionRule => ({
+  rule: (value === undefined
+    ? { field, operator: 'exists' }
+    : { field, operator: 'equals', value }) as Condition,
 });
 const actorWrote = (field: string): ActionRule => ({
   rule: {
@@ -318,21 +321,21 @@ describe('reads the hydrator never loaded are refused', () => {
       },
     });
     const subject = { resource: 'user', record: u1 };
-    expect(check(actorAs('x'), twoHops(reads('org.name', null)), subject, 'act')).toBe(false);
+    expect(check(actorAs('x'), twoHops(reads('org.name', 'other')), subject, 'act')).toBe(false);
     expect(check(actorAs('x'), twoHops(reads('org.name', 'acme')), subject, 'act')).toBe(true);
-    const held = (value: string | null): EntitlementEntry => ({
+    const held = (value: string): EntitlementEntry => ({
       resource: 'user',
       anchor: { resource: 'user', id: 'u1' },
       where: { field: 'org.name', operator: 'equals', value },
       actions: { vouch: true },
     });
-    expect(check(actorAs('x', [held(null)]), twoHops(null), subject, 'act')).toBe(false);
+    expect(check(actorAs('x', [held('other')]), twoHops(null), subject, 'act')).toBe(false);
     expect(check(actorAs('x', [held('acme')]), twoHops(null), subject, 'act')).toBe(true);
     const conversation = await hydrate('conversation', db.conversation?.c1 as Row);
     const fromConversation: RebacSchema = {
       permissions: {
         conversation: { actions: { act: { rel: 'org.creator', action: 'vouch' } } },
-        user: { actions: { vouch: reads('org.name', null) } },
+        user: { actions: { vouch: reads('org.name', 'other') } },
       },
     };
     expect(
@@ -421,7 +424,7 @@ describe('computed keys, class instances, frozen wheres and the actor in a where
     const schema: RebacSchema = {
       permissions: {
         conversation: { actions: { act: { rel: 'org', action: 'a' } } },
-        org: { actions: { a: reads('plan', null) } },
+        org: { actions: { a: reads('plan') } },
       },
     };
     const record = { id: 'c1', orgId: 'o1', org: { id: 'o1', name: 'acme', plan: 'pro' } };
@@ -443,7 +446,7 @@ describe('computed keys, class instances, frozen wheres and the actor in a where
         { resource: 'user', record },
         'act',
       );
-    expect(at(null)).toBe(false);
+    expect(at('other')).toBe(false);
     expect(at('acme')).toBe(true);
   });
 
@@ -469,7 +472,7 @@ describe('computed keys, class instances, frozen wheres and the actor in a where
     const entry: EntitlementEntry = {
       resource: 'user',
       anchor: { resource: 'user', id: 'u1' },
-      where: { field: 'actor:User.id', operator: 'equals', value: null },
+      where: { field: 'actor:User.id', operator: 'exists' },
       actions: { act: true },
     };
     const record = { id: 'u1', orgId: 'o1' };
@@ -629,7 +632,7 @@ describe('the root, item paths, unknown resources and wheres on an item', () => 
     const creator = (partial.org as Row).creator as Row;
     expect(creator).not.toBe(partial);
     expect(creator.name).toBe('Una');
-    expect(check(actorAs('x'), named(null), { resource: 'user', record: partial }, 'act')).toBe(
+    expect(check(actorAs('x'), named('other'), { resource: 'user', record: partial }, 'act')).toBe(
       false,
     );
     const forged = await hydrate('user', { id: 'u1', name: 'EVIL', orgId: 'o1' });
@@ -1107,11 +1110,7 @@ describe('the actor and the size of a lens', () => {
     expect(codes(ruled('user', reads('org.actor:User.id')))).toEqual(['lens']);
     expect(codes(ruled('user', reads('__actor.record.id')))).toEqual(['lens']);
     expect(
-      whyEntitlementWhereLeavesLens(map, 'user', {
-        field: 'actor:User.id',
-        operator: 'equals',
-        value: null,
-      }),
+      whyEntitlementWhereLeavesLens(map, 'user', { field: 'actor:User.id', operator: 'exists' }),
     ).toMatch(/the actor is not on it/);
   });
 

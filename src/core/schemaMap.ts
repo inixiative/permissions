@@ -27,15 +27,19 @@ export type PolymorphicAxis = { field: string; fkMap: Partial<Record<string, rea
 export type Polymorphism = Partial<Record<string, { axes: readonly PolymorphicAxis[] }>>;
 
 /**
- * Who can act. A `{ rule }` reads the acting row as `actor:<Model>` (its own columns, over a
- * json-rules supplied bridge) and the session as `actor:Session`. Read once per map: the lenses
- * are built and cached per map object, so a map is not changed after its first check.
+ * Who can act. A `{ rule }` reads which kind is acting as `actor:Acting.model` (every declared kind,
+ * pseudo kinds included), the acting row as `actor:<Model>` (its own columns, over a json-rules
+ * supplied bridge), and facts about the acting (who is impersonating) beside `model` on
+ * `actor:Acting`. Read once per map: the lenses are built and cached per map object, so a map is not
+ * changed after its first check.
  */
 export type ActorDeclaration = {
-  /** Models of `fieldMap` that can act (`'User'`, `'Token'`). */
+  /** Models of `fieldMap` that can act with a row (`'User'`, `'Token'`). */
   models: readonly string[];
-  /** Facts about the session rather than its row (who is impersonating), read as `actor:Session`. */
-  session?: ModelEntry;
+  /** Kinds that act with no row (`'Internal'`): named by `actor:Acting.model` alone. */
+  pseudo?: readonly string[];
+  /** Fields of `actor:Acting` beside `model` (`impersonatedBy`). */
+  acting?: ModelEntry['fields'];
 };
 
 /**
@@ -426,7 +430,7 @@ export const followedToOneRelationsOf = <R extends string>(
   return toOnes.get(resource) as [string, Relation<R>][];
 };
 
-const ownerRelationOf = <R extends string>(
+export const ownerRelationOf = <R extends string>(
   map: SchemaMap<R>,
   resource: R,
   field: string,

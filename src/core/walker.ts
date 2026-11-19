@@ -15,7 +15,7 @@ import {
 
 const refuse = (what: string) => {
   throw new Error(
-    `${what} is not a well-formed positive rule: negated rules are refused on every check (run validateSchema)`,
+    `${what} is not a well-formed positive rule: a rule names what the record carries, so negations and null checks are refused on every check (run validateSchema)`,
   );
 };
 

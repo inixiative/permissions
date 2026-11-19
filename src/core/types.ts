@@ -9,13 +9,13 @@ export type RelationCheck = { rel: string; action: string }; // walk a relation,
  * `any` is the only operator, since every other one holds on a list with no rows.
  */
 export type ListCheck = { rel: string; arrayOperator: 'any'; condition: ActionRule };
-/** ABAC (json-rules) over the record, with who is acting read as `actor:<Model>` (and `actor:Session`). */
+/** ABAC (json-rules) over the record, with who is acting read as `actor:Acting` and `actor:<Model>`. */
 export type RuleCheck = { rule: Condition };
 
-/** Who is acting: what kind of credential (`model`, one of `SchemaMap.actors.models`), its row (`record`),
- *  and facts about the session rather than the row (`session`, as `SchemaMap.actors.session` declares).
- *  A `{ rule }` reads them as `actor:<model>` and `actor:Session`. */
-export type Actor = { model: string; record: Row; session?: Row };
+/** Who is acting: its kind (`model`, a declared model or pseudo kind), its row (`record`, none for a
+ *  pseudo kind), and facts about the acting (`acting`, as `SchemaMap.actors.acting` declares).
+ *  A `{ rule }` reads them as `actor:Acting.model`, `actor:<model>` and `actor:Acting.<field>`. */
+export type Actor = { model: string; record?: Row; acting?: Row };
 
 /** The serializable permission algebra: rebac (`rel`) + abac (`rule`) + rbac (`string` delegation). */
 export type ActionRule =

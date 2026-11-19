@@ -27,7 +27,15 @@ import { stringColumn } from './schemaMaps';
 // Zealot's conversation slice (schemas/zealot.prisma), as field-map reads it. The list field reads
 //   /// @permissions(down: [forumUser.fanUser.user, forumUser.brandUser.user])
 //   participants ConversationParticipant[]
-const models = loadModels('zealot');
+const loaded = loadModels('zealot');
+// Positive rules name what is there (R-2026-11-19-16): "has not left" is a status, not `leftAt equals null`.
+const models: typeof loaded = {
+  ...loaded,
+  ConversationParticipant: {
+    ...loaded.ConversationParticipant,
+    fields: { ...loaded.ConversationParticipant.fields, status: stringColumn },
+  },
+};
 const resources = {
   'db:user': 'User',
   'db:brands': 'Brands',
@@ -81,7 +89,7 @@ const isParticipant = {
   arrayOperator: 'any',
   condition: {
     all: [
-      { rule: { field: 'leftAt', operator: 'equals', value: null } },
+      { rule: { field: 'status', operator: 'equals', value: 'active' } },
       {
         any: [
           { rel: 'forumUser.fanUser', action: 'isSelf' },
@@ -169,12 +177,12 @@ const store = (): Store => ({
     { uuid: 'c-ghost', brandUuid: 'b1', createdByUuid: 'fu-rex' },
   ],
   'db:conversationParticipant': [
-    { uuid: 'p-fay', conversationUuid: 'c1', forumUserUuid: 'fu-fay', leftAt: null },
-    { uuid: 'p-rex', conversationUuid: 'c1', forumUserUuid: 'fu-rex', leftAt: null },
-    { uuid: 'p-lee', conversationUuid: 'c1', forumUserUuid: 'fu-lee', leftAt: '2026-11-01' },
-    { uuid: 'p-d1', conversationUuid: 'c-dual', forumUserUuid: 'fu-dual-fan', leftAt: null },
-    { uuid: 'p-d2', conversationUuid: 'c-dual', forumUserUuid: 'fu-dual-rep', leftAt: null },
-    { uuid: 'p-ghost', conversationUuid: 'c-ghost', forumUserUuid: 'fu-ghost', leftAt: null },
+    { uuid: 'p-fay', conversationUuid: 'c1', forumUserUuid: 'fu-fay', status: 'active' },
+    { uuid: 'p-rex', conversationUuid: 'c1', forumUserUuid: 'fu-rex', status: 'active' },
+    { uuid: 'p-lee', conversationUuid: 'c1', forumUserUuid: 'fu-lee', status: 'left' },
+    { uuid: 'p-d1', conversationUuid: 'c-dual', forumUserUuid: 'fu-dual-fan', status: 'active' },
+    { uuid: 'p-d2', conversationUuid: 'c-dual', forumUserUuid: 'fu-dual-rep', status: 'active' },
+    { uuid: 'p-ghost', conversationUuid: 'c-ghost', forumUserUuid: 'fu-ghost', status: 'active' },
   ],
   'db:chatMessage': [{ uuid: 'm1', conversationUuid: 'c1' }],
 });
@@ -240,7 +248,7 @@ describe('Zealot’s conversation rule on the list arm', () => {
     expect(check(otto, schema, on(c1), 'chatRead')).toBe(false);
   });
 
-  test('a participant who left does not: the condition on the item reads `leftAt`', async () => {
+  test('a participant who left does not: the condition on the item reads `status`', async () => {
     const c1 = await conversation('c1');
     expect(check(await person('u-lee', 'advocate'), schema, on(c1), 'chat')).toBe(false);
   });
@@ -303,7 +311,7 @@ describe('the grantor side: an entitlement asks whether its grantor is a partici
     expect(check(hal, schema, on(await conversation('c1')), 'chat')).toBe(true);
     expect(paths(hal, schema, on(await conversation('c1')), 'chat')).toEqual([[['chat-c1']]]);
     const left = store();
-    (left['db:conversationParticipant']?.[0] as Row).leftAt = '2026-11-14';
+    (left['db:conversationParticipant']?.[0] as Row).status = 'left';
     expect(check(hal, schema, on(await conversation('c1', left)), 'chat')).toBe(false);
   });
 
@@ -350,7 +358,7 @@ describe('the grant check', () => {
   });
 
   test('a `where` cannot pin a list onto the stand-in', async () => {
-    const forged = [{ leftAt: null, forumUser: { fanUser: { user: { uuid: 'u-fay' } } } }];
+    const forged = [{ status: 'active', forumUser: { fanUser: { user: { uuid: 'u-fay' } } } }];
     const entry = {
       ...underBrand,
       where: { field: 'participants', operator: 'equals', value: forged },
@@ -369,7 +377,7 @@ describe('the grant check', () => {
     const [standIn] = placeEntitlement(map, underBrand, { uuid: 'b1' }) as Row[];
     expect(canGrant(hal, schema, underBrand, standIn as Row)).toBe(false);
     const left = store();
-    (left['db:conversationParticipant']?.[0] as Row).leftAt = '2026-11-14';
+    (left['db:conversationParticipant']?.[0] as Row).status = 'left';
     expect(canGrant(hal, schema, selfAnchored, await conversation('c1', left))).toBe(false);
   });
 
@@ -646,7 +654,7 @@ describe('createHydrator: one jump down', () => {
       uuid: 'p-fay',
       conversationUuid: 'c1',
       forumUserUuid: 'fu-fay',
-      leftAt: null,
+      status: 'active',
       forumUser: {
         uuid: 'fu-fay',
         fanUserUuid: 'f-fay',
@@ -659,7 +667,7 @@ describe('createHydrator: one jump down', () => {
 
   test('the list is set by the hydrator: a list the caller supplied is replaced', async () => {
     const loads: string[] = [];
-    const forged = [{ leftAt: null, forumUser: { fanUser: { user: { uuid: 'u-otto' } } } }];
+    const forged = [{ status: 'active', forumUser: { fanUser: { user: { uuid: 'u-otto' } } } }];
     const hydrate = hydratorOver(store(), map, loads);
     const created = await hydrate('db:conversation', { brandUuid: 'b1', participants: forged });
     expect(created.participants).toEqual([]);
@@ -695,7 +703,7 @@ describe('createHydrator: one jump down', () => {
 // The adversarial review's reproductions (A-1 to A-6), each asserting the fixed behaviour.
 describe('what a record may carry into a check', () => {
   const forged = [
-    { leftAt: null, forumUser: { fanUser: { uuid: 'f-otto', user: { uuid: 'u-otto' } } } },
+    { status: 'active', forumUser: { fanUser: { uuid: 'f-otto', user: { uuid: 'u-otto' } } } },
   ];
   const inConversation = async (record: Row) =>
     check(
@@ -746,12 +754,12 @@ describe('what a record may carry into a check', () => {
 
   test('a field an item does not carry is unknown: it never passes `equals null`', async () => {
     const lee = await person('u-lee');
-    // a left member whose row came back without `leftAt` (a select, a projection)
+    // a member whose row came back without `status` (a select, a projection)
     const member = { forumUser: { fanUser: { uuid: 'f-lee', user: { uuid: 'u-lee' } } } };
     expect(check(lee, schema, on({ uuid: 'c1', participants: [member] }), 'isParticipant')).toBe(
       false,
     );
-    const present = { uuid: 'c1', participants: [{ ...member, leftAt: null }] };
+    const present = { uuid: 'c1', participants: [{ ...member, status: 'active' }] };
     expect(check(lee, schema, on(present), 'isParticipant')).toBe(true);
   });
 
@@ -761,7 +769,7 @@ describe('what a record may carry into a check', () => {
     const reads: ActionRule = {
       rel: 'participants',
       arrayOperator: 'any',
-      condition: { rule: { field: 'forumUser.brand.deletedAt', operator: 'equals', value: null } },
+      condition: { rule: { field: 'forumUser.brand.deletedAt', operator: 'exists' } },
     };
     expect(() => check(otto, schema, on(c1), reads)).toThrow(
       /loads no `forumUser.brand` under an item/,
@@ -770,7 +778,7 @@ describe('what a record may carry into a check', () => {
     expect(check(otto, schema, on(rowRule), 'isParticipant')).toBe(false);
     // off an item the same read is unknown too: a check never reads a missing value as null
     const offItem: ActionRule = {
-      rule: { field: 'brand.deletedAt', operator: 'equals', value: null },
+      rule: { field: 'brand.deletedAt', operator: 'exists' },
     };
     expect(check(otto, schema, on(c1), offItem)).toBe(false);
   });
@@ -779,7 +787,7 @@ describe('what a record may carry into a check', () => {
     const reads: ActionRule = {
       rel: 'participants',
       arrayOperator: 'any',
-      condition: { rule: { field: 'forumUser.brand.deletedAt', operator: 'equals', value: null } },
+      condition: { rule: { field: 'forumUser.brand.deletedAt', operator: 'exists' } },
     };
     const undeclared = schemaWith(reads);
     expect(validateSchema(map, undeclared).ok).toBe(false);
@@ -927,7 +935,7 @@ describe('one list per walk', () => {
     const withSender = mapOver(copy);
     const claimed = {
       participants: [
-        { leftAt: null, forumUser: { fanUser: { uuid: 'f-otto', user: { uuid: 'u-otto' } } } },
+        { status: 'active', forumUser: { fanUser: { uuid: 'f-otto', user: { uuid: 'u-otto' } } } },
       ],
     };
     const entry = (where: EntitlementEntry['where']): EntitlementEntry => ({
@@ -956,7 +964,7 @@ describe('one list per walk', () => {
     expect(pins('uuid', ['m1'])).not.toHaveProperty('uuid');
     expect(pins('uuid', { in: 'm1' })).not.toHaveProperty('uuid');
     expect(pins('uuid', 'm1')).toHaveProperty('uuid', 'm1');
-    expect(pins('conversationUuid', null)).toHaveProperty('conversationUuid', null);
+    expect(pins('conversationUuid', 'c1')).toHaveProperty('conversationUuid', 'c1');
   });
 });
 
@@ -971,7 +979,7 @@ describe('the declaration carries what the rule walks', () => {
     arrayOperator: 'any',
     condition: {
       all: [
-        { rule: { field: 'leftAt', operator: 'equals', value: null } },
+        { rule: { field: 'status', operator: 'equals', value: 'active' } },
         {
           any: [
             { rel: 'forumUser.fanUser', action },

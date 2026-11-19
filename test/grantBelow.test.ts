@@ -335,7 +335,7 @@ const schema: RebacSchema = {
         own: { rel: 'organization', action: 'own' },
         manage: { any: ['own', { rel: 'organization', action: 'manage' }] },
         read: { any: ['manage', { rel: 'organization', action: 'read' }] },
-        rename: { all: [{ rule: eq('label', null) }, 'read'] },
+        rename: { all: [{ rule: eq('label', 'draft') }, 'read'] },
       },
     },
     'db:integration': {
@@ -737,8 +737,8 @@ describe('refused: an entitlement on the granted record itself (self-anchored en
   const i1 = integrationIn({ ...s1, label: null });
   const t1 = { id: 't1', integrationId: 'i1', integration: i1 };
 
-  test('R99: holding read on s1 does not grant rename on s1, on a row whose label is null', async () => {
-    const hydrated = { ...s1, label: null };
+  test('R99: holding read on s1 does not grant rename on s1, on a row whose label is draft', async () => {
+    const hydrated = { ...s1, label: 'draft' };
     const readS1 = below(entry('db:space', atS1, ['read']));
     const rename = entry('db:space', atS1, ['rename']);
     const holder = await permixOf(holding([readS1]));

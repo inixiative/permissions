@@ -287,7 +287,7 @@ describe('walk modes', () => {
             ],
           },
         },
-        1: { flagIsNull: { rule: { field: 'flag', operator: Operator.equals, value: null } } },
+        1: { flagIsNull: { rule: { field: 'flag', operator: Operator.equals, value: 'on' } } },
       },
       objects: [
         { res: 0, id: 'o1', links: { primarySpace: 1 }, lists: { spaces: [1] } },

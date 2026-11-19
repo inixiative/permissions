@@ -852,7 +852,7 @@ describe('the actor is data: a { rule } reads its row as actor:<Model>', () => {
     expect(read(mine, null, { ownerId: 'u1' })).toBe(false);
     expect(read(mine, null, { ownerId: null })).toBe(false);
     expect(read(mine, token, { ownerId: null })).toBe(false);
-    expect(read(mine, person, { ownerId: person.record.id })).toBe(true);
+    expect(read(mine, person, { ownerId: person.record?.id })).toBe(true);
   });
 
   test('a negated schema rule is refused on every check, not only in a grant', () => {

@@ -9,7 +9,7 @@ import {
   validateRuleInLens,
   walkLensPath,
 } from '@inixiative/json-rules';
-import { actorMapName, actorPartsOfRuleLens } from './actor';
+import { actingModel, actorMapName, actorModelsWithRows, actorPartsOfRuleLens } from './actor';
 import { freezeThenJudgeOnce } from './freezeThenJudgeOnce';
 import {
   followedToOneRelationOrWhyNot,
@@ -310,9 +310,10 @@ export const issuesForReadsOutsideLens = (
           code: 'lens',
           message: !actor
             ? `\`${issue.path}\`: a \`where\` reads the record alone; the actor is not on it`
-            : (map.actors?.models ?? []).includes(head.slice(actorMapName.length + 1)) ||
-                (map.actors?.session && head === `${actorMapName}:Session`)
-              ? `\`${issue.path}\`: a rule reads the actor's own columns only`
+            : [actingModel, ...actorModelsWithRows(map)].includes(
+                  head.slice(actorMapName.length + 1),
+                )
+              ? `\`${issue.path}\`: a rule reads the actor's kind, its facts and its own columns only`
               : `\`${head}\` is not an actor the map declares (\`actors.models\`)`,
         },
       ];

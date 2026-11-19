@@ -45,7 +45,7 @@ const schema: RebacSchema = {
         read: { any: ['manage', { rel: 'organization', action: 'read' }] },
         assign: { rule: { field: 'role', operator: Operator.in, value: lowRoles } },
         rename: {
-          all: [{ rule: { field: 'label', operator: Operator.equals, value: null } }, 'read'],
+          all: [{ rule: { field: 'label', operator: Operator.equals, value: 'draft' } }, 'read'],
         },
       },
     },
@@ -244,12 +244,12 @@ describe('canGrantEntitlement: never more than the writer could do from that anc
 describe('canGrantEntitlement on a placed record: a field it does not carry is unknown, not null', () => {
   const rename = entry('db:space', at('db:space', 's1'), ['rename']);
 
-  test('a rule for records with no label does not grant records the placed one leaves open', async () => {
+  test('a rule for draft-labelled records does not grant records the placed one leaves open', async () => {
     expect(may(await holding('db:space', 's1', ['read']), rename, s1)).toBe(false);
   });
 
-  test('a placed record that pins label null is granted: null === null', async () => {
-    expect(may(await holding('db:space', 's1', ['read']), rename, { ...s1, label: null })).toBe(
+  test('a placed record that pins the label is granted', async () => {
+    expect(may(await holding('db:space', 's1', ['read']), rename, { ...s1, label: 'draft' })).toBe(
       true,
     );
   });
@@ -258,7 +258,7 @@ describe('canGrantEntitlement on a placed record: a field it does not carry is u
     const unnamed = entry('db:integration', at('db:space', 's1', 'space'), ['manage'], {
       field: 'name',
       operator: Operator.equals,
-      value: null,
+      value: 'ops',
     });
     const holder = createPermissions();
     await holder.setup([unnamed], { owner: await holding('db:space', 's1', ['manage']) });
@@ -278,7 +278,7 @@ describe('canGrantEntitlement on a placed record: a field it does not carry is u
       check(
         await holding('db:space', 's1', ['read']),
         'db:space',
-        { ...s1, label: null },
+        { ...s1, label: 'draft' },
         'rename',
       ),
     ).toBe(true);

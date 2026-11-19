@@ -8,10 +8,19 @@ have the actor prefix... Then we can remove the `__actor`", over json-rules' new
 join ("a different type of bridging where it doesn't need the `on`"). Plan:
 `docs/plans/typed-actor.md`, reviewed adversarially twice.
 
-- **`SchemaMap.actors`** (`ActorDeclaration`): the models that can act, and the session's facts
-  (`session`, a field-map `ModelEntry`). `Actor` gains `session?`.
+- **`SchemaMap.actors`** (`ActorDeclaration`): the models that act with a row (`models`), the
+  pseudo kinds that act with none (`pseudo`), and the acting's facts (`acting`). `Actor.record` is
+  optional (a pseudo kind) and `Actor` gains `acting?`. The kind is `actor:Acting.model`, an enum
+  of every declared kind (Aron: "we have to start checking the model. Because it has to be all
+  positive rules"); `actor:Acting` replaces the first draft's `actor:Session`.
+- **`makeKindRules(map)`**: the standard polymorphic rules (R-2026-11-19-15), kinds read from
+  `map.polymorphism` and `map.actors`: `ruleForEachKind`, `ruleKindIsOneOf`,
+  `ruleActionThroughEachKind`, `ruleForEachActorKind`, `ruleActorKindIsOneOf`, `ruleActorIdMatches`.
+  A kind the map does not have throws when the rule is built.
+- **The positive gate refuses a null check** (json-rules 4.3, R-2026-11-19-16), so a schema rule or
+  `where` with `equals null` is refused on every check. Name the value that is there.
 - **The rule lens bridges to the actor.** A supplied json-rules bridge from the row a rule is read on
-  to each `actor:<Model>` (its own columns) and `actor:Session`. `actor:User.email`,
+  to `actor:Acting` and each `actor:<Model>` (its own columns). `actor:User.email`,
   `actor:Token.ownerModel`, `path: 'actor:User.id'` read; `actor:Usr.*`, `actor:User.nope`,
   `actor:User.org.*`, `org.actor:User`, an `actor:` path in a `where` and every `__actor.*` are
   refused. `__actor` is gone.

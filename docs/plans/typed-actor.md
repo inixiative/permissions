@@ -1,6 +1,6 @@
 # The typed actor: `__actor.<kind>.*`
 
-Status: built (2026-11-19) as permissions 0.26 over json-rules 4.3's supplied bridges, after two adversarial reviews and Aron's calls (11-19: `actor:` prefix; empty is undefined, `absent: 'unknown'`, plus explicit `exists` guards; impersonation as its own supplied row, `actor:Session`). Replaces TRACKING "Actor bridge".
+Status: built (2026-11-19; the fan-out, `actor:Acting` and the null-check refusal added after a third adversarial review and Aron's calls, R-2026-11-19-13..16) as permissions 0.26 over json-rules 4.3's supplied bridges, after two adversarial reviews and Aron's calls (11-19: `actor:` prefix; empty is undefined, `absent: 'unknown'`, plus explicit `exists` guards; impersonation as its own supplied row, `actor:Session`). Replaces TRACKING "Actor bridge".
 
 ## Problem
 

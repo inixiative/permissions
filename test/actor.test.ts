@@ -29,7 +29,8 @@ const map: SchemaMap = {
   },
   actors: {
     models: ['User', 'Token'],
-    session: { fields: { impersonatedBy: stringColumn } },
+    pseudo: ['Internal'],
+    acting: { impersonatedBy: stringColumn },
   },
 };
 const check = createRebacCheck(map);
@@ -79,9 +80,9 @@ describe('the actor: actor:<Model> over a supplied bridge', () => {
     expect(read(userOnly, token, { 'actor:User': { id: 'forged' } })).toBe(false);
     expect(read(userOnly, null, { 'actor:User': { id: 'forged' } })).toBe(false);
     expect(recordWithActor(map, { 'actor:Token': { id: 'x' } }, user)).toEqual({
+      'actor:Acting': { model: 'User' },
       'actor:User': { id: 'u1' },
       'actor:Token': undefined,
-      'actor:Session': undefined,
     });
   });
 
@@ -92,12 +93,21 @@ describe('the actor: actor:<Model> over a supplied bridge', () => {
     });
   });
 
-  test('the session is its own supplied row', () => {
-    const impersonated = {
-      rule: { field: 'actor:Session.impersonatedBy', operator: Operator.exists },
+  test('actor:Acting says which kind is acting, pseudo kinds included, and carries its facts', () => {
+    const internal = {
+      rule: { field: 'actor:Acting.model', operator: Operator.equals, value: 'Internal' },
     };
-    expect(read(impersonated, { ...user, session: { impersonatedBy: 'admin' } }, {})).toBe(true);
+    expect(read(internal, { model: 'Internal' }, {})).toBe(true);
+    expect(read(internal, user, {})).toBe(false);
+    expect(read(internal, null, {})).toBe(false);
+    const impersonated = {
+      rule: { field: 'actor:Acting.impersonatedBy', operator: Operator.exists },
+    };
+    expect(read(impersonated, { ...user, acting: { impersonatedBy: 'admin' } }, {})).toBe(true);
     expect(read(impersonated, user, {})).toBe(false);
+    expect(
+      issues({ rule: { field: 'actor:Acting.model', operator: Operator.equals, value: 'Robot' } }),
+    ).not.toEqual([]);
   });
 
   test("a rule reads the actor's own columns only, at the row it is read on", () => {
@@ -120,7 +130,7 @@ describe('the actor: actor:<Model> over a supplied bridge', () => {
         { model: 'Robot', record: {} },
         {},
       ),
-    ).toThrow('does not declare it');
+    ).toThrow('do not declare it');
   });
 
   test('an enum value the enum does not hold is a schema error', () => {

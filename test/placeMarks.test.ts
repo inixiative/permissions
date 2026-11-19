@@ -49,7 +49,6 @@ const operates = (at: string): ActionRule => ({
           equals(`${at}.integration.provider`, 'slack'),
           equals(`${at}.enabled`, true),
           equals(`${at}.integration.enabled`, true),
-          equals(`${at}.integration.deletedAt`, null),
         ],
       },
     },
