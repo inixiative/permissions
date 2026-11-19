@@ -24,7 +24,7 @@ const is = (field: string, value: string): Condition => ({
   value,
 });
 
-const inPerson: Condition = { field: '__actor.model', operator: Operator.equals, value: 'User' };
+const inPerson: Condition = { field: 'actor:User.id', operator: Operator.exists };
 
 const schema: RebacSchema = {
   permissions: {

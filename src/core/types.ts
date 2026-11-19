@@ -1,4 +1,4 @@
-import type { Absent, Bridge, Condition, Row } from '@inixiative/json-rules';
+import type { Absent, Condition, JoinedBridge, Row } from '@inixiative/json-rules';
 
 export type { Row };
 
@@ -9,11 +9,13 @@ export type RelationCheck = { rel: string; action: string }; // walk a relation,
  * `any` is the only operator, since every other one holds on a list with no rows.
  */
 export type ListCheck = { rel: string; arrayOperator: 'any'; condition: ActionRule };
-/** ABAC (json-rules) over the record, with who is acting under the reserved key `__actor`. */
+/** ABAC (json-rules) over the record, with who is acting read as `actor:<Model>` (and `actor:Session`). */
 export type RuleCheck = { rule: Condition };
 
-/** Who is acting: what kind of credential (`model`) and its row (`record`). A `{ rule }` reads it as `__actor`. */
-export type Actor = { model: string; record: Row };
+/** Who is acting: what kind of credential (`model`, one of `SchemaMap.actors.models`), its row (`record`),
+ *  and facts about the session rather than the row (`session`, as `SchemaMap.actors.session` declares).
+ *  A `{ rule }` reads them as `actor:<model>` and `actor:Session`. */
+export type Actor = { model: string; record: Row; session?: Row };
 
 /** The serializable permission algebra: rebac (`rel`) + abac (`rule`) + rbac (`string` delegation). */
 export type ActionRule =
@@ -31,12 +33,12 @@ export type ResourcePermission = { actions: Record<string, ActionRule> };
 
 /**
  * The permission schema. `permissions` maps a (map-qualified) resource — e.g. `db:User` — to its
- * actions; `bridges` are the cross-source edges (json-rules `Bridge`s) a `rel` walk may traverse.
+ * actions; `bridges` are the cross-source edges (json-rules joined bridges) a `rel` walk may traverse.
  * Generic over the resource key: defaults to `string`, or pass a narrow union (e.g. a map-qualified
  * AccessorName) and the schema, `subject.resource`, and resolver all enforce it.
  */
 export type RebacSchema<R extends string = string> = {
-  bridges?: Bridge[];
+  bridges?: JoinedBridge[];
   permissions: Partial<Record<R, ResourcePermission>>;
 };
 

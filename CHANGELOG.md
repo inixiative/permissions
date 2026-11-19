@@ -1,3 +1,34 @@
+## 0.26.0 — the actor is `actor:<Model>`, over a supplied bridge
+
+Breaking, with no compatibility path (no users).
+
+Why: a `{ rule }` read who is acting as untyped Json under `__actor`, so a typo or a field of the
+wrong kind of actor passed and read null. Aron 2026-11-19: "Instead of the DB prefix, we should
+have the actor prefix... Then we can remove the `__actor`", over json-rules' new bridge with no
+join ("a different type of bridging where it doesn't need the `on`"). Plan:
+`docs/plans/typed-actor.md`, reviewed adversarially twice.
+
+- **`SchemaMap.actors`** (`ActorDeclaration`): the models that can act, and the session's facts
+  (`session`, a field-map `ModelEntry`). `Actor` gains `session?`.
+- **The rule lens bridges to the actor.** A supplied json-rules bridge from the row a rule is read on
+  to each `actor:<Model>` (its own columns) and `actor:Session`. `actor:User.email`,
+  `actor:Token.ownerModel`, `path: 'actor:User.id'` read; `actor:Usr.*`, `actor:User.nope`,
+  `actor:User.org.*`, `org.actor:User`, an `actor:` path in a `where` and every `__actor.*` are
+  refused. `__actor` is gone.
+- **`recordWithActor(map, record, actor)`** writes every declared actor key (the acting row, the
+  others empty), so a record can never carry an actor of its own; an acting model a declaring map
+  leaves out throws.
+- **`absent` defaults to `'unknown'`** in `createRebacCheck` and `createRebacPaths`: a value the
+  record does not carry is unknown, never null, so `ownerId equals actor:User.id` never holds for a
+  token or nobody, even where `ownerId` is null (Aron: "Empty is undefined, not null"). Records
+  that carry their columns (Prisma rows, null for null) read as before; a record missing a column
+  a rule reads no longer passes `equals null` on it. Pass `{ absent: 'null' }` for the old reading.
+- **An enum value outside its enum is a schema error** (json-rules `value_not_allowed`, kept for
+  every rule, reported by `validateSchema` like an operator that does not fit its field).
+- **`RebacSchema.bridges` is `JoinedBridge[]`** (json-rules 4.3): a supplied bridge is never a
+  `{ rel }` hop.
+- Peer `@inixiative/json-rules` ^4.3.0.
+
 ## 0.25.0 — the lenses a rule is judged in are exported
 
 - **`lensesAtRow(map, resource)`** and **`lensesAtListItem(map, resource, field)`** (with the types

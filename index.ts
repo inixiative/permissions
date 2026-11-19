@@ -1,3 +1,4 @@
+export { actorMapName, actorSessionModel, recordWithActor } from './src/core/actor';
 export * from './src/core/check';
 export * from './src/core/delegatedWhere';
 export type { PermissionsEngineGlobals } from './src/core/engineGlobals';
@@ -14,6 +15,7 @@ export * from './src/core/permix';
 export { reachableFrom } from './src/core/reachableFrom';
 export * from './src/core/redundantEntitlements';
 export {
+  type ActorDeclaration,
   type PolymorphicAxis,
   type Polymorphism,
   placeEntitlement,

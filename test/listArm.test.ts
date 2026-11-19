@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import type { AnnoValue, FieldMap } from '@inixiative/field-map';
-import { type Bridge, engineGlobals } from '@inixiative/json-rules';
+import { engineGlobals, type JoinedBridge } from '@inixiative/json-rules';
 import {
   type ActionRule,
   capAtRole,
@@ -38,11 +38,15 @@ const resources = {
   'db:conversationParticipant': 'ConversationParticipant',
   'db:chatMessage': 'ChatMessage',
 };
-const mapOver = (over: typeof models): SchemaMap => ({ resources, fieldMap: { models: over } });
+const mapOver = (over: typeof models): SchemaMap => ({
+  resources,
+  fieldMap: { models: over },
+  actors: { models: ['User'] },
+});
 const map = mapOver(models);
 
 const actorIsUser = {
-  rule: { field: '__actor.model', operator: 'equals', value: 'User' },
+  rule: { field: 'actor:User.uuid', operator: 'exists' },
 } as const satisfies ActionRule;
 
 // BEFORE (zealot origin/main, packages/permissions/src/rebac/conversation.ts): a json-rules array
@@ -53,8 +57,8 @@ const actorIsParticipant = {
     arrayOperator: 'any',
     condition: {
       any: [
-        { field: 'forumUser.fanUser.userUuid', operator: 'equals', path: '__actor.record.uuid' },
-        { field: 'forumUser.brandUser.userUuid', operator: 'equals', path: '__actor.record.uuid' },
+        { field: 'forumUser.fanUser.userUuid', operator: 'equals', path: 'actor:User.uuid' },
+        { field: 'forumUser.brandUser.userUuid', operator: 'equals', path: 'actor:User.uuid' },
       ],
     },
   },
@@ -754,11 +758,12 @@ describe('what a record may carry into a check', () => {
     );
     const rowRule = { ...c1, permissionRules: { isParticipant: reads } };
     expect(check(otto, schema, on(rowRule), 'isParticipant')).toBe(false);
-    // off an item the same read keeps the check's own `absent`
+    // off an item the same read keeps the check's own `absent`: unknown by default, null if asked
     const offItem: ActionRule = {
       rule: { field: 'brand.deletedAt', operator: 'equals', value: null },
     };
-    expect(check(otto, schema, on(c1), offItem)).toBe(true);
+    expect(check(otto, schema, on(c1), offItem)).toBe(false);
+    expect(createRebacCheck(map, { absent: 'null' })(otto, schema, on(c1), offItem)).toBe(true);
   });
 
   test('the same read written in the schema is refused on first use', async () => {
@@ -1050,7 +1055,7 @@ describe('validation edges under an item', () => {
   });
 
   test('a bridge under an item is refused by validateSchema and inline, and widens nothing in a row rule', async () => {
-    const bridges: Bridge[] = [
+    const bridges: JoinedBridge[] = [
       {
         endpoints: [
           { fieldMap: 'crm', model: 'Account', on: 'id' },
@@ -1093,7 +1098,7 @@ describe('validation edges under an item', () => {
   });
 
   test("a bridge in an item's own row rule is not crossed under the list arm", async () => {
-    const bridges: Bridge[] = [
+    const bridges: JoinedBridge[] = [
       {
         endpoints: [
           { fieldMap: 'crm', model: 'Account', on: 'id' },

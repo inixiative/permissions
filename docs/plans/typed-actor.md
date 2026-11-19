@@ -1,6 +1,6 @@
 # The typed actor: `__actor.<kind>.*`
 
-Status: spec (2026-11-19), revised after an adversarial review; for Aron. Replaces TRACKING "Actor bridge".
+Status: built (2026-11-19) as permissions 0.26 over json-rules 4.3's supplied bridges, after two adversarial reviews and Aron's calls (11-19: `actor:` prefix; empty is undefined, `absent: 'unknown'`, plus explicit `exists` guards; impersonation as its own supplied row, `actor:Session`). Replaces TRACKING "Actor bridge".
 
 ## Problem
 

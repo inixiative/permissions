@@ -1,4 +1,4 @@
-import type { Bridge, BridgeDictionary } from '@inixiative/json-rules';
+import type { BridgeDictionary, JoinedBridge } from '@inixiative/json-rules';
 import type { Row } from './types';
 
 const splitResource = (resource: string): [string, string] => {
@@ -17,7 +17,7 @@ type BridgeHop = {
 // A relation segment is a bridge when it names the OTHER endpoint's `map:model`. The local join key
 // is this endpoint's `on` (a scalar already on the record); the far record joins on the other `on`.
 export const bridgeHop = (
-  bridges: Bridge[] | undefined,
+  bridges: readonly JoinedBridge[] | undefined,
   resource: string,
   segment: string,
 ): BridgeHop | null => {

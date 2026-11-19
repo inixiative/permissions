@@ -325,7 +325,9 @@ const schema: RebacSchema = {
         own: null,
         manage: 'own',
         read: 'manage',
-        'token.create': { all: [{ rule: eq('__actor.model', 'User') }, 'manage'] },
+        'token.create': {
+          all: [{ rule: { field: 'actor:User.id', operator: Operator.exists } }, 'manage'],
+        },
       },
     },
     'db:space': {

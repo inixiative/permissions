@@ -1,5 +1,6 @@
 import { type Absent, type BridgeDictionary, check as checkRule } from '@inixiative/json-rules';
 import { isNil, isPlainObject } from 'lodash-es';
+import { recordWithActor } from './actor';
 import type { Algebra } from './algebra';
 import { bridgeHop, lookupFar } from './bridgeHop';
 import { entitled } from './entitled';
@@ -298,11 +299,9 @@ const walkRule = <R extends string, T>(
   }
 
   if ('rule' in rule) {
-    return checkRule(
-      rule.rule,
-      { ...record, __actor: permix.getActor() },
-      { absent: walk.absent },
-    ) === true
+    return checkRule(rule.rule, recordWithActor(walk.map, record, permix.getActor()), {
+      absent: walk.absent,
+    }) === true
       ? algebra.unit
       : algebra.none;
   }

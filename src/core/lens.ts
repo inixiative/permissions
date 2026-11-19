@@ -4,10 +4,12 @@ import {
   type LensNarrowing,
   type LensPathResolution,
   pathSegments,
+  stitchFieldMaps,
   type ValidationIssue,
   validateRuleInLens,
   walkLensPath,
 } from '@inixiative/json-rules';
+import { actorMapName, actorPartsOfRuleLens } from './actor';
 import { freezeThenJudgeOnce } from './freezeThenJudgeOnce';
 import {
   followedToOneRelationOrWhyNot,
@@ -39,26 +41,27 @@ export type LensesAtRow = {
   under?: PositionUnderListItem;
 };
 
-const actorAsJsonField = { kind: 'scalar', type: 'Json', isList: false } as const;
-
-// why: the actor is injected at the row a rule is read on, so only that model carries it
+// why: the actor is supplied at the row a rule is read on, so only that model bridges to it
 const lensAnchoredAtModel = (
   map: SchemaMap,
   model: string,
   relations: SpelledRelationTree,
   actor: boolean,
 ): LensNarrowing => {
-  const entry = modelOf(map.fieldMap, model);
-  const fieldMap = actor
-    ? {
-        ...map.fieldMap,
-        models: {
-          ...map.fieldMap.models,
-          [model]: { ...entry, fields: { ...entry?.fields, __actor: actorAsJsonField } },
-        },
-      }
-    : map.fieldMap;
-  return { parent: { maps: { app: fieldMap }, mapName: 'app', model }, root: { relations } };
+  if (!actor)
+    return {
+      parent: { maps: { app: map.fieldMap }, mapName: 'app', model },
+      root: { relations },
+    };
+  const parts = actorPartsOfRuleLens(map, 'app', model);
+  return {
+    parent: {
+      ...stitchFieldMaps({ maps: { app: map.fieldMap, ...parts.maps }, bridges: parts.bridges }),
+      mapName: 'app',
+      model,
+    },
+    root: { relations: { ...relations, ...parts.relations } },
+  };
 };
 
 // why: model defaults enter each model once (json-rules); spelling every chain in the root reaches siblings too
@@ -277,14 +280,14 @@ export const whyRelationPathCannotBeWalked = (
 };
 
 const codesForPathOutsideLens = new Set(['not_in_lens', 'scope_out_of_bounds']);
-// why: json-rules' fit check is reported by validateSchema; it never refuses a check
-const codesForOperatorNotFittingField = new Set(['operator_kind_mismatch']);
+// why: json-rules' fit checks (an operator, an enum value) are reported by validateSchema; they never refuse a check
+const codesForRuleNotFittingField = new Set(['operator_kind_mismatch', 'value_not_allowed']);
 
 /** A miss that refuses a read: out of the lens, a relation hop, or past a declaration; not an operator fit. */
 export const issueRefusesTheRead = (issue: ValidationIssue): boolean =>
-  !codesForOperatorNotFittingField.has(issue.code);
+  !codesForRuleNotFittingField.has(issue.code);
 
-/** Every path a condition reads at `at` outside the lens, and every operator that does not fit its field. */
+/** Every path a condition reads at `at` outside the lens, and every operator or enum value that does not fit its field. */
 export const issuesForReadsOutsideLens = (
   map: SchemaMap,
   at: LensesAtRow,
@@ -295,16 +298,22 @@ export const issuesForReadsOutsideLens = (
   const lens = actor ? at.rule : at.lens;
   if (!lens) return [];
   return validateRuleInLens(condition, lens).errors.flatMap((issue) => {
-    if (codesForOperatorNotFittingField.has(issue.code))
+    if (codesForRuleNotFittingField.has(issue.code))
       return [{ path, code: issue.code, message: issue.message }];
     if (!codesForPathOutsideLens.has(issue.code)) return [];
     const resolution = walkLensPath(lens, issue.path);
-    if (pathSegments(issue.path)[0] === '__actor')
+    const head = pathSegments(issue.path)[0] ?? '';
+    if (head.startsWith(`${actorMapName}:`))
       return [
         {
           path,
           code: 'lens',
-          message: `\`${issue.path}\`: a \`where\` reads the record alone; \`__actor\` is not on it`,
+          message: !actor
+            ? `\`${issue.path}\`: a \`where\` reads the record alone; the actor is not on it`
+            : (map.actors?.models ?? []).includes(head.slice(actorMapName.length + 1)) ||
+                (map.actors?.session && head === `${actorMapName}:Session`)
+              ? `\`${issue.path}\`: a rule reads the actor's own columns only`
+              : `\`${head}\` is not an actor the map declares (\`actors.models\`)`,
         },
       ];
     return [{ path, ...whyPathLeavesLens(map, at, issue.path, resolution) }];

@@ -16,7 +16,7 @@ import { mapOf } from './schemaMaps';
 // A grant is an action: the writer could take every action the holder would hold, from where it
 // would act. Grant time mirrors read time through the same check (Aron, 2026-10-22 and 2026-10-25).
 
-const person = { rule: { field: '__actor.model', operator: Operator.equals, value: 'User' } };
+const person = { rule: { field: 'actor:User.id', operator: Operator.exists } };
 const highRoles = ['owner', 'admin'];
 const lowRoles = ['member', 'guest'];
 
@@ -272,8 +272,16 @@ describe('canGrantEntitlement on a placed record: a field it does not carry is u
     expect(grants(unnamed)).toBe(true);
   });
 
-  test('a check at run time still reads a field the record does not carry as null', async () => {
-    expect(check(await holding('db:space', 's1', ['read']), 'db:space', s1, 'rename')).toBe(true);
+  test('a check at run time reads a field the record does not carry as unknown, never null', async () => {
+    expect(check(await holding('db:space', 's1', ['read']), 'db:space', s1, 'rename')).toBe(false);
+    expect(
+      check(
+        await holding('db:space', 's1', ['read']),
+        'db:space',
+        { ...s1, label: null },
+        'rename',
+      ),
+    ).toBe(true);
   });
 });
 

@@ -146,6 +146,7 @@ const map: SchemaMap = {
     signet: 'Signet',
   },
   fieldMap,
+  actors: { models: ['User'] },
 };
 
 const db: Record<string, Record<string, Row>> = {
@@ -186,7 +187,7 @@ const reads = (field: string, value: unknown = null): ActionRule => ({
   rule: { field, operator: 'equals', value } as Condition,
 });
 const actorWrote = (field: string): ActionRule => ({
-  rule: { field, operator: 'equals', path: '__actor.record.id' },
+  rule: { field, operator: 'equals', path: 'actor:User.id' },
 });
 const codes = (schema: RebacSchema) =>
   validateSchema(map, schema).errors.map((issue) => issue.code);
@@ -459,11 +460,11 @@ describe('computed keys, class instances, frozen wheres and the actor in a where
     expect(ask()).toBe(true);
   });
 
-  test('a where reads the record alone, so an `__actor` path in it is refused', () => {
+  test('a where reads the record alone, so an actor path in it is refused', () => {
     const entry: EntitlementEntry = {
       resource: 'user',
       anchor: { resource: 'user', id: 'u1' },
-      where: { field: '__actor.record.id', operator: 'equals', value: null },
+      where: { field: 'actor:User.id', operator: 'equals', value: null },
       actions: { act: true },
     };
     const record = { id: 'u1', orgId: 'o1' };
@@ -471,7 +472,7 @@ describe('computed keys, class instances, frozen wheres and the actor in a where
       check(actorAs('u1', [entry]), ruled('user', null), { resource: 'user', record }, 'act'),
     ).toBe(false);
     expect(whyEntitlementWhereLeavesLens(map, 'user', entry.where)).toMatch(
-      /`__actor` is not on it/,
+      /the actor is not on it/,
     );
     expect(codes(ruled('user', actorWrote('id')))).toEqual([]);
   });
@@ -576,7 +577,7 @@ describe('what the lens keeps', () => {
     expect(
       whyEntitlementWhereLeavesLens(map, 'user', { field: 'plann', operator: 'equals', value: 1 }),
     ).toMatch(/`user` has no field `plann`/);
-    expect(codes(ruled('user', reads('__actor.record.org.creator.org')))).toEqual([]);
+    expect(codes(ruled('user', reads('actor:User.org')))).toEqual(['lens']);
   });
 });
 
@@ -1094,16 +1095,19 @@ describe('json-rules’ operator fit check', () => {
 });
 
 describe('the actor and the size of a lens', () => {
-  test('a rule reads the actor at its own row only; a where never does', () => {
-    expect(codes(ruled('user', reads('__actor.record.org.creator')))).toEqual([]);
-    expect(codes(ruled('user', reads('org.__actor.record.id')))).toEqual(['lens']);
+  test("a rule reads the actor's own columns at its own row only; a where never does", () => {
+    expect(codes(ruled('user', reads('actor:User.id')))).toEqual([]);
+    expect(codes(ruled('user', reads('actor:User.org.creator')))).toEqual(['lens']);
+    expect(codes(ruled('user', reads('actor:Usr.id')))).toEqual(['lens']);
+    expect(codes(ruled('user', reads('org.actor:User.id')))).toEqual(['lens']);
+    expect(codes(ruled('user', reads('__actor.record.id')))).toEqual(['lens']);
     expect(
       whyEntitlementWhereLeavesLens(map, 'user', {
-        field: '__actor.record.id',
+        field: 'actor:User.id',
         operator: 'equals',
         value: null,
       }),
-    ).toMatch(/`__actor` is not on it/);
+    ).toMatch(/the actor is not on it/);
   });
 
   test('a resource whose row hydrates more than the report limit is a warning, not an error', () => {
@@ -1445,6 +1449,7 @@ describe('the apps’ own maps', () => {
       'db:chatMessage': 'ChatMessage',
     },
     fieldMap: { models: loadModels('zealot') },
+    actors: { models: ['User'] },
   };
   const participantReads = (field: string): RebacSchema => ({
     permissions: {
@@ -1453,7 +1458,7 @@ describe('the apps’ own maps', () => {
           act: {
             rel: 'participants',
             arrayOperator: 'any',
-            condition: { rule: { field, operator: 'equals', path: '__actor.record.uuid' } },
+            condition: { rule: { field, operator: 'equals', path: 'actor:User.uuid' } },
           },
         },
       },
@@ -1486,7 +1491,7 @@ describe('the apps’ own maps', () => {
         },
         'db:forumUser': {
           actions: {
-            x: { rule: { field: 'brand.uuid', operator: 'equals', path: '__actor.record.uuid' } },
+            x: { rule: { field: 'brand.uuid', operator: 'equals', path: 'actor:User.uuid' } },
           },
         },
       },

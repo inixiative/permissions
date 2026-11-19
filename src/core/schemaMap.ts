@@ -27,14 +27,26 @@ export type PolymorphicAxis = { field: string; fkMap: Partial<Record<string, rea
 export type Polymorphism = Partial<Record<string, { axes: readonly PolymorphicAxis[] }>>;
 
 /**
+ * Who can act. A `{ rule }` reads the acting row as `actor:<Model>` (its own columns, over a
+ * json-rules supplied bridge) and the session as `actor:Session`.
+ */
+export type ActorDeclaration = {
+  /** Models of `fieldMap` that can act (`'User'`, `'Token'`). */
+  models: readonly string[];
+  /** Facts about the session rather than its row (who is impersonating), read as `actor:Session`. */
+  session?: ModelEntry;
+};
+
+/**
  * The schema the checks walk: `resources` names the `fieldMap` model behind each resource, the
- * `fieldMap` (an `@inixiative/field-map` map) lists each model's relations and foreign keys, and
- * `polymorphism` says which kind a relation makes a polymorphic record.
+ * `fieldMap` (an `@inixiative/field-map` map) lists each model's relations and foreign keys,
+ * `polymorphism` says which kind a relation makes a polymorphic record, and `actors` who can act.
  */
 export type SchemaMap<R extends string = string> = {
   resources: Record<R, string>;
   fieldMap: FieldMap;
   polymorphism?: Polymorphism;
+  actors?: ActorDeclaration;
 };
 
 /** A to-one relation the hydrator follows: where it leads, its key, and on a polymorphic record the kinds it admits. */

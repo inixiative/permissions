@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { type Bridge, Operator } from '@inixiative/json-rules';
+import { type JoinedBridge, Operator } from '@inixiative/json-rules';
 import type { ActionRule, Actor, PermixLike, RebacSchema } from '../index';
 import { createRebacCheck } from '../index';
 import { mapOf } from './schemaMaps';
@@ -226,7 +226,7 @@ describe('rebac check', () => {
 
 describe('rebac check — bridge (cross-map) rel walks', () => {
   // crm:Account (the "one") ↔ db:User (the "many"); User.accountId joins Account.id.
-  const bridges: Bridge[] = [
+  const bridges: JoinedBridge[] = [
     {
       endpoints: [
         { fieldMap: 'crm', model: 'Account', on: 'id' },
@@ -289,7 +289,7 @@ describe('rebac check — bridge (cross-map) rel walks', () => {
 
 describe('to-one constraint on bridge walks (adversarial: must not walk onto the "many" side)', () => {
   // crm:Account (the "one", endpoints[0]) ↔ db:User (the "many", endpoints[1]).
-  const bridges: Bridge[] = [
+  const bridges: JoinedBridge[] = [
     {
       endpoints: [
         { fieldMap: 'crm', model: 'Account', on: 'id' },
@@ -349,7 +349,7 @@ describe('bridge — complex traversals (multi-hop, mixed-path, composition)', (
   // db:User --(accountId→id)--> crm:Account --(subscriptionId→id)--> billing:Subscription.
   // Both hops are many→one (walkable). The intermediate Account must be supplied so its
   // subscriptionId scalar is available for the second hop.
-  const chainBridges: Bridge[] = [
+  const chainBridges: JoinedBridge[] = [
     {
       endpoints: [
         { fieldMap: 'crm', model: 'Account', on: 'id' },
@@ -406,7 +406,7 @@ describe('bridge — complex traversals (multi-hop, mixed-path, composition)', (
     expect(c(granted, s, subject, 'read')).toBe(false);
   });
 
-  const oneBridge: Bridge[] = [
+  const oneBridge: JoinedBridge[] = [
     {
       endpoints: [
         { fieldMap: 'crm', model: 'Account', on: 'id' },
@@ -519,7 +519,7 @@ describe('bridge — complex traversals (multi-hop, mixed-path, composition)', (
 
 describe('oneToOne bridge is walkable from both endpoints (symmetric)', () => {
   // db:User.profileId ↔ crm:Profile.id — to-one in both directions.
-  const bridges: Bridge[] = [
+  const bridges: JoinedBridge[] = [
     {
       endpoints: [
         { fieldMap: 'db', model: 'User', on: 'profileId' },
@@ -571,7 +571,7 @@ describe('a bridge on a non-id far key never matches an id-keyed grant by the jo
   // crm:Team (the "one", endpoints[0]) joins on a NON-id unique field `code`;
   // db:User (the "many", endpoints[1]) joins on `teamCode`. Walking db:User → crm:Team lands on a
   // far endpoint whose join key is `code`, NOT `id`.
-  const bridges: Bridge[] = [
+  const bridges: JoinedBridge[] = [
     {
       endpoints: [
         { fieldMap: 'crm', model: 'Team', on: 'code' },
@@ -616,7 +616,7 @@ describe('a bridge on a non-id far key never matches an id-keyed grant by the jo
 });
 
 describe('an absent far row denies the bridge walk', () => {
-  const bridges: Bridge[] = [
+  const bridges: JoinedBridge[] = [
     {
       endpoints: [
         { fieldMap: 'crm', model: 'Account', on: 'id' },
@@ -803,7 +803,7 @@ describe('cycle detection', () => {
   });
 });
 
-describe('the actor is data: a { rule } reads it as __actor', () => {
+describe('the actor is data: a { rule } reads its row as actor:<Model>', () => {
   const check = createRebacCheck<string>(mapOf({}, loose));
   const as = (actor: Actor | null): PermixLike => ({
     check: () => false,
@@ -820,7 +820,7 @@ describe('the actor is data: a { rule } reads it as __actor', () => {
 
   test("person-only is a rule on the actor's model", () => {
     const personOnly = {
-      rule: { field: '__actor.model', operator: Operator.equals, value: 'User' },
+      rule: { field: 'actor:User.id', operator: Operator.exists },
     };
     expect(read(personOnly, person)).toBe(true);
     expect(read(personOnly, token)).toBe(false);
@@ -829,23 +829,25 @@ describe('the actor is data: a { rule } reads it as __actor', () => {
 
   test("a rule compares the record against the actor's row", () => {
     const mine = {
-      rule: { field: 'ownerId', operator: Operator.equals, path: '__actor.record.userId' },
+      rule: { field: 'ownerId', operator: Operator.equals, path: 'actor:Token.userId' },
     };
     expect(read(mine, token, { ownerId: 'u1' })).toBe(true);
     expect(read(mine, token, { ownerId: 'u2' })).toBe(false);
   });
 
-  test('with nobody acting, __actor is null: a rule comparing a set field to it does not pass', () => {
+  test('with nobody acting the actor is unknown: a rule comparing to it does not pass, even a null field', () => {
     const mine = {
-      rule: { field: 'ownerId', operator: Operator.equals, path: '__actor.record.id' },
+      rule: { field: 'ownerId', operator: Operator.equals, path: 'actor:User.id' },
     };
     expect(read(mine, null, { ownerId: 'u1' })).toBe(false);
+    expect(read(mine, null, { ownerId: null })).toBe(false);
+    expect(read(mine, token, { ownerId: null })).toBe(false);
     expect(read(mine, person, { ownerId: person.record.id })).toBe(true);
   });
 
   test('a negated schema rule is refused on every check, not only in a grant', () => {
     const notMine = {
-      rule: { field: 'ownerId', operator: Operator.notEquals, path: '__actor.record.id' },
+      rule: { field: 'ownerId', operator: Operator.notEquals, path: 'actor:User.id' },
     };
     expect(() => read(notMine, person, { ownerId: 'u2' })).toThrow(
       'is not a well-formed positive rule',
@@ -855,7 +857,7 @@ describe('the actor is data: a { rule } reads it as __actor', () => {
   test('a superadmin passes', () => {
     const admin: PermixLike = { ...as(token), isSuperadmin: () => true };
     const personOnly = {
-      rule: { field: '__actor.model', operator: Operator.equals, value: 'User' },
+      rule: { field: 'actor:User.id', operator: Operator.exists },
     };
     expect(check(admin, schemaOf(personOnly), { resource: 'doc', record: {} }, 'read')).toBe(true);
   });
@@ -864,7 +866,7 @@ describe('the actor is data: a { rule } reads it as __actor', () => {
     const record = {
       id: 'd1',
       permissionRules: {
-        read: { rule: { field: '__actor.model', operator: Operator.equals, value: 'User' } },
+        read: { rule: { field: 'actor:User.id', operator: Operator.exists } },
       },
     };
     expect(read(false, person, record)).toBe(true);

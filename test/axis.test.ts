@@ -390,7 +390,7 @@ describe('the root of the where narrows the kinds: each leaf checked on each pse
       kinds({
         field: 'ownerModel',
         operator: 'equals',
-        path: '__actor.record.ownerModel',
+        path: 'actor:Token.ownerModel',
       } as never),
     ).toEqual(['Organization', 'Space', 'OrganizationUser', 'SpaceUser']);
   });
