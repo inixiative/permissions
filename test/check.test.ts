@@ -829,7 +829,12 @@ describe('the actor is data: a { rule } reads its row as actor:<Model>', () => {
 
   test("a rule compares the record against the actor's row", () => {
     const mine = {
-      rule: { field: 'ownerId', operator: Operator.equals, path: 'actor:Token.userId' },
+      rule: {
+        all: [
+          { field: 'actor:Token.userId', operator: Operator.exists },
+          { field: 'ownerId', operator: Operator.equals, path: 'actor:Token.userId' },
+        ],
+      },
     };
     expect(read(mine, token, { ownerId: 'u1' })).toBe(true);
     expect(read(mine, token, { ownerId: 'u2' })).toBe(false);
@@ -837,7 +842,12 @@ describe('the actor is data: a { rule } reads its row as actor:<Model>', () => {
 
   test('with nobody acting the actor is unknown: a rule comparing to it does not pass, even a null field', () => {
     const mine = {
-      rule: { field: 'ownerId', operator: Operator.equals, path: 'actor:User.id' },
+      rule: {
+        all: [
+          { field: 'actor:User.id', operator: Operator.exists },
+          { field: 'ownerId', operator: Operator.equals, path: 'actor:User.id' },
+        ],
+      },
     };
     expect(read(mine, null, { ownerId: 'u1' })).toBe(false);
     expect(read(mine, null, { ownerId: null })).toBe(false);

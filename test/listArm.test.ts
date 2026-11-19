@@ -57,8 +57,18 @@ const actorIsParticipant = {
     arrayOperator: 'any',
     condition: {
       any: [
-        { field: 'forumUser.fanUser.userUuid', operator: 'equals', path: 'actor:User.uuid' },
-        { field: 'forumUser.brandUser.userUuid', operator: 'equals', path: 'actor:User.uuid' },
+        {
+          all: [
+            { field: 'actor:User.uuid', operator: 'exists' },
+            { field: 'forumUser.fanUser.userUuid', operator: 'equals', path: 'actor:User.uuid' },
+          ],
+        },
+        {
+          all: [
+            { field: 'actor:User.uuid', operator: 'exists' },
+            { field: 'forumUser.brandUser.userUuid', operator: 'equals', path: 'actor:User.uuid' },
+          ],
+        },
       ],
     },
   },

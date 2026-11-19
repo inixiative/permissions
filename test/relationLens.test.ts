@@ -187,7 +187,12 @@ const reads = (field: string, value: unknown = null): ActionRule => ({
   rule: { field, operator: 'equals', value } as Condition,
 });
 const actorWrote = (field: string): ActionRule => ({
-  rule: { field, operator: 'equals', path: 'actor:User.id' },
+  rule: {
+    all: [
+      { field: 'actor:User.id', operator: 'exists' },
+      { field, operator: 'equals', path: 'actor:User.id' },
+    ],
+  },
 });
 const codes = (schema: RebacSchema) =>
   validateSchema(map, schema).errors.map((issue) => issue.code);
@@ -1458,7 +1463,14 @@ describe('the apps’ own maps', () => {
           act: {
             rel: 'participants',
             arrayOperator: 'any',
-            condition: { rule: { field, operator: 'equals', path: 'actor:User.uuid' } },
+            condition: {
+              rule: {
+                all: [
+                  { field: 'actor:User.uuid', operator: 'exists' },
+                  { field, operator: 'equals', path: 'actor:User.uuid' },
+                ],
+              },
+            },
           },
         },
       },
@@ -1491,7 +1503,14 @@ describe('the apps’ own maps', () => {
         },
         'db:forumUser': {
           actions: {
-            x: { rule: { field: 'brand.uuid', operator: 'equals', path: 'actor:User.uuid' } },
+            x: {
+              rule: {
+                all: [
+                  { field: 'actor:User.uuid', operator: 'exists' },
+                  { field: 'brand.uuid', operator: 'equals', path: 'actor:User.uuid' },
+                ],
+              },
+            },
           },
         },
       },

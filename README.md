@@ -369,8 +369,11 @@ permix.setActor({ model: 'Token', record: token }); // a token
 
 // person-only
 { rule: { field: 'actor:User.id', operator: Operator.exists } }
-// the record against the actor's row
-{ rule: { field: 'ownerId', operator: Operator.equals, path: 'actor:Token.userId' } }
+// the record against the actor's row: say the actor is there, then match it
+{ rule: { all: [
+  { field: 'actor:Token.userId', operator: Operator.exists },
+  { field: 'ownerId', operator: Operator.equals, path: 'actor:Token.userId' },
+] } }
 // a delegate of a user
 { rule: { field: 'actor:Token.ownerModel', operator: Operator.equals, value: 'User' } }
 // the session
@@ -384,7 +387,9 @@ permix.setActor({ model: 'Token', record: token }); // a token
   the record a rule reads (the acting row, the others empty), so a record can never carry an actor
   of its own, and the check reads what a record does not carry as unknown, always (json-rules
   `absent: 'unknown'`; records must carry every column their rules read): `ownerId equals actor:User.id` never holds for a token, or for nobody, even where
-  `ownerId` is null. A rule that needs someone acting still says who (`actor:User.id exists`).
+  `ownerId` is null. That is the engine's floor, not how a rule is written: a rule that compares
+  to the actor says the actor is there and then matches it (`all: [actor:User.id exists, ownerId
+  equals actor:User.id]`), and a rule that needs someone acting says who (`actor:User.id exists`).
 - **Only at the row a rule is read on.** A `where` reads the record alone, so an `actor:` path there
   is refused; `org.actor:User` is not a path.
 - An acting model the map does not declare throws. A map that declares no actors has none in its

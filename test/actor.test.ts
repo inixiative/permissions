@@ -45,11 +45,28 @@ const issues = (rule: ActionRule) =>
   validateSchema(map, schemaOf(rule)).errors.map((issue) => issue.message);
 
 describe('the actor: actor:<Model> over a supplied bridge', () => {
-  test('a rule reads the acting row; an actor not acting is unknown', () => {
-    const mine = { rule: { field: 'ownerId', operator: Operator.equals, path: 'actor:User.id' } };
+  test('a rule says the actor is there, then matches it', () => {
+    const mine = {
+      rule: {
+        all: [
+          { field: 'actor:User.id', operator: Operator.exists },
+          { field: 'ownerId', operator: Operator.equals, path: 'actor:User.id' },
+        ],
+      },
+    };
     expect(read(mine, user, { ownerId: 'u1' })).toBe(true);
+    expect(read(mine, user, { ownerId: 'u2' })).toBe(false);
     expect(read(mine, token, { ownerId: null })).toBe(false);
     expect(read(mine, null, { ownerId: null })).toBe(false);
+  });
+
+  test('the engine floor: an actor not acting is unknown, even in an unguarded comparison', () => {
+    const bare = { rule: { field: 'ownerId', operator: Operator.equals, path: 'actor:User.id' } };
+    expect(read(bare, token, { ownerId: null })).toBe(false);
+    expect(read(bare, null, { ownerId: null })).toBe(false);
+  });
+
+  test('a rule reads the acting row', () => {
     const delegateOfUser = {
       rule: { field: 'actor:Token.ownerModel', operator: Operator.equals, value: 'User' },
     };
