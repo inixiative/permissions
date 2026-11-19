@@ -1,3 +1,4 @@
+import { modelOf } from '@inixiative/field-map';
 import type { ValidationIssue, ValidationResult } from '@inixiative/json-rules';
 import { bridgeHop } from './bridgeHop';
 import {
@@ -5,14 +6,106 @@ import {
   issueRefusesTheRead,
   issuesForReadsOutsideLens,
   type LensesAtRow,
+  lensesAtListItem,
   lensesAtRow,
-  type PositionUnderListItem,
   relationLensLimits,
   whyRelationPathCannotBeWalked,
 } from './lens';
-import { listOf, relationOf, type SchemaMap } from './schemaMap';
+import { listsOf, relationOf, type SchemaMap } from './schemaMap';
 import type { ActionRule, RebacSchema } from './types';
 import { validateActionRule } from './validateActionRule';
+
+/** Walk a `{ rel }` path from `at` as a check hops it: the lenses where it lands, or why it cannot be walked. */
+const walkRelationPath = (
+  map: SchemaMap,
+  schema: RebacSchema,
+  at: LensesAtRow,
+  rel: string,
+  path: string,
+): { landed: LensesAtRow } | { issues: ValidationIssue[] } => {
+  const { under } = at;
+  let from = at;
+  let run: string[] = [];
+  let current = at.resource;
+  const judge = (): ValidationIssue[] => {
+    const problem = whyRelationPathCannotBeWalked(map, from, run.join('.'));
+    return problem
+      ? [{ path, code: problem.code === 'down' ? 'down' : 'relation', message: problem.message }]
+      : [];
+  };
+  for (const segment of rel.split('.')) {
+    const hop = bridgeHop(schema.bridges, current, segment);
+    if (!hop) {
+      run.push(segment);
+      const next = relationOf(map, current, segment);
+      if (!next) return { issues: judge() };
+      current = next.resource;
+      continue;
+    }
+    if (under)
+      return {
+        issues: [
+          {
+            path,
+            code: 'down',
+            message: `\`${segment}\` is a bridge under an item of \`${under.list}\`: a walk under an item stays on the declared relations`,
+          },
+        ],
+      };
+    const missed = judge();
+    if (missed.length) return { issues: missed };
+    current = hop.farResource;
+    from = lensesAtRow(map, current);
+    run = [];
+  }
+  const missed = judge();
+  if (missed.length) return { issues: missed };
+  return {
+    landed: from.under
+      ? lensesAtRow(map, current, { ...from.under, prefix: [...from.under.prefix, ...run] })
+      : lensesAtRow(map, current),
+  };
+};
+
+/** A segment a `{ rel }` may take next, and the resource it lands on. */
+export type RelationHop = { segment: string; resource: string; bridge: boolean };
+
+/**
+ * The segments a `{ rel }` may take next from `at` after `walked` (dotted, '' for none), each with
+ * the resource it lands on: every to-one relation and bridge whose walk `validateSchema` accepts.
+ * For an editor that offers only the hops a check takes.
+ */
+export const relationHopsFrom = (
+  map: SchemaMap,
+  schema: RebacSchema,
+  at: LensesAtRow,
+  walked = '',
+): RelationHop[] => {
+  const prefix = walked ? walked.split('.') : [];
+  const reached = prefix.length ? walkRelationPath(map, schema, at, walked, '$') : { landed: at };
+  if ('issues' in reached && reached.issues.length) return [];
+  const current = 'landed' in reached ? reached.landed.resource : at.resource;
+  const fields = Object.keys(modelOf(map.fieldMap, map.resources[current])?.fields ?? {});
+  const bridgeEnds = (schema.bridges ?? []).flatMap((bridge) =>
+    bridge.endpoints.map((end) => `${end.fieldMap}:${end.model}`),
+  );
+  const candidates = [
+    ...fields
+      .filter((field) => relationOf(map, current, field))
+      .map((segment) => ({ segment, bridge: false })),
+    ...[...new Set(bridgeEnds)]
+      .filter((end) => bridgeHop(schema.bridges, current, end))
+      .map((segment) => ({ segment, bridge: true })),
+  ];
+  return candidates.flatMap(({ segment, bridge }) => {
+    const next = walkRelationPath(map, schema, at, [...prefix, segment].join('.'), '$');
+    return 'landed' in next ? [{ segment, resource: next.landed.resource, bridge }] : [];
+  });
+};
+
+/** The fields of `resource` that are declared lists (`/// @permissions(down: [...])`), which a list arm may cross. */
+export const declaredListsOf = (map: SchemaMap, resource: string): string[] =>
+  listsOf(map, resource).map(([field]) => field);
 
 const relIssues = (
   map: SchemaMap,
@@ -60,8 +153,8 @@ const relIssues = (
           message: `\`${resource}.${rule.rel}\` is a second list under an item of \`${under.list}\`: one list per walk`,
         },
       ];
-    const list = listOf(map, resource, rule.rel);
-    if (!list)
+    const item = lensesAtListItem(map, resource, rule.rel);
+    if (!item)
       return [
         {
           path,
@@ -69,59 +162,19 @@ const relIssues = (
           message: `\`${resource}.${rule.rel}\` is not a declared list: mark the list field \`/// @permissions(down: [...])\``,
         },
       ];
-    const item: PositionUnderListItem = {
-      list: `${resource}.${rule.rel}`,
-      listRelation: list,
-      prefix: [],
-    };
-    return relIssues(
-      map,
-      schema,
-      lensesAtRow(map, list.resource, item),
-      rule.condition,
-      `${path}.condition`,
-      new Set(),
-    );
+    return relIssues(map, schema, item, rule.condition, `${path}.condition`, new Set());
   }
-  let from = at;
-  let run: string[] = [];
-  let current = resource;
-  const judge = (): ValidationIssue[] => {
-    const problem = whyRelationPathCannotBeWalked(map, from, run.join('.'));
-    return problem
-      ? [{ path, code: problem.code === 'down' ? 'down' : 'relation', message: problem.message }]
-      : [];
-  };
-  for (const segment of rule.rel.split('.')) {
-    const hop = bridgeHop(schema.bridges, current, segment);
-    if (!hop) {
-      run.push(segment);
-      const next = relationOf(map, current, segment);
-      if (!next) return judge();
-      current = next.resource;
-      continue;
-    }
-    if (under)
-      return [
-        {
-          path,
-          code: 'down',
-          message: `\`${segment}\` is a bridge under an item of \`${under.list}\`: a walk under an item stays on the declared relations`,
-        },
-      ];
-    const missed = judge();
-    if (missed.length) return missed;
-    current = hop.farResource;
-    from = lensesAtRow(map, current);
-    run = [];
-  }
-  const missed = judge();
-  if (missed.length) return missed;
-  if (!(rule.action in (schema.permissions[current]?.actions ?? {})))
-    return [{ path, code: 'action', message: `\`${current}\` has no action \`${rule.action}\`` }];
-  const landed = from.under
-    ? lensesAtRow(map, current, { ...from.under, prefix: [...from.under.prefix, ...run] })
-    : lensesAtRow(map, current);
+  const walked = walkRelationPath(map, schema, at, rule.rel, path);
+  if ('issues' in walked) return walked.issues;
+  if (!(rule.action in (schema.permissions[walked.landed.resource]?.actions ?? {})))
+    return [
+      {
+        path,
+        code: 'action',
+        message: `\`${walked.landed.resource}\` has no action \`${rule.action}\``,
+      },
+    ];
+  const landed = walked.landed;
   return under ? follow(landed, rule.action) : [];
 };
 

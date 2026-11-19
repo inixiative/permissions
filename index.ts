@@ -3,7 +3,13 @@ export * from './src/core/delegatedWhere';
 export type { PermissionsEngineGlobals } from './src/core/engineGlobals';
 export * from './src/core/entitlementProblem';
 export * from './src/core/grant';
-export { whyEntitlementWhereLeavesLens } from './src/core/lens';
+export {
+  type LensesAtRow,
+  lensesAtListItem,
+  lensesAtRow,
+  type PositionUnderListItem,
+  whyEntitlementWhereLeavesLens,
+} from './src/core/lens';
 export * from './src/core/permix';
 export { reachableFrom } from './src/core/reachableFrom';
 export * from './src/core/redundantEntitlements';
@@ -16,7 +22,14 @@ export {
 } from './src/core/schemaMap';
 export type * from './src/core/types';
 export * from './src/core/validateActionRule';
-export { schemaRuleIssues, validateSchema } from './src/core/validateSchema';
+export {
+  declaredListsOf,
+  issuesForRuleReadsOutsideLens,
+  type RelationHop,
+  relationHopsFrom,
+  schemaRuleIssues,
+  validateSchema,
+} from './src/core/validateSchema';
 export * from './src/helpers/delegation/capAtRole';
 export * from './src/helpers/delegation/delegate';
 export * from './src/helpers/delegation/permissions';

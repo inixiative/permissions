@@ -167,6 +167,22 @@ export const lensesAtRow = (
   return { resource, lens: lenses?.lens ?? null, rule: lenses?.rule ?? null };
 };
 
+/** The lenses at an item of `resource.field`, or null when `field` is not a declared list (`/// @permissions(down: [...])`). */
+export const lensesAtListItem = (
+  map: SchemaMap,
+  resource: string,
+  field: string,
+): LensesAtRow | null => {
+  const listRelation = listOf(map, resource, field);
+  return listRelation
+    ? lensesAtRow(map, listRelation.resource, {
+        list: `${resource}.${field}`,
+        listRelation,
+        prefix: [],
+      })
+    : null;
+};
+
 const messageForPathIntoRelationList = (
   map: SchemaMap,
   resource: string,
