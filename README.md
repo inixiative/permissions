@@ -138,8 +138,25 @@ condition, a relation walk or both), so one record can take a rule its model's s
 rule **additively** (OR) with the schema rule, so per-record overrides can widen but never revoke.
 `check` validates a row rule before merging it: one that isn't positive, that delegates back to
 its own action (a cycle), or that reads outside the [relation lens](#what-a-rule-may-read-the-relation-lens),
-widens nothing. Validate tenant-authored rules with `validateActionRule`
-before persisting them too, so the author hears about it.
+widens nothing. Validate a stored row rule with `validateActionRule`
+before persisting it too, so the author hears about it.
+
+### More rules for a record: `additionalRules`
+
+A row rule opens one record. An app may have other places a rule comes from: a tenant that opens
+every record it owns, say. The library does not know what a tenant is, so the app hands it the rules:
+
+```ts
+const check = createRebacCheck(map, {
+  additionalRules: (resource, record) => rulesTheOwnersOf(record).map((rules) => rules[resource]),
+});
+```
+
+Each entry is a rule set shaped like `permissionRules` (`action → ActionRule`). The function is
+asked for every record the walk reaches. `check` ORs each rule with the schema rule and the record's
+own rule, so it only widens, and it cannot add an action the schema lacks. Each rule is validated
+before it is merged, exactly as a row rule is. `createRebacPaths` and `createCanGrantEntitlement`
+take the same option. Validate each rule with `validateActionRule` before the app saves it.
 
 ## Crossing a list: some item passes
 
