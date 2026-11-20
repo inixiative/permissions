@@ -9,7 +9,7 @@ import {
   createPermissions,
   createRebacCheck,
   createRebacPaths,
-  type DeclaredListsToLoad,
+  type Down,
   type EntitlementEntry,
   PathLimitError,
   type PermissionEntry,
@@ -1207,7 +1207,7 @@ describe('load brings the lists a resource declares', () => {
           user: data['db:user']?.find(matches({ uuid: membership.userUuid })) ?? null,
         }
       : null;
-  const itemsWithDeclaredPaths = (data: Store, where: Row): Row[] =>
+  const itemsWithDownPaths = (data: Store, where: Row): Row[] =>
     (data['db:conversationParticipant'] ?? []).filter(matches(where)).map((item) => {
       const forumUser = data['db:forumUser']?.find(matches({ uuid: item.forumUserUuid }));
       return {
@@ -1227,42 +1227,42 @@ describe('load brings the lists a resource declares', () => {
           : null,
       };
     });
-  type Asked = { resource: string; where: Row; declaredLists: DeclaredListsToLoad };
+  type Asked = { resource: string; where: Row; down: Down };
   const hydratorIncluding = (
-    participantsOf: (data: Store, where: Row) => unknown = itemsWithDeclaredPaths,
+    participantsOf: (data: Store, where: Row) => unknown = itemsWithDownPaths,
     asked: Asked[] = [],
     data: Store = store(),
   ) =>
     createHydrator({
       map,
-      load: async (resource, where, declaredLists) => {
-        asked.push({ resource, where, declaredLists });
+      load: async (resource, where, down) => {
+        asked.push({ resource, where, down });
         const row = data[resource]?.find(matches(where));
         if (!row) return null;
-        return declaredLists.participants
+        return down.participants
           ? { ...row, participants: participantsOf(data, { conversationUuid: row.uuid }) }
           : row;
       },
     });
   const c1 = { uuid: 'c1', brandUuid: 'b1', createdByUuid: 'fu-rex' };
 
-  test('load is told the lists the resource declares and the paths under each, and `{}` for a resource with none', async () => {
+  test('load is given `down`: the lists the resource declares and the paths under each, `{}` for a resource with none', async () => {
     const asked: Asked[] = [];
-    await hydratorIncluding(itemsWithDeclaredPaths, asked)('db:conversation', c1);
+    await hydratorIncluding(itemsWithDownPaths, asked)('db:conversation', c1);
     const forConversation = asked.filter(({ resource }) => resource === 'db:conversation');
     expect(forConversation).toHaveLength(1);
-    const { where, declaredLists } = forConversation[0] as Asked;
+    const { where, down } = forConversation[0] as Asked;
     expect(where).toEqual({ uuid: 'c1' });
-    expect(declaredLists).toEqual({
+    expect(down).toEqual({
       participants: { forumUser: { fanUser: { user: {} }, brandUser: { user: {} } } },
     });
     const forBrand = asked.find(({ resource }) => resource === 'db:brands') as Asked;
-    expect(forBrand.declaredLists).toEqual({});
+    expect(forBrand.down).toEqual({});
   });
 
   test('rows under an item are the ones load returned: nothing under an item is read again', async () => {
     const asked: Asked[] = [];
-    const hydrated = await hydratorIncluding(itemsWithDeclaredPaths, asked)('db:conversation', c1);
+    const hydrated = await hydratorIncluding(itemsWithDownPaths, asked)('db:conversation', c1);
     const read = asked.map(({ where }) => JSON.stringify(where)).join(' ');
     expect(read.includes('fu-fay') || read.includes('f-fay')).toBe(false);
     expect(check(await person('u-fay'), schema, on(hydrated), 'isParticipant')).toBe(true);
@@ -1273,7 +1273,7 @@ describe('load brings the lists a resource declares', () => {
 
   test('of every row under the list, only the columns and the declared paths are kept', async () => {
     const hydrated = await hydratorIncluding((data, where) =>
-      itemsWithDeclaredPaths(data, where).map((item) => ({
+      itemsWithDownPaths(data, where).map((item) => ({
         ...item,
         conversation: { uuid: 'c1', brandUuid: 'forged' },
         forumUser: item.forumUser && {
@@ -1310,7 +1310,7 @@ describe('load brings the lists a resource declares', () => {
     let returned: Row[] = [];
     const hydrated = await hydratorIncluding((data, where) => {
       returned = freezeDeep(
-        itemsWithDeclaredPaths(data, where).map((item) => ({
+        itemsWithDownPaths(data, where).map((item) => ({
           ...item,
           conversation: { uuid: 'c1' },
         })),
@@ -1353,7 +1353,7 @@ describe('load brings the lists a resource declares', () => {
 
   test('a record with no key yet has an empty list, and its own row is not read', async () => {
     const asked: Asked[] = [];
-    const hydrated = await hydratorIncluding(itemsWithDeclaredPaths, asked)('db:conversation', {
+    const hydrated = await hydratorIncluding(itemsWithDownPaths, asked)('db:conversation', {
       brandUuid: 'b1',
       createdByUuid: 'fu-rex',
     });
@@ -1392,7 +1392,7 @@ describe('load brings the lists a resource declares', () => {
 
   test('a value on a declared path that is not a row is nothing there', async () => {
     const hydrated = await hydratorIncluding((data, where) =>
-      itemsWithDeclaredPaths(data, where).map((item) => ({ ...item, forumUser: 'fu-fay' })),
+      itemsWithDownPaths(data, where).map((item) => ({ ...item, forumUser: 'fu-fay' })),
     )('db:conversation', c1);
     for (const item of hydrated.participants as Row[]) expect(item).not.toHaveProperty('forumUser');
   });
@@ -1409,14 +1409,14 @@ describe('load brings the lists a resource declares', () => {
     const before = { loads: 0 };
     const counting = createHydrator({
       map,
-      load: async (resource, where, declaredLists) => {
+      load: async (resource, where, down) => {
         before.loads++;
         const row = data[resource]?.find(matches(where));
-        return row && declaredLists.participants ? { ...row, participants: [] } : (row ?? null);
+        return row && down.participants ? { ...row, participants: [] } : (row ?? null);
       },
     });
     await counting('db:conversation', c1);
-    const itemsOfC1 = itemsWithDeclaredPaths(data, { conversationUuid: 'c1' }).length;
+    const itemsOfC1 = itemsWithDownPaths(data, { conversationUuid: 'c1' }).length;
     hydrationLimits.loads = before.loads + itemsOfC1;
     try {
       await expect(hydratorIncluding()('db:conversation', c1)).rejects.toThrow(/past \d+ rows/);
@@ -1427,7 +1427,7 @@ describe('load brings the lists a resource declares', () => {
 
   test('a record below the list gets it with its parent, in the one read of that parent', async () => {
     const asked: Asked[] = [];
-    const message = await hydratorIncluding(itemsWithDeclaredPaths, asked)('db:chatMessage', {
+    const message = await hydratorIncluding(itemsWithDownPaths, asked)('db:chatMessage', {
       uuid: 'm1',
       conversationUuid: 'c1',
     });
@@ -1491,12 +1491,12 @@ describe('a resource that declares two lists on different columns', () => {
 
   test('the record’s own row is read by its id, so one empty join column empties neither list', async () => {
     const asked: Row[] = [];
-    const toldToBring: DeclaredListsToLoad[] = [];
+    const toldToBring: Down[] = [];
     const hydrate = createHydrator({
       map: twoLists,
-      load: async (_resource, where, declaredLists) => {
+      load: async (_resource, where, down) => {
         asked.push(where);
-        toldToBring.push(declaredLists);
+        toldToBring.push(down);
         return where.id === 'p1' ? stored : null;
       },
     });

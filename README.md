@@ -223,9 +223,9 @@ is refused), and a path may not start back up that key. A list that is not decla
 crossed.
 
 - **What loads, and what doesn't.** A declared list is part of its parent's row: `load` is asked
-  for the parent with the lists it declares, and returns the row holding every live item, each
-  item holding the row on every declared path (in a Prisma app, one `findFirst` with the include
-  `prismaIncludeOfDeclaredLists` gives). Wherever that row is reached, as the record you pass or as a parent of it,
+  for the parent with its `down`, and returns the row holding every item, each item holding the
+  row on every declared path (in a Prisma app, one `findFirst` with the include
+  `prismaIncludeOfDown` gives). Wherever that row is reached, as the record you pass or as a parent of it,
   it carries the same list. The hydrator reads nothing more under an item and keeps of each item
   only its columns and the declared paths: none of its other parents, no second list, nothing
   above the rows on a declared path. That is what "one jump down" means, and it is why loading
@@ -836,17 +836,15 @@ Give it the map and `load`, one read of a resource's record by its target column
 column of a composite key). `load` is the cache seam: the hydrator de-duplicates loads within one
 hydration, your wrapper caches across calls.
 
-`load` takes a third argument, `declaredLists`: the lists the resource declares
-(`/// @permissions(down: [...])`), by list field name, each with the declared paths under an item
-as nested relation names (`{ participants: { forumUser: { fanUser: {}, brandUser: {} } } }`; `{}`
-for a resource that declares none). The hydrator knows no ORM, so how the row is read is yours;
-`prismaIncludeOfDeclaredLists(declaredLists)` gives the Prisma `include` (undefined when there is
-nothing to include). Return the row with every list on it:
+`load` takes a third argument, `down`: what the resource declares with
+`/// @permissions(down: [...])`, as its declared lists by list field name, each with the paths
+under an item as nested relation names (`{ participants: { forumUser: { fanUser: {}, brandUser: {} } } }`;
+`{}` for a resource that declares none). The hydrator knows no ORM, so how the row is read is
+yours; `prismaIncludeOfDown(down)` gives the Prisma `include` (undefined when there is nothing to
+include). Return the row with every list on it:
 
-- every live item under the list's field name, and on each item the row on every declared path;
-- each of those rows exactly as `load` would return it by itself: a removed or hidden row left
-  out, nothing truncated. A truncated list denies real members, and a removed row left in admits
-  one;
+- every item under the list's field name, and on each item the row on every declared path;
+- nothing truncated: a truncated list denies real members;
 - a row that comes back without a declared list throws, so a `load` that ignores the argument
   fails loudly instead of denying everyone.
 
@@ -854,7 +852,7 @@ nothing to include). Return the row with every list on it:
 import {
   createHydrator,
   createRebacCheck,
-  prismaIncludeOfDeclaredLists,
+  prismaIncludeOfDown,
   type SchemaMap,
 } from '@inixiative/permissions';
 // written by `bunx field-map generate` after `prisma generate`
@@ -869,25 +867,15 @@ const map: SchemaMap = {
 const check = createRebacCheck(map);
 const hydrate = createHydrator({
   map,
-  load: (resource, where, declaredLists) =>
+  load: (resource, where, down) =>
     cached(resource, where, () =>
-      db[resource].findFirst({ where, include: prismaIncludeOfDeclaredLists(declaredLists) }),
+      db[resource].findFirst({ where, include: prismaIncludeOfDown(down) }),
     ),
 });
 
 const doc = await hydrate('document', await db.document.findFirstOrThrow({ where: { id } }));
 check(permix, schema, { resource: 'document', record: doc }, 'manage');
 ```
-
-**If your rows can be removed without being deleted (soft deletes), this sample is not enough.**
-`prismaIncludeOfDeclaredLists` names relations and adds no filter, so the read returns removed
-rows unless something leaves them out, and a rule that reads one admits someone it should not:
-
-- **items:** give each list a `where` for live rows (a client extension that scopes every
-  to-many include does it once), or filter the returned list;
-- **rows under an item:** Prisma takes a `where` on an optional to-one include and none on a
-  required one, so drop removed rows from the returned tree, or make the items follow their
-  parents' removal so the list never holds an item whose row is gone.
 
 Because the row carries its lists, a cache behind `load` clears the parent's entry when an item,
 or a row under one, changes.
@@ -902,7 +890,7 @@ or a row under one, changes.
   (`hydrate('message', { ...body })`) can therefore not bring its own `conversation` with a
   participant list in it. For the record you pass, the hydrator reads that record's own stored
   row once, by its identity, and takes the lists from it; a record with no key yet, or one `load`
-  does not return (not stored, removed), has `[]`. Everything else is left as given (a holder's
+  does not return has `[]`. Everything else is left as given (a holder's
   `targetEntitlements` the app loaded, a relation keyed on the other side); no stored rule may
   name it ([the lens](#what-a-rule-may-read-the-relation-lens)). Columns are left as given too:
   build the record from the stored row, and take from a request body only the fields the caller

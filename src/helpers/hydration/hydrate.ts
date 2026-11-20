@@ -12,11 +12,11 @@ import {
 } from '../../core/schemaMap';
 import type { Row } from '../../core/types';
 
-/** The declared paths under a list item (`down`), as nested relation names; a leaf is `{}`. */
-export type DeclaredPaths = { [relation: string]: DeclaredPaths };
+/** The declared paths under a list item, as nested relation names; a leaf is `{}`. */
+export type DownPaths = { [relation: string]: DownPaths };
 
-/** The lists the resource being loaded declares, by list field name, each with its declared paths; `{}` when it declares none. */
-export type DeclaredListsToLoad = { [listField: string]: DeclaredPaths };
+/** What a resource declares `/// @permissions(down: [...])`: its declared lists by list field name, each with the paths under an item; `{}` when it declares none. */
+export type Down = { [listField: string]: DownPaths };
 
 /**
  * What the hydrator needs: the schema map the checks walk, and `load`, one read of a `resource`'s
@@ -24,15 +24,15 @@ export type DeclaredListsToLoad = { [listField: string]: DeclaredPaths };
  * with the lists that resource declares. `load` is the cache seam; the hydrator only de-duplicates
  * loads within one hydration.
  *
- * `declaredLists` says what the row must come back holding: under each list's field name every
- * live item, and on each item the row on every declared path under it. How it is read is the
- * app's (`prismaIncludeOfDeclaredLists` turns it into a Prisma `include`). A truncated list
- * silently denies real members, and a removed row left in admits one. The hydrator reads nothing
- * more under an item, and keeps of each item only its columns and the declared paths.
+ * `down` says what the row must come back holding: under each declared list's field name every
+ * item, and on each item the row on every declared path under it. How it is read is the app's
+ * (`prismaIncludeOfDown` turns it into a Prisma `include`). A truncated list silently denies real
+ * members. The hydrator reads nothing more under an item, and keeps of each item only its columns
+ * and the declared paths.
  */
 export type HydrateDeps<R extends string = string> = {
   map: SchemaMap<R>;
-  load: (resource: R, where: Row, declaredLists: DeclaredListsToLoad) => Promise<Row | null>;
+  load: (resource: R, where: Row, down: Down) => Promise<Row | null>;
 };
 
 const whereOf = (relation: Relation, record: Row): Row | null => {
@@ -66,23 +66,23 @@ export const createHydrator = <R extends string>({ map, load }: HydrateDeps<R>) 
         `hydrating reached \`${resource}\` past ${hydrationLimits.loads} rows: a walk that large is not a permission walk`,
       );
   };
-  const declaredPathsOf = (tree: SpelledRelationTree): DeclaredPaths => {
-    const paths: DeclaredPaths = {};
+  const downPathsOf = (tree: SpelledRelationTree): DownPaths => {
+    const paths: DownPaths = {};
     for (const [name, below] of Object.entries(tree))
-      paths[name] = declaredPathsOf((below.relations ?? {}) as SpelledRelationTree);
+      paths[name] = downPathsOf((below.relations ?? {}) as SpelledRelationTree);
     return paths;
   };
-  const declaredListsToLoadFor = (resource: R): DeclaredListsToLoad => {
-    const lists: DeclaredListsToLoad = {};
-    for (const [name, list] of listsOf(map, resource)) lists[name] = declaredPathsOf(list.down);
-    return lists;
+  const downOf = (resource: R): Down => {
+    const down: Down = {};
+    for (const [name, list] of listsOf(map, resource)) down[name] = downPathsOf(list.down);
+    return down;
   };
   const loadOnce = (run: Run, resource: R, where: Row): Promise<Row | null> => {
     const key = keyFromResourceAndColumns(resource, where);
     let loading = run.raw.get(key);
     if (!loading) {
       countLoadAgainstBudget(run, resource);
-      loading = load(resource, where, declaredListsToLoadFor(resource));
+      loading = load(resource, where, downOf(resource));
       run.raw.set(key, loading);
     }
     return loading;
@@ -121,12 +121,12 @@ export const createHydrator = <R extends string>({ map, load }: HydrateDeps<R>) 
       const items = stored ? stored[name] : [];
       if (!Array.isArray(items))
         throw new Error(
-          `\`load\` returned a \`${resource}\` without its declared list \`${name}\`: bring every list in \`declaredLists\` (a row cached before the list was declared has none)`,
+          `\`load\` returned a \`${resource}\` without its declared list \`${name}\`: bring every list in \`down\` (a row cached before the list was declared has none)`,
         );
       result[name] = items.map((item) => {
         if (!isRow(item))
           throw new Error(`\`load\` returned an item of \`${resource}.${name}\` that is not a row`);
-        return countThenCopyRowKeepingOnlyDeclaredPaths(run, list.resource, item, list.down);
+        return countThenCopyRowKeepingOnlyDownPaths(run, list.resource, item, list.down);
       });
     }
   };
@@ -156,7 +156,7 @@ export const createHydrator = <R extends string>({ map, load }: HydrateDeps<R>) 
     );
   };
   // why: under an item only the declared paths exist, taken as `load` returned them and never linked
-  const countThenCopyRowKeepingOnlyDeclaredPaths = (
+  const countThenCopyRowKeepingOnlyDownPaths = (
     run: Run,
     resource: R,
     row: Row,
@@ -172,7 +172,7 @@ export const createHydrator = <R extends string>({ map, load }: HydrateDeps<R>) 
       const relation = relationOf(map, resource, name);
       const held = row[name];
       if (relation && isRow(held))
-        result[name] = countThenCopyRowKeepingOnlyDeclaredPaths(
+        result[name] = countThenCopyRowKeepingOnlyDownPaths(
           run,
           relation.resource,
           held,

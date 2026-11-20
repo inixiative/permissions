@@ -1,12 +1,12 @@
 ## Unreleased — `load` brings the lists a resource declares; `loadMany` is gone
 
 **Breaking.** `createHydrator({ map, load })`: `loadMany` is removed, and `load` takes a third
-argument, `declaredLists`: the lists the resource being loaded declares, by list field name, each
-with the declared paths under an item as nested relation names (`{}` when it declares none).
-`load` returns the row holding every live item under each list's field name, each item holding
-the row on every declared path. The hydrator knows no ORM; `prismaIncludeOfDeclaredLists` turns
-`declaredLists` into a Prisma `include`. `DeclaredListsToLoad`, `DeclaredPaths` and
-`PrismaIncludeOfDeclaredLists` are exported.
+argument, `down`: what the resource being loaded declares with `/// @permissions(down: [...])`,
+as its declared lists by list field name, each with the paths under an item as nested relation
+names (`{}` when it declares none). `load` returns the row holding every item under each list's
+field name, each item holding the row on every declared path. The hydrator knows no ORM;
+`prismaIncludeOfDown` turns `down` into a Prisma `include`. `Down`, `DownPaths` and
+`PrismaIncludeOfDown` are exported.
 
 - **A list is part of its parent's row.** Wherever the row is reached it carries the same list,
   in the one read of that row. The hydrator reads nothing under an item; it copies each item,
@@ -14,11 +14,10 @@ the row on every declared path. The hydrator knows no ORM; `prismaIncludeOfDecla
 - **The record you pass cannot bring its own list.** The hydrator reads that record's own stored
   row once, by its identity with the values as the record holds them (a to-one that joins on those
   columns shares the read), and takes the lists from it. A record
-  with no key yet, **or one `load` does not return (not stored, removed), has `[]`**: before, its
+  with no key yet, **or one `load` does not return, has `[]`**: before, its
   items were read by its key whether or not it was stored.
 - **Rows under an item are what `load` returns for the list**, where before each came through
-  `load` by itself. The read must leave out removed rows, among the items and under them;
-  `prismaIncludeOfDeclaredLists` adds no filter.
+  `load` by itself.
 - **A row without a declared list throws** (a `load` that ignores the argument, or a row cached
   before the list was declared), as does an item that is not a row.
 - **`hydrationLimits.loads` counts rows**: each `load`, each item and each row under it, wherever
