@@ -138,8 +138,8 @@ condition, a relation walk or both), so one record can take a rule its model's s
 rule **additively** (OR) with the schema rule, so per-record overrides can widen but never revoke.
 `check` validates a row rule before merging it: one that isn't positive, that delegates back to
 its own action (a cycle), or that reads outside the [relation lens](#what-a-rule-may-read-the-relation-lens),
-widens nothing. Validate tenant-authored rules with `validateActionRule`
-before persisting them too, so the author hears about it.
+widens nothing. Validate a stored row rule with `validateActionRule`
+before persisting it too, so the author hears about it.
 
 ### A tenant's own rules: `tenantPermissionRules`
 

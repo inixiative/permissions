@@ -1,9 +1,8 @@
 import type { ValidationIssue, ValidationResult } from '@inixiative/json-rules';
 import { isPlainObject } from 'lodash-es';
 import type { SchemaMap } from './schemaMap';
-import type { ActionRule, RebacSchema } from './types';
-import { validateActionRule } from './validateActionRule';
-import { issuesForRuleReadsOutsideLens } from './validateSchema';
+import type { RebacSchema } from './types';
+import { issuesForActionRuleAt } from './validateSchema';
 
 const notAMap = (path: string, of: string): ValidationIssue[] => [
   { path, code: 'tenantPermissionRules', message: `not a map of ${of}` },
@@ -41,11 +40,7 @@ export const validateTenantPermissionRules = (
         const path = `${resource}.${action}`;
         if (!(action in permission.actions))
           return [{ path, code: 'action', message: `\`${resource}\` has no action \`${action}\`` }];
-        const shape = validateActionRule(rule, { schema, resource, action, tenantRules }).errors;
-        const found =
-          shape.length || !map
-            ? shape
-            : issuesForRuleReadsOutsideLens(map, schema, resource, rule as ActionRule);
+        const found = issuesForActionRuleAt(rule, { schema, resource, action, tenantRules }, map);
         return found.map((issue) => ({ ...issue, path: `${path}${issue.path.slice(1)}` }));
       });
     },

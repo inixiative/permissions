@@ -13,7 +13,7 @@ import {
 } from './lens';
 import { listsOf, relationOf, type SchemaMap } from './schemaMap';
 import type { ActionRule, RebacSchema } from './types';
-import { validateActionRule } from './validateActionRule';
+import { type ActionRuleContext, validateActionRule } from './validateActionRule';
 
 /** Walk a `{ rel }` path from `at` as a check hops it: the lenses where it lands, or why it cannot be walked. */
 const walkRelationPath = (
@@ -206,6 +206,21 @@ export const issuesForRuleReadsOutsideLens = (
   relIssues(map, schema, lensesAtRow(map, resource), rule, at).filter(
     (issue) => issue.code !== 'action' && issueRefusesTheRead(issue),
   );
+
+/**
+ * Every issue of one rule placed at `context.resource`'s `context.action`: its shape, a loop back
+ * to its own action and, with the `map`, every read outside the lens. Empty when `check` merges it.
+ */
+export const issuesForActionRuleAt = (
+  rule: unknown,
+  context: ActionRuleContext,
+  map?: SchemaMap,
+): ValidationIssue[] => {
+  const shape = validateActionRule(rule, context).errors;
+  return shape.length || !map
+    ? shape
+    : issuesForRuleReadsOutsideLens(map, context.schema, context.resource, rule as ActionRule);
+};
 
 // why: a resource with no model in the map has no lens, so nothing it reads could be refused
 const unmapped = (map: SchemaMap, schema: RebacSchema): ValidationIssue[] => {

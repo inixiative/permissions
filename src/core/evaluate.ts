@@ -15,8 +15,7 @@ import {
   type SchemaMap,
 } from './schemaMap';
 import type { ActionRule, PermixLike, RebacSchema, Row } from './types';
-import { validateActionRule } from './validateActionRule';
-import { issuesForRuleReadsOutsideLens } from './validateSchema';
+import { issuesForActionRuleAt } from './validateSchema';
 
 // One walk: the app's schema map, the schema, the bridge dictionary built on first use, and how
 // what it finds combines (a boolean for `check`, every admission for `paths`).
@@ -213,20 +212,25 @@ const walkAction = <R extends string, T>(
   return answer;
 };
 
-/** The rules for `resource` on each tenant row `record` reaches along the resource's `tenantPaths`. */
+/** The rules for `resource` on each tenant row `record` reaches along the resource's `tenantPaths`, each row once. */
 const tenantRulesOf = <R extends string, T>(
   walk: Walk<R, T>,
   resource: R,
   record: Row,
-): Record<string, ActionRule>[] =>
-  (walk.schema.permissions[resource]?.tenantPaths ?? []).flatMap((path) => {
+): Record<string, ActionRule>[] => {
+  const tenants = new Set<Row>();
+  for (const path of walk.schema.permissions[resource]?.tenantPaths ?? []) {
     const segments = path.split('.');
     const tenant = rowsAlongAnchorPath(walk.map, resource, record, segments)[segments.length]?.row;
-    const rules = (tenant?.tenantPermissionRules as Record<string, unknown> | null | undefined)?.[
+    if (tenant) tenants.add(tenant);
+  }
+  return [...tenants].flatMap((tenant) => {
+    const rules = (tenant.tenantPermissionRules as Record<string, unknown> | null | undefined)?.[
       resource
     ];
     return isPlainObject(rules) ? [rules as Record<string, ActionRule>] : [];
   });
+};
 
 const walkActionRules = <R extends string, T>(
   walk: Walk<R, T>,
@@ -240,13 +244,11 @@ const walkActionRules = <R extends string, T>(
   const rowRules = record.permissionRules as Record<string, ActionRule> | null | undefined;
   const tenantRules = tenantRulesOf(walk, resource, record);
   const holds = (rule: ActionRule) =>
-    validateActionRule(rule, {
-      schema: walk.schema,
-      resource,
-      action: actionOrRule,
-      rowRules,
-      tenantRules,
-    }).ok && issuesForRuleReadsOutsideLens(walk.map, walk.schema, resource, rule).length === 0;
+    issuesForActionRuleAt(
+      rule,
+      { schema: walk.schema, resource, action: actionOrRule, rowRules, tenantRules },
+      walk.map,
+    ).length === 0;
   const node = `${resource}\u0000${actionOrRule}`;
   const rowRule = rowRules?.[actionOrRule];
   const rowRuleHolds =
