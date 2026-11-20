@@ -9,9 +9,8 @@ import {
   createPermissions,
   createRebacCheck,
   createRebacPaths,
-  type DeclaredListsByFieldName,
-  type DeclaredListToLoad,
   type EntitlementEntry,
+  type IncludeOfDeclaredLists,
   PathLimitError,
   type PermissionEntry,
   placeEntitlement,
@@ -1227,7 +1226,7 @@ describe('load brings the lists a resource declares', () => {
           : null,
       };
     });
-  type Asked = { resource: string; where: Row; declaredLists: DeclaredListsByFieldName };
+  type Asked = { resource: string; where: Row; include: IncludeOfDeclaredLists | undefined };
   const hydratorIncluding = (
     participantsOf: (data: Store, where: Row) => unknown = itemsWithDeclaredPaths,
     asked: Asked[] = [],
@@ -1235,35 +1234,38 @@ describe('load brings the lists a resource declares', () => {
   ) =>
     createHydrator({
       map,
-      load: async (resource, where, declaredLists) => {
-        asked.push({ resource, where, declaredLists });
+      load: async (resource, where, include) => {
+        asked.push({ resource, where, include });
         const row = data[resource]?.find(matches(where));
         if (!row) return null;
-        return declaredLists.participants
+        return include?.participants
           ? { ...row, participants: participantsOf(data, { conversationUuid: row.uuid }) }
           : row;
       },
     });
   const c1 = { uuid: 'c1', brandUuid: 'b1', createdByUuid: 'fu-rex' };
 
-  test('load is asked with the lists of the resource it reads: the items of each and its declared tree', async () => {
+  test('load is given an include of the lists the resource declares, and none for a resource without one', async () => {
     const asked: Asked[] = [];
     await hydratorIncluding(itemsWithDeclaredPaths, asked)('db:conversation', c1);
     const forConversation = asked.filter(({ resource }) => resource === 'db:conversation');
     expect(forConversation).toHaveLength(1);
-    const { where, declaredLists } = forConversation[0] as Asked;
+    const { where, include } = forConversation[0] as Asked;
     expect(where).toEqual({ uuid: 'c1' });
-    expect(Object.keys(declaredLists)).toEqual(['participants']);
-    const list = declaredLists.participants as DeclaredListToLoad;
-    expect(list.itemResource).toBe('db:conversationParticipant');
-    expect(Object.keys(list.down)).toEqual(['forumUser']);
-    expect(Object.keys(list.down.forumUser?.relations ?? {}).sort()).toEqual([
-      'brandUser',
-      'fanUser',
-    ]);
-    expect(Object.keys(list.down.forumUser?.relations?.fanUser?.relations ?? {})).toEqual(['user']);
+    expect(include).toEqual({
+      participants: {
+        include: {
+          forumUser: {
+            include: {
+              fanUser: { include: { user: true } },
+              brandUser: { include: { user: true } },
+            },
+          },
+        },
+      },
+    });
     const forBrand = asked.find(({ resource }) => resource === 'db:brands') as Asked;
-    expect(forBrand.declaredLists).toEqual({});
+    expect(forBrand.include).toBeUndefined();
   });
 
   test('rows under an item are the ones load returned: nothing under an item is read again', async () => {
@@ -1425,10 +1427,10 @@ describe('load brings the lists a resource declares', () => {
     const before = { loads: 0 };
     const counting = createHydrator({
       map,
-      load: async (resource, where, declaredLists) => {
+      load: async (resource, where, include) => {
         before.loads++;
         const row = data[resource]?.find(matches(where));
-        return row && declaredLists.participants ? { ...row, participants: [] } : (row ?? null);
+        return row && include?.participants ? { ...row, participants: [] } : (row ?? null);
       },
     });
     await counting('db:conversation', c1);

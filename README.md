@@ -223,9 +223,9 @@ is refused), and a path may not start back up that key. A list that is not decla
 crossed.
 
 - **What loads, and what doesn't.** A declared list is part of its parent's row: `load` is asked
-  for the parent with the lists it declares, and returns the row holding every live item, each
-  item holding the row on every declared path (in a Prisma app, one `findFirst` with an include
-  built from `down`). Wherever that row is reached, as the record you pass or as a parent of it,
+  for the parent with an include of the lists it declares, and returns the row holding every live
+  item, each item holding the row on every declared path (in a Prisma app, one `findFirst` with
+  that include). Wherever that row is reached, as the record you pass or as a parent of it,
   it carries the same list. The hydrator reads nothing more under an item and keeps of each item
   only its columns and the declared paths: none of its other parents, no second list, nothing
   above the rows on a declared path. That is what "one jump down" means, and it is why loading
@@ -836,11 +836,11 @@ Give it the map and `load`, one read of a resource's record by its target column
 column of a composite key). `load` is the cache seam: the hydrator de-duplicates loads within one
 hydration, your wrapper caches across calls.
 
-`load` takes a third argument, the lists the resource declares (`/// @permissions(down: [...])`),
-by list field name: `{ participants: { itemResource, down } }`, or `{}` for a resource that
-declares none. `down` is the declared paths under an item as a tree of relation names
-(`{ forumUser: { relations: { fanUser: { relations: {} } } } }`). Return the row with every list
-on it:
+`load` takes a third argument, `include`: the lists the resource declares
+(`/// @permissions(down: [...])`) with the declared paths under each, already in the shape of a
+Prisma `include` (`{ participants: { include: { forumUser: { include: { fanUser: true } } } } }`).
+It is undefined for a resource that declares no list, so it goes to the read as it is. Return the
+row with every list on it:
 
 - every live item under the list's field name, and on each item the row on every declared path;
 - each of those rows exactly as `load` would return it by itself: a removed or hidden row left
@@ -850,12 +850,7 @@ on it:
   fails loudly instead of denying everyone.
 
 ```ts
-import {
-  createHydrator,
-  createRebacCheck,
-  type SchemaMap,
-  type SpelledRelationTree,
-} from '@inixiative/permissions';
+import { createHydrator, createRebacCheck, type SchemaMap } from '@inixiative/permissions';
 // written by `bunx field-map generate` after `prisma generate`
 import { prismaMap } from './generated/prismaMap.gen';
 
@@ -865,26 +860,11 @@ const map: SchemaMap = {
   polymorphism, // your false-polymorphism registry, if you have one
 };
 
-const includeOf = (tree: SpelledRelationTree): Record<string, unknown> =>
-  Object.fromEntries(
-    Object.entries(tree).map(([name, below]) => [
-      name,
-      Object.keys(below.relations ?? {}).length ? { include: includeOf(below.relations ?? {}) } : true,
-    ]),
-  );
-
 const check = createRebacCheck(map);
 const hydrate = createHydrator({
   map,
-  load: (resource, where, declaredLists) =>
-    cached(resource, where, () =>
-      db[resource].findFirst({
-        where,
-        include: Object.fromEntries(
-          Object.entries(declaredLists).map(([name, { down }]) => [name, { include: includeOf(down) }]),
-        ),
-      }),
-    ),
+  load: (resource, where, include) =>
+    cached(resource, where, () => db[resource].findFirst({ where, include })),
 });
 
 const doc = await hydrate('document', await db.document.findFirstOrThrow({ where: { id } }));

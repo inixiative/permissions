@@ -12,19 +12,13 @@ import {
 } from '../../core/schemaMap';
 import type { Row } from '../../core/types';
 
-/** One list a resource declares `/// @permissions(down: [...])`, as `load` is asked to bring it. */
-export type DeclaredListToLoad<R extends string = string> = {
-  /** The resource of the list's items. */
-  itemResource: R;
-  /** The declared paths under an item (`down`), as a tree of relation names. */
-  down: SpelledRelationTree;
+/**
+ * What `load` brings with a row, in the shape of a Prisma `include`: each list the resource
+ * declares `/// @permissions(down: [...])`, and under it the declared paths. A leaf is `true`.
+ */
+export type IncludeOfDeclaredLists = {
+  [relation: string]: true | { include: IncludeOfDeclaredLists };
 };
-
-/** The lists the resource being loaded declares, by list field name; empty when it declares none. */
-export type DeclaredListsByFieldName<R extends string = string> = Record<
-  string,
-  DeclaredListToLoad<R>
->;
 
 /**
  * What the hydrator needs: the schema map the checks walk, and `load`, one read of a `resource`'s
@@ -32,18 +26,18 @@ export type DeclaredListsByFieldName<R extends string = string> = Record<
  * with the lists that resource declares. `load` is the cache seam; the hydrator only de-duplicates
  * loads within one hydration.
  *
- * `declaredLists` is what an include is built from: for each list the resource declares, the row
- * comes back holding every live item under the list's field name, each item holding the row on
- * every declared path under it. A truncated list silently denies real members, and a removed row
- * left in admits one. The hydrator reads nothing more under an item, and keeps of each item only
- * its columns and the declared paths.
+ * `include` is passed when the resource declares a list, and is undefined otherwise: hand it to
+ * the read as it is (`findFirst({ where, include })`). The row comes back holding every live item
+ * under each list's field name, each item holding the row on every declared path under it. A
+ * truncated list silently denies real members, and a removed row left in admits one. The hydrator
+ * reads nothing more under an item, and keeps of each item only its columns and the declared paths.
  */
 export type HydrateDeps<R extends string = string> = {
   map: SchemaMap<R>;
   load: (
     resource: R,
     where: Row,
-    declaredLists: DeclaredListsByFieldName<R>,
+    include: IncludeOfDeclaredLists | undefined,
   ) => Promise<Row | null>;
 };
 
@@ -78,19 +72,27 @@ export const createHydrator = <R extends string>({ map, load }: HydrateDeps<R>) 
         `hydrating reached \`${resource}\` past ${hydrationLimits.loads} rows: a walk that large is not a permission walk`,
       );
   };
-  const listsLoadMustBringFor = (resource: R): DeclaredListsByFieldName<R> =>
-    Object.fromEntries(
-      listsOf(map, resource).map(([name, list]) => [
-        name,
-        { itemResource: list.resource, down: list.down },
-      ]),
-    );
+  const includeOfDeclaredPaths = (
+    tree: SpelledRelationTree,
+  ): true | { include: IncludeOfDeclaredLists } => {
+    const include: IncludeOfDeclaredLists = {};
+    for (const [name, below] of Object.entries(tree))
+      include[name] = includeOfDeclaredPaths((below.relations ?? {}) as SpelledRelationTree);
+    return Object.keys(include).length ? { include } : true;
+  };
+  const includeOfDeclaredLists = (resource: R): IncludeOfDeclaredLists | undefined => {
+    const lists = listsOf(map, resource);
+    if (!lists.length) return undefined;
+    const include: IncludeOfDeclaredLists = {};
+    for (const [name, list] of lists) include[name] = includeOfDeclaredPaths(list.down);
+    return include;
+  };
   const loadOnce = (run: Run, resource: R, where: Row): Promise<Row | null> => {
     const key = keyFromResourceAndColumns(resource, where);
     let loading = run.raw.get(key);
     if (!loading) {
       countLoadAgainstBudget(run, resource);
-      loading = load(resource, where, listsLoadMustBringFor(resource));
+      loading = load(resource, where, includeOfDeclaredLists(resource));
       run.raw.set(key, loading);
     }
     return loading;
@@ -129,7 +131,7 @@ export const createHydrator = <R extends string>({ map, load }: HydrateDeps<R>) 
       const items = stored ? stored[name] : [];
       if (!Array.isArray(items))
         throw new Error(
-          `\`load\` returned a \`${resource}\` without its declared list \`${name}\`: bring every list in \`declaredLists\` (a row cached before the list was declared has none)`,
+          `\`load\` returned a \`${resource}\` without its declared list \`${name}\`: pass \`include\` to the read (a row cached before the list was declared has none)`,
         );
       result[name] = items.map((item) => {
         if (!isRow(item))

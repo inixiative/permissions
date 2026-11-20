@@ -1,10 +1,11 @@
 ## Unreleased — `load` brings the lists a resource declares; `loadMany` is gone
 
 **Breaking.** `createHydrator({ map, load })`: `loadMany` is removed, and `load` takes a third
-argument, the lists the resource being loaded declares (`{ [listField]: { itemResource, down } }`,
-`{}` when it declares none). `load` returns the row holding every live item under each list's
-field name, each item holding the row on every declared path. `DeclaredListToLoad`,
-`DeclaredListsByFieldName` and `SpelledRelationTree` (the type of `down`) are exported.
+argument, `include`: the lists the resource being loaded declares with the declared paths under
+each, in the shape of a Prisma `include`, or undefined when it declares none
+(`findFirst({ where, include })`). `load` returns the row holding every live item under each
+list's field name, each item holding the row on every declared path. `IncludeOfDeclaredLists` is
+exported.
 
 - **A list is part of its parent's row.** Wherever the row is reached it carries the same list,
   in the one read of that row. The hydrator reads nothing under an item; it copies each item,
