@@ -35,3 +35,4 @@ export * from './src/helpers/delegation/delegate';
 export * from './src/helpers/delegation/permissions';
 export * from './src/helpers/delegation/wellFormedEntitlements';
 export * from './src/helpers/hydration/hydrate';
+export * from './src/helpers/hydration/prismaIncludeOfDown';

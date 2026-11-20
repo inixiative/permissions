@@ -24,6 +24,7 @@ what.
 | narrow a grant | `delegatedWhere` | The `where` of a grant passed on from a held one: the added conditions, then the held `where`'s conjuncts, flat. |
 | place | `placeEntitlement`, `placeUnder` | Build the stand-in records a grant is checked on, below its hydrated anchor along the entry's path. |
 | hydrate | `createHydrator` | Build the loader that puts on a record every relation the lens follows, so a check never reads a relation that was not loaded; `hydrationLimits` is its load budget. |
+| build an include | `prismaIncludeOfDown` | Turn the `down` that `load` is given into a Prisma `include` for the read of the row; undefined when the resource declares no list. The hydrator itself knows no ORM. |
 | validate | `validateActionRule` | Whether one action rule is well formed and positive, and does not delegate back to its own action. |
 | validate | `validateSchema`, `schemaRuleIssues` | Every issue in a schema against its map (shape, cycles, reads outside the lens, undefined actions); the shape issues alone, without the map. |
 | validate | `entitlementProblem`, `wellFormedEntitlements` | Why one entitlement entry is malformed, or null; the well-formed entries of a list. |
@@ -52,8 +53,8 @@ what.
 | consult an entitlement | `src/core/entitled.ts` (`entitled`) | — |
 | walk an anchor path on a record | `src/core/schemaMap.ts` (`rowsAlongAnchorPath`; `anchorRowReachedFrom`, whether it reaches the anchor) | — (used by `entitled`, `rowsAbove` and placement) |
 | walk the delegation graph | `src/core/reachableFrom.ts` (`delegationReach`) | — (used by `reachableFrom` and `validateActionRule`'s cycle test) |
-| identify a row | `src/core/schemaMap.ts` (`identityKeyOfRow`, `keyFromResourceAndColumns`), `src/core/recordId.ts` (`recordId`, `hasNoValue`: null, undefined or `''` is no value); on a walk, `src/core/evaluate.ts` (`identifyRowOncePerCheck`, once per row and resource in one check) | — (the hydrator and loop detection share one key) |
-| load a row | `src/helpers/hydration/hydrate.ts` | — (the app's `load` / `loadMany` are called nowhere else) |
+| identify a row | `src/core/schemaMap.ts` (`identityColumnsOfRow`, `identityKeyOfRow`, `keyFromResourceAndColumns`), `src/core/recordId.ts` (`recordId`, `hasNoValue`: null, undefined or `''` is no value); on a walk, `src/core/evaluate.ts` (`identifyRowOncePerCheck`, once per row and resource in one check) | — (the hydrator and loop detection share one key) |
+| load a row | `src/helpers/hydration/hydrate.ts` | — (the app's `load` is called nowhere else; it is given `down` and brings the resource's declared lists with the row) |
 
 ## The lens, in this library's words
 

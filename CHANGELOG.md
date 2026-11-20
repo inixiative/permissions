@@ -1,3 +1,38 @@
+## Unreleased — `load` brings the lists a resource declares; `loadMany` is gone
+
+**Breaking.** `createHydrator({ map, load })`: `loadMany` is removed, and `load` takes a third
+argument, `down`: what the resource being loaded declares with `/// @permissions(down: [...])`,
+as its declared lists by list field name, each with the paths under an item as nested relation
+names (`{}` when it declares none). `load` returns the row holding every item under each list's
+field name, each item holding the row on every declared path. The hydrator knows no ORM;
+`prismaIncludeOfDown` turns `down` into a Prisma `include`. `Down`, `DownPaths` and
+`PrismaIncludeOfDown` are exported.
+
+- **A list is part of its parent's row.** Wherever the row is reached it carries the same list,
+  in the one read of that row. The hydrator reads nothing under an item; it copies each item,
+  keeping only its columns and the declared paths, and never changes what `load` returned.
+- **The record you pass cannot bring its own list.** The hydrator reads that record's own stored
+  row once, by its identity with the values as the record holds them (a to-one that joins on those
+  columns shares the read), and takes the lists from it. A record
+  with no key yet, **or one `load` does not return, has `[]`**: before, its
+  items were read by its key whether or not it was stored.
+- **Rows under an item are what `load` returns for the list**, where before each came through
+  `load` by itself.
+- **A row without a declared list throws** (a `load` that ignores the argument, or a row cached
+  before the list was declared), as does an item that is not a row.
+- **`hydrationLimits.loads` counts rows**: each `load`, each item and each row under it, wherever
+  it appears. The error reads "past N rows".
+- **A cache behind `load`** clears the parent's entry when an item or a row under one changes.
+- **A bigint key no longer throws** when a row's key is built (`keyFromResourceAndColumns`); before, a
+  bigint foreign key on any to-one threw.
+- **Why.** A declared list is one jump to explicit leaves, so the tree under it is a finite
+  include the declaration already spells (Aron, 2026-11-19: "things that have `down`, the `down`
+  should become an include", "load should just also include down"). The per-row reads cost, in
+  Zealot, one query plus two cache reads per participant on every check that reached a
+  conversation (102 reads at 50 participants, measured 2026-11-19). Zealot is the only app that
+  declares a list; template, Kingdom and Tribe declare none and their two-parameter `load` is
+  unaffected.
+
 ## 0.26.0 — an app can hand the check more rules for a record
 
 - **`additionalRules`** on `createRebacCheck`, `createRebacPaths` and `createCanGrantEntitlement`: a
