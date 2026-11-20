@@ -58,8 +58,19 @@ export type Subject<R extends string = string> = {
  */
 export type Anchor = { resource: string; id: string; path?: string };
 
+/**
+ * More rule sets for a record, each `action → ActionRule`: the app decides where they come from
+ * (the rows that own the record, for one). `check` ORs each with the schema rule and the record's
+ * own `permissionRules`, so they only widen, and drops one it would refuse as a row rule.
+ */
+export type AdditionalRules = (
+  resource: string,
+  record: Row,
+) => readonly (Record<string, ActionRule> | null | undefined)[];
+
 export type CheckOptions = {
   absent?: Absent;
+  additionalRules?: AdditionalRules;
 };
 
 /**

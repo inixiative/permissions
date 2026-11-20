@@ -32,6 +32,17 @@ field name, each item holding the row on every declared path. The hydrator knows
   conversation (102 reads at 50 participants, measured 2026-11-19). Zealot is the only app that
   declares a list; template, Kingdom and Tribe declare none and their two-parameter `load` is
   unaffected.
+## 0.26.0 — an app can hand the check more rules for a record
+
+- **`additionalRules`** on `createRebacCheck`, `createRebacPaths` and `createCanGrantEntitlement`: a
+  function from a resource and a record to more rule sets (`action → ActionRule`). `check` ORs each
+  with the schema rule and the record's own `permissionRules`, where the row rule is merged today.
+  It only widens, cannot name an action the schema lacks, and a rule that is not positive, loops or
+  reads outside the lens is dropped. `validateActionRule`'s context takes `additionalRules`, so a
+  loop through one is a cycle.
+- **Why.** A row rule shares one record, and the schema is the same for every tenant. An app that
+  lets a tenant open every record it owns needs to pass those rules in. The library still has no
+  notion of a tenant: the app decides which rows a record's extra rules come from.
 
 ## 0.25.0 — the lenses a rule is judged in are exported
 
