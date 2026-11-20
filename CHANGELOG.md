@@ -5,8 +5,11 @@
   it whose rules it reads. `check` ORs each such rule with the schema rule and the record's own
   `permissionRules` when it resolves that action. It only widens, and it cannot name an action the
   schema lacks.
-- **`validateTenantPermissionRules(rules, { schema, map? })`** validates the value before an app
-  saves it. `validateSchema` refuses a tenant path that is not a walk of to-one relations.
+- **A tenant path may be guarded by kind** (`{ path, kinds: { field, values } }`): it counts only on a
+  record of that kind, so a relation set for several owner kinds is a tenant path only where the
+  tenant owns the record.
+- **`validateTenantPermissionRules(rules, { schema, map?, tenant? })`** validates the value before an app
+  saves it; with `tenant`, it refuses a resource whose records never reach that kind of row. `validateSchema` refuses a tenant path that is not a walk of to-one relations.
   `validateActionRule`'s context takes `tenantRules`, so a loop through a tenant's rule is a cycle.
 - **Why.** A row rule (`permissionRules`) shares one record, and the schema is the same for every
   tenant. Nothing let one tenant say "every contact of mine is readable" or "any seller here may

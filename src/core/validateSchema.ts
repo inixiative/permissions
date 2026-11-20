@@ -12,7 +12,7 @@ import {
   whyRelationPathCannotBeWalked,
 } from './lens';
 import { listsOf, relationOf, type SchemaMap } from './schemaMap';
-import type { ActionRule, RebacSchema } from './types';
+import type { ActionRule, RebacSchema, TenantPath } from './types';
 import { type ActionRuleContext, validateActionRule } from './validateActionRule';
 
 /** Walk a `{ rel }` path from `at` as a check hops it: the lenses where it lands, or why it cannot be walked. */
@@ -272,18 +272,34 @@ const lensWarnings = (map: SchemaMap, schema: RebacSchema): ValidationIssue[] =>
       : [];
   });
 
+/** The relation path of a `tenantPaths` entry. */
+export const pathOfTenantPath = (tenantPath: TenantPath): string =>
+  typeof tenantPath === 'string' ? tenantPath : tenantPath.path;
+
 // Every `tenantPaths` entry that is not a walk of followed to-one relations from its resource.
 const tenantPathIssues = (map: SchemaMap, schema: RebacSchema): ValidationIssue[] =>
   Object.entries(schema.permissions).flatMap(([resource, permission]) =>
     (permission?.tenantPaths ?? []).flatMap((tenantPath) => {
+      const path = pathOfTenantPath(tenantPath);
       const problem =
-        tenantPath === ''
+        path === ''
           ? { message: 'a tenant path names at least one relation' }
-          : whyRelationPathCannotBeWalked(map, lensesAtRow(map, resource), tenantPath);
+          : whyRelationPathCannotBeWalked(map, lensesAtRow(map, resource), path);
       return problem
         ? [{ path: `${resource}.tenantPaths`, code: 'tenantPaths', message: problem.message }]
         : [];
     }),
+  );
+
+/** Every action a well-formed rule at `resource` names that its resource does not have. */
+export const issuesForUndefinedActions = (
+  map: SchemaMap,
+  schema: RebacSchema,
+  resource: string,
+  rule: ActionRule,
+): ValidationIssue[] =>
+  relIssues(map, schema, lensesAtRow(map, resource), rule, '$').filter(
+    (issue) => issue.code === 'action',
   );
 
 /**

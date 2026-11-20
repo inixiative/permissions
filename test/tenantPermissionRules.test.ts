@@ -1,7 +1,12 @@
 import { describe, expect, test } from 'bun:test';
 import { Operator } from '@inixiative/json-rules';
 import type { PermixLike, RebacSchema, Row } from '../index';
-import { createRebacCheck, validateSchema, validateTenantPermissionRules } from '../index';
+import {
+  createRebacCheck,
+  createRebacPaths,
+  validateSchema,
+  validateTenantPermissionRules,
+} from '../index';
 import { mapOf } from './schemaMaps';
 
 const actor = (id: string): PermixLike => ({
@@ -35,6 +40,14 @@ const schema: RebacSchema = {
       tenantPaths: ['organization', 'space', 'space.organization'],
     },
     note: { actions: { read: { rel: 'organization', action: 'own' } } },
+    token: {
+      actions: { read: { rel: 'organization', action: 'own' } },
+      tenantPaths: [
+        'organization',
+        { path: 'user', kinds: { field: 'ownerModel', values: ['user'] } },
+      ],
+    },
+    user: { actions: { own: null } },
   },
 };
 
@@ -43,8 +56,9 @@ const map = mapOf(
     space: { organization: 'organization' },
     contact: { organization: 'organization', space: 'space' },
     note: { organization: 'organization' },
+    token: { organization: 'organization', user: 'user' },
   },
-  { organization: ['ownerId'], contact: ['label'] },
+  { organization: ['ownerId'], contact: ['label'], token: ['ownerModel'] },
 );
 const check = createRebacCheck(map);
 
@@ -73,9 +87,23 @@ describe("a tenant's rules for the records under it", () => {
     );
   });
 
-  test("never reach another tenant's records", () => {
-    organization('org-1', { contact: { read: true } });
-    expect(can(contactOf(organization('org-2')), 'read')).toBe(false);
+  test('open only the records under the tenant that holds them', () => {
+    const open = organization('org-1', { contact: { read: true } });
+    const closed = organization('org-2');
+    expect(can(contactOf(open), 'read')).toBe(true);
+    expect(can(contactOf(closed), 'read')).toBe(false);
+  });
+
+  test("a space's rules do not reach a sibling space", () => {
+    const above = organization('org-1');
+    const inSpace = (space: Row): Row => ({
+      id: 'contact-1',
+      spaceId: space.id,
+      space: { ...space, organizationId: above.id, organization: above },
+    });
+    const open = { id: 'space-1', tenantPermissionRules: { contact: { read: true } } };
+    expect(can(inSpace(open), 'read')).toBe(true);
+    expect(can(inSpace({ id: 'space-2' }), 'read')).toBe(false);
   });
 
   test('reach every record up the owner chain: a space, and the organization above it', () => {
@@ -116,9 +144,46 @@ describe("a tenant's rules for the records under it", () => {
     expect(can(contactOf(owner, { label: 'private' }), 'read')).toBe(false);
   });
 
-  test('are additive with the record own rule', () => {
-    const owner = organization('org-1', { contact: { read: false } });
-    expect(can(contactOf(owner, { permissionRules: { read: true } }), 'read')).toBe(true);
+  test("add to the record's own rule: either one opens the action", () => {
+    const publicOnes = {
+      contact: { read: { rule: { field: 'label', operator: Operator.equals, value: 'public' } } },
+    };
+    const owner = organization('org-1', publicOnes);
+    const shared = { permissionRules: { read: true } };
+    expect(can(contactOf(owner, { label: 'private' }), 'read')).toBe(false);
+    expect(can(contactOf(owner, { label: 'public' }), 'read')).toBe(true);
+    expect(can(contactOf(owner, { label: 'private', ...shared }), 'read')).toBe(true);
+  });
+
+  test('a kind-guarded path counts only on a record of that kind', () => {
+    const open = { token: { read: true } };
+    const tokenOf = (ownerModel: string, user: Row, above: Row): Row => ({
+      id: 'token-1',
+      ownerModel,
+      userId: user.id,
+      user,
+      organizationId: above.id,
+      organization: above,
+    });
+    const member = { id: 'user-1', tenantPermissionRules: open };
+    const closed = organization('org-1');
+    expect(can(tokenOf('user', member, closed), 'read', 'token')).toBe(true);
+    expect(can(tokenOf('organizationUser', member, closed), 'read', 'token')).toBe(false);
+    expect(
+      can(
+        tokenOf('organizationUser', { id: 'user-1' }, organization('org-1', open)),
+        'read',
+        'token',
+      ),
+    ).toBe(true);
+  });
+
+  test('admit a path the same way the check does', () => {
+    const paths = createRebacPaths(map);
+    const at = (owner: Row) =>
+      paths(actor('stranger'), schema, { resource: 'contact', record: contactOf(owner) }, 'read');
+    expect(at(organization('org-1'))).toHaveLength(0);
+    expect(at(organization('org-1', { contact: { read: true } })).length).toBeGreaterThan(0);
   });
 
   test('widen nothing, and never throw, when a stored rule is one the core refuses', () => {
@@ -134,13 +199,6 @@ describe("a tenant's rules for the records under it", () => {
     expect(stored('manage', { permissionRules: { manage: 'read' } })).toBe(false);
     expect(can(contactOf(organization('org-1', 'everything')), 'read')).toBe(false);
     expect(can(contactOf(organization('org-1', { contact: 'everything' })), 'read')).toBe(false);
-  });
-
-  test('are read only by a resource that declares tenant paths', () => {
-    const open = organization('org-1', { note: { read: true } });
-    expect(can({ id: 'note-1', organizationId: 'org-1', organization: open }, 'read', 'note')).toBe(
-      false,
-    );
   });
 });
 
@@ -172,6 +230,7 @@ describe('validateTenantPermissionRules', () => {
       }),
     ).toHaveLength(1);
     expect(issues({ contact: { read: 'read' } })).toEqual(['contact.read: cycle']);
+    expect(issues({ contact: { read: 'publish' } })).toEqual(['contact.read: action']);
     expect(issues({ contact: { read: 'manage', manage: 'read' } })).toEqual([
       'contact.read: cycle',
       'contact.manage: cycle',
@@ -181,6 +240,21 @@ describe('validateTenantPermissionRules', () => {
         contact: { read: { rule: { field: 'secret', operator: Operator.equals, value: 'x' } } },
       }),
     ).toHaveLength(1);
+  });
+});
+
+describe('validateTenantPermissionRules for one kind of tenant', () => {
+  const issues = (rules: unknown, tenant: string) =>
+    validateTenantPermissionRules(rules, { schema, map, tenant }).errors.map(
+      (issue) => `${issue.path}: ${issue.code}`,
+    );
+
+  test('refuses a resource whose records never read that kind of tenant', () => {
+    expect(issues({ space: { read: true } }, 'organization')).toEqual([]);
+    expect(issues({ space: { read: true } }, 'space')).toEqual(['space: tenantPaths']);
+    expect(issues({ contact: { read: true } }, 'space')).toEqual([]);
+    expect(issues({ token: { read: true } }, 'user')).toEqual([]);
+    expect(issues({ contact: { read: true } }, 'user')).toEqual(['contact: tenantPaths']);
   });
 });
 

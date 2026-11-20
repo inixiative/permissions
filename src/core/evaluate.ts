@@ -219,7 +219,9 @@ const tenantRulesOf = <R extends string, T>(
   record: Row,
 ): Record<string, ActionRule>[] => {
   const tenants = new Set<Row>();
-  for (const path of walk.schema.permissions[resource]?.tenantPaths ?? []) {
+  for (const tenantPath of walk.schema.permissions[resource]?.tenantPaths ?? []) {
+    const { path, kinds } = typeof tenantPath === 'string' ? { path: tenantPath } : tenantPath;
+    if (kinds && !kinds.values.includes(record[kinds.field] as string)) continue;
     const segments = path.split('.');
     const tenant = rowsAlongAnchorPath(walk.map, resource, record, segments)[segments.length]?.row;
     if (tenant) tenants.add(tenant);

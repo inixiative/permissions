@@ -27,13 +27,21 @@ export type ActionRule =
   | null; // terminal deny (equivalent to `false`)
 
 /**
- * One resource's permission entry: `actions: { name → ActionRule }`. `tenantPaths` are the relation
- * paths from a record to the rows above it whose `tenantPermissionRules` also apply to it
- * (`'organization'`, `'space.organization'`).
+ * A relation path from a record to a tenant row above it (`'organization'`, `'space.organization'`).
+ * With `kinds`, the path counts only on a record whose `kinds.field` is one of `kinds.values`: a
+ * `user` relation that is set for several owner kinds is a tenant path only when the user owns it.
+ */
+export type TenantPath =
+  | string
+  | { path: string; kinds: { field: string; values: readonly string[] } };
+
+/**
+ * One resource's permission entry: `actions: { name → ActionRule }`. `tenantPaths` name the rows
+ * above a record whose `tenantPermissionRules` also apply to it.
  */
 export type ResourcePermission = {
   actions: Record<string, ActionRule>;
-  tenantPaths?: readonly string[];
+  tenantPaths?: readonly TenantPath[];
 };
 
 /** A tenant row's own rules for the records under it: `resource → action → ActionRule`, each ORed with the schema's. */

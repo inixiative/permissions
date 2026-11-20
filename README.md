@@ -159,6 +159,16 @@ records count, as relation paths:
 organization.tenantPermissionRules = { 'db:contact': { read: true } };
 ```
 
+A path may be guarded by the record's kind. Where one relation is set for several owner kinds
+(`user` on a token a user owns and on one a member row owns), only the kind the tenant really owns
+counts, so a user's rules cannot open records that belong to an organization:
+
+```ts
+tenantPaths: ['organization', { path: 'user', kinds: { field: 'ownerModel', values: ['User'] } }],
+```
+
+List only ownership. A relation that means "about this row" is not a tenant path.
+
 When `check` resolves an action on a record, it ORs the schema rule, the record's own
 `permissionRules`, and the rule each tenant on those paths holds for that resource and action. So it
 only widens: a tenant cannot make the schema stricter, and cannot add an action the schema lacks.
@@ -166,9 +176,14 @@ Each stored rule is validated before it is merged, exactly as a row rule is, so 
 positive, loops back to its own action or reads outside the lens widens nothing. List every tenant
 up the owner chain in `tenantPaths` to let a parent's rule reach its children's records.
 
-`validateTenantPermissionRules(rules, { schema, map })` is the check to run before saving: it
-refuses a resource without `tenantPaths`, an action the resource does not have, and any rule
-`check` would ignore. `validateSchema` refuses a `tenantPaths` entry that is not a walk of to-one
+`validateTenantPermissionRules(rules, { schema, map, tenant })` is the check to run before saving: it
+refuses a resource without `tenantPaths`, an action the resource does not have, a rule that names an
+action that does not exist, and any rule `check` would ignore. With `tenant` (the resource of the
+row being written) it also refuses a resource whose records never reach a row of that kind.
+
+Two limits to know. A rule is judged on the record it is asked about, so a list that is authorised
+on a stand-in record sees only what that stand-in carries. And when a tenant's rule and another
+stored rule on the same record delegate to each other, both are dropped. `validateSchema` refuses a `tenantPaths` entry that is not a walk of to-one
 relations.
 
 **This is as open as the app makes it.** A tenant may put `true` on any action of any resource that
