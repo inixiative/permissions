@@ -1520,6 +1520,23 @@ describe('a resource that declares two lists on different columns', () => {
     expect(hydrated.tags).toEqual([]);
   });
 
+  test('a list whose back relation names no target columns still reads the record by its id', async () => {
+    const withoutTargetColumns = structuredClone(twoLists) as unknown as {
+      fieldMap: { models: Record<string, { fields: Record<string, Record<string, unknown>> }> };
+    };
+    delete withoutTargetColumns.fieldMap.models.Kid?.fields.parent?.toFields;
+    const asked: Row[] = [];
+    const hydrate = createHydrator({
+      map: withoutTargetColumns as unknown as SchemaMap,
+      load: async (_resource, where) => {
+        asked.push(where);
+        return { ...stored, id: 'someone-else' };
+      },
+    });
+    await hydrate('parent', { id: 'p2', code: 'x' });
+    expect(asked).toEqual([{ id: 'p2' }]);
+  });
+
   test('a record with no id of its own is never read by an empty where', async () => {
     const asked: Row[] = [];
     const hydrate = createHydrator({
