@@ -32,6 +32,7 @@ field name, each item holding the row on every declared path. The hydrator knows
   conversation (102 reads at 50 participants, measured 2026-11-19). Zealot is the only app that
   declares a list; template, Kingdom and Tribe declare none and their two-parameter `load` is
   unaffected.
+
 ## 0.26.0 — an app can hand the check more rules for a record
 
 - **`additionalRules`** on `createRebacCheck`, `createRebacPaths` and `createCanGrantEntitlement`: a
