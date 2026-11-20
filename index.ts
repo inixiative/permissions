@@ -19,6 +19,7 @@ export {
   placeEntitlement,
   placeUnder,
   type SchemaMap,
+  type SpelledRelationTree,
 } from './src/core/schemaMap';
 export type * from './src/core/types';
 export * from './src/core/validateActionRule';

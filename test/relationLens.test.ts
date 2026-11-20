@@ -1030,7 +1030,7 @@ describe('the limits throw; nothing is cut', () => {
       },
     });
     await expect(endless('node', { id: 'n0', parentId: 'n1' })).rejects.toThrow(
-      `passed ${hydrationLimits.loads} loads`,
+      `past ${hydrationLimits.loads} rows`,
     );
   });
 });

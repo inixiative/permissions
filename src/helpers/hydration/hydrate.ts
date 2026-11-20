@@ -2,6 +2,7 @@ import { modelOf } from '@inixiative/field-map';
 import { hasNoValue, idField } from '../../core/recordId';
 import {
   followedToOneRelationsOf,
+  identityColumnsOfRow,
   keyFromResourceAndColumns,
   listsOf,
   type Relation,
@@ -20,7 +21,10 @@ export type DeclaredListToLoad<R extends string = string> = {
 };
 
 /** The lists the resource being loaded declares, by list field name; empty when it declares none. */
-export type DeclaredListsToLoad<R extends string = string> = Record<string, DeclaredListToLoad<R>>;
+export type DeclaredListsByFieldName<R extends string = string> = Record<
+  string,
+  DeclaredListToLoad<R>
+>;
 
 /**
  * What the hydrator needs: the schema map the checks walk, and `load`, one read of a `resource`'s
@@ -36,7 +40,11 @@ export type DeclaredListsToLoad<R extends string = string> = Record<string, Decl
  */
 export type HydrateDeps<R extends string = string> = {
   map: SchemaMap<R>;
-  load: (resource: R, where: Row, declaredLists: DeclaredListsToLoad<R>) => Promise<Row | null>;
+  load: (
+    resource: R,
+    where: Row,
+    declaredLists: DeclaredListsByFieldName<R>,
+  ) => Promise<Row | null>;
 };
 
 const whereOf = (relation: Relation, record: Row): Row | null => {
@@ -52,7 +60,7 @@ const whereOf = (relation: Relation, record: Row): Row | null => {
 const isRow = (value: unknown): value is Row =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
-/** The most rows one hydration loads (a `load`, each item of a list and each row under it) before it throws. */
+/** The most rows one hydration takes in (each `load`, each item of a list and each row under it, counted wherever it appears) before it throws. */
 export const hydrationLimits = { loads: 10_000 };
 
 type Run = {
@@ -67,10 +75,10 @@ export const createHydrator = <R extends string>({ map, load }: HydrateDeps<R>) 
   const countLoadAgainstBudget = (run: Run, resource: R) => {
     if (++run.loads > hydrationLimits.loads)
       throw new Error(
-        `hydrating \`${resource}\` passed ${hydrationLimits.loads} loads: a chain that long is not a permission walk`,
+        `hydrating reached \`${resource}\` past ${hydrationLimits.loads} rows: a walk that large is not a permission walk`,
       );
   };
-  const declaredListsToLoadWith = (resource: R): DeclaredListsToLoad<R> =>
+  const listsLoadMustBringFor = (resource: R): DeclaredListsByFieldName<R> =>
     Object.fromEntries(
       listsOf(map, resource).map(([name, list]) => [
         name,
@@ -82,7 +90,7 @@ export const createHydrator = <R extends string>({ map, load }: HydrateDeps<R>) 
     let loading = run.raw.get(key);
     if (!loading) {
       countLoadAgainstBudget(run, resource);
-      loading = load(resource, where, declaredListsToLoadWith(resource));
+      loading = load(resource, where, listsLoadMustBringFor(resource));
       run.raw.set(key, loading);
     }
     return loading;
@@ -121,29 +129,24 @@ export const createHydrator = <R extends string>({ map, load }: HydrateDeps<R>) 
       const items = stored ? stored[name] : [];
       if (!Array.isArray(items))
         throw new Error(
-          `\`load\` returned a \`${resource}\` without its declared list \`${name}\`: bring every list in \`declaredLists\``,
+          `\`load\` returned a \`${resource}\` without its declared list \`${name}\`: bring every list in \`declaredLists\` (a row cached before the list was declared has none)`,
         );
       result[name] = items.map((item) => {
         if (!isRow(item))
           throw new Error(`\`load\` returned an item of \`${resource}.${name}\` that is not a row`);
-        return copyOfRowKeepingOnlyDeclaredPaths(run, list.resource, item, list.down);
+        return countThenCopyRowKeepingOnlyDeclaredPaths(run, list.resource, item, list.down);
       });
     }
   };
-  const ownStoredRowHoldingItsDeclaredLists = async (
+  // why: read by the row's own key, the one a to-one reaching it uses, so one row is one read
+  const loadOwnStoredRowForItsDeclaredLists = async (
     run: Run,
     resource: R,
     record: Row,
   ): Promise<Row | null> => {
-    const lists = listsOf(map, resource);
-    if (!lists.length) return null;
-    const where: Row = {};
-    for (const [, list] of lists)
-      for (const column of list.to) {
-        if (hasNoValue(record[column])) return null;
-        where[column] = record[column];
-      }
-    return loadOnce(run, resource, where);
+    if (!listsOf(map, resource).length) return null;
+    const where = identityColumnsOfRow(map as SchemaMap, resource, record);
+    return where ? loadOnce(run, resource, where) : null;
   };
   const loadFollowedToOnesOnto = async (
     run: Run,
@@ -161,7 +164,7 @@ export const createHydrator = <R extends string>({ map, load }: HydrateDeps<R>) 
     );
   };
   // why: under an item only the declared paths exist, taken as `load` returned them and never linked
-  const copyOfRowKeepingOnlyDeclaredPaths = (
+  const countThenCopyRowKeepingOnlyDeclaredPaths = (
     run: Run,
     resource: R,
     row: Row,
@@ -177,7 +180,7 @@ export const createHydrator = <R extends string>({ map, load }: HydrateDeps<R>) 
       const relation = relationOf(map, resource, name);
       const held = row[name];
       if (relation && isRow(held))
-        result[name] = copyOfRowKeepingOnlyDeclaredPaths(
+        result[name] = countThenCopyRowKeepingOnlyDeclaredPaths(
           run,
           relation.resource,
           held,
@@ -190,7 +193,7 @@ export const createHydrator = <R extends string>({ map, load }: HydrateDeps<R>) 
     const run: Run = { raw: new Map(), rows: new Map(), work: [], loads: 0 };
     const result: Row = { ...record };
     const [ownStoredRow] = await Promise.all([
-      ownStoredRowHoldingItsDeclaredLists(run, resource, record),
+      loadOwnStoredRowForItsDeclaredLists(run, resource, record),
       loadFollowedToOnesOnto(run, resource, result, record),
     ]);
     putDeclaredListsOnto(run, resource, result, ownStoredRow);

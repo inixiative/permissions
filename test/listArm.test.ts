@@ -9,7 +9,7 @@ import {
   createPermissions,
   createRebacCheck,
   createRebacPaths,
-  type DeclaredListsToLoad,
+  type DeclaredListsByFieldName,
   type DeclaredListToLoad,
   type EntitlementEntry,
   PathLimitError,
@@ -1227,7 +1227,7 @@ describe('load brings the lists a resource declares', () => {
           : null,
       };
     });
-  type Asked = { resource: string; where: Row; declaredLists: DeclaredListsToLoad };
+  type Asked = { resource: string; where: Row; declaredLists: DeclaredListsByFieldName };
   const hydratorIncluding = (
     participantsOf: (data: Store, where: Row) => unknown = itemsWithDeclaredPaths,
     asked: Asked[] = [],
@@ -1351,7 +1351,7 @@ describe('load brings the lists a resource declares', () => {
     const budget = hydrationLimits.loads;
     hydrationLimits.loads = 8;
     try {
-      await expect(hydratorIncluding()('db:conversation', c1)).rejects.toThrow(/passed 8 loads/);
+      await expect(hydratorIncluding()('db:conversation', c1)).rejects.toThrow(/past 8 rows/);
     } finally {
       hydrationLimits.loads = budget;
     }
@@ -1377,18 +1377,68 @@ describe('load brings the lists a resource declares', () => {
   });
 
   test('a list the record carried is dropped for the one its stored row holds', async () => {
-    const hydrated = await hydratorIncluding()('db:conversation', {
-      ...c1,
-      participants: [
-        {
-          uuid: 'p-forged',
-          conversationUuid: 'c1',
-          leftAt: null,
-          forumUser: { uuid: 'fu-x', fanUser: { uuid: 'f-otto', userUuid: 'u-otto' } },
+    const forged = [
+      {
+        uuid: 'p-forged',
+        conversationUuid: 'c1',
+        leftAt: null,
+        forumUser: {
+          uuid: 'fu-x',
+          fanUser: { uuid: 'f-otto', userUuid: 'u-otto', user: { uuid: 'u-otto' } },
         },
-      ],
-    });
+      },
+    ];
+    expect(
+      check(await person('u-otto'), schema, on({ ...c1, participants: forged }), 'isParticipant'),
+    ).toBe(true);
+    const hydrated = await hydratorIncluding()('db:conversation', { ...c1, participants: forged });
+    expect((hydrated.participants as Row[]).some(matches({ uuid: 'p-forged' }))).toBe(false);
     expect(check(await person('u-otto'), schema, on(hydrated), 'isParticipant')).toBe(false);
+  });
+
+  test('a value on a declared path that is not a row is nothing there', async () => {
+    const hydrated = await hydratorIncluding((data, where) =>
+      itemsWithDeclaredPaths(data, where).map((item) => ({ ...item, forumUser: 'fu-fay' })),
+    )('db:conversation', c1);
+    for (const item of hydrated.participants as Row[]) expect(item).not.toHaveProperty('forumUser');
+  });
+
+  test('a parent reached by a to-one that comes back without its list throws too', async () => {
+    await expect(
+      hydratorIncluding(() => undefined)('db:chatMessage', { uuid: 'm1', conversationUuid: 'c1' }),
+    ).rejects.toThrow(/without its declared list `participants`/);
+  });
+
+  test('the record’s own row is read by its key, the read a to-one reaching it shares', async () => {
+    const asked: Asked[] = [];
+    const data = store();
+    (data['db:conversationParticipant'] as Row[]).length = 0;
+    await hydratorIncluding(itemsWithDeclaredPaths, asked, data)('db:conversation', c1);
+    expect(
+      asked.filter(({ resource }) => resource === 'db:conversation').map(({ where }) => where),
+    ).toEqual([{ uuid: 'c1' }]);
+  });
+
+  test('rows under an item count against the budget, not only the items', async () => {
+    const budget = hydrationLimits.loads;
+    const data = store();
+    const before = { loads: 0 };
+    const counting = createHydrator({
+      map,
+      load: async (resource, where, declaredLists) => {
+        before.loads++;
+        const row = data[resource]?.find(matches(where));
+        return row && declaredLists.participants ? { ...row, participants: [] } : (row ?? null);
+      },
+    });
+    await counting('db:conversation', c1);
+    const itemsOfC1 = itemsWithDeclaredPaths(data, { conversationUuid: 'c1' }).length;
+    hydrationLimits.loads = before.loads + itemsOfC1;
+    try {
+      await expect(hydratorIncluding()('db:conversation', c1)).rejects.toThrow(/past \d+ rows/);
+    } finally {
+      hydrationLimits.loads = budget;
+    }
   });
 
   test('a record below the list gets it with its parent, in the one read of that parent', async () => {
@@ -1401,5 +1451,86 @@ describe('load brings the lists a resource declares', () => {
     expect(
       check(await person('u-fay'), schema, on(message, 'db:chatMessage'), 'inConversation'),
     ).toBe(true);
+  });
+});
+
+describe('a resource that declares two lists on different columns', () => {
+  const column = (extra: Row = {}) => ({ kind: 'scalar', type: 'String', isList: false, ...extra });
+  const listOf = (type: string) => ({
+    kind: 'object',
+    type,
+    isList: true,
+    annotations: { permissions: { down: [] } },
+  });
+  const parentBy = (fromField: string, toField: string) => ({
+    kind: 'object',
+    type: 'Parent',
+    isList: false,
+    fromFields: [fromField],
+    toFields: [toField],
+  });
+  const twoLists = {
+    resources: { parent: 'Parent', kid: 'Kid', tag: 'Tag' },
+    fieldMap: {
+      models: {
+        Parent: {
+          fields: {
+            id: column({ isId: true }),
+            code: column(),
+            kids: listOf('Kid'),
+            tags: listOf('Tag'),
+          },
+        },
+        Kid: {
+          fields: {
+            id: column({ isId: true }),
+            parentId: column(),
+            parent: parentBy('parentId', 'id'),
+          },
+        },
+        Tag: {
+          fields: {
+            id: column({ isId: true }),
+            parentCode: column(),
+            parent: parentBy('parentCode', 'code'),
+          },
+        },
+      },
+    },
+  } as unknown as SchemaMap;
+  const stored: Row = {
+    id: 'p1',
+    code: null,
+    kids: [{ id: 'k1', parentId: 'p1' }],
+    tags: [],
+  };
+
+  test('the record’s own row is read by its id, so one empty join column empties neither list', async () => {
+    const asked: Row[] = [];
+    const hydrate = createHydrator({
+      map: twoLists,
+      load: async (_resource, where) => {
+        asked.push(where);
+        return where.id === 'p1' ? stored : null;
+      },
+    });
+    const hydrated = await hydrate('parent', { id: 'p1', code: null });
+    expect(asked).toEqual([{ id: 'p1' }]);
+    expect(hydrated.kids).toEqual([{ id: 'k1', parentId: 'p1' }]);
+    expect(hydrated.tags).toEqual([]);
+  });
+
+  test('a record with no id of its own is never read by an empty where', async () => {
+    const asked: Row[] = [];
+    const hydrate = createHydrator({
+      map: twoLists,
+      load: async (_resource, where) => {
+        asked.push(where);
+        return stored;
+      },
+    });
+    const hydrated = await hydrate('parent', { code: 'x' });
+    expect(asked).toEqual([]);
+    expect(hydrated.kids).toEqual([]);
   });
 });

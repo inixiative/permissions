@@ -367,18 +367,18 @@ export const keyFromResourceAndColumns = (resource: string, where: Row): string 
   `${resource}\u0000${JSON.stringify(Object.entries(where).sort(([a], [b]) => a.localeCompare(b)))}`;
 
 // why: the engine id field is what the app loads by (Zealot's `uuid`), so it wins over the model's `isId`
-/** A row's key: the engine id field when the model has it and the row a value, else the model's id columns, else undefined (the object). */
-export const identityKeyOfRow = (
+/** The columns that pick a row: the engine id field when the model has it and the row a value, else the model's id columns, else undefined. */
+export const identityColumnsOfRow = (
   map: SchemaMap,
   resource: string,
   record: Row,
   field = idField(),
-): string | undefined => {
+): Row | undefined => {
   const model = modelOf(map.fieldMap, map.resources[resource] as string);
   const id = fieldOf(map.fieldMap, map.resources[resource] as string, field)
     ? recordId(record, field)
     : undefined;
-  if (id !== undefined) return keyFromResourceAndColumns(resource, { [field]: id });
+  if (id !== undefined) return { [field]: id };
   const { idColumns } = indexMap(map);
   if (!idColumns.has(resource)) {
     const single = Object.entries(model?.fields ?? {})
@@ -392,8 +392,19 @@ export const identityKeyOfRow = (
   const columns = idColumns.get(resource) as readonly string[];
   const values = columns.map((column) => [column, recordId(record, column)] as const);
   return values.length && values.every(([, value]) => value !== undefined)
-    ? keyFromResourceAndColumns(resource, Object.fromEntries(values))
+    ? Object.fromEntries(values)
     : undefined;
+};
+
+/** A row's key (`identityColumnsOfRow`, encoded with its resource), or undefined (the object). */
+export const identityKeyOfRow = (
+  map: SchemaMap,
+  resource: string,
+  record: Row,
+  field = idField(),
+): string | undefined => {
+  const columns = identityColumnsOfRow(map, resource, record, field);
+  return columns && keyFromResourceAndColumns(resource, columns);
 };
 
 /** Every to-one relation of `resource` the hydrator follows, by field name. */

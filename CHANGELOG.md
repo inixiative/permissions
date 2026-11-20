@@ -1,3 +1,33 @@
+## Unreleased — `load` brings the lists a resource declares; `loadMany` is gone
+
+**Breaking.** `createHydrator({ map, load })`: `loadMany` is removed, and `load` takes a third
+argument, the lists the resource being loaded declares (`{ [listField]: { itemResource, down } }`,
+`{}` when it declares none). `load` returns the row holding every live item under each list's
+field name, each item holding the row on every declared path. `DeclaredListToLoad`,
+`DeclaredListsByFieldName` and `SpelledRelationTree` (the type of `down`) are exported.
+
+- **A list is part of its parent's row.** Wherever the row is reached it carries the same list,
+  in the one read of that row. The hydrator reads nothing under an item; it copies each item,
+  keeping only its columns and the declared paths, and never changes what `load` returned.
+- **The record you pass cannot bring its own list.** The hydrator reads that record's own stored
+  row once, by its key (the key a to-one reaching it uses), and takes the lists from it. A record
+  with no key yet, **or one `load` does not return (not stored, removed), has `[]`**: before, its
+  items were read by its key whether or not it was stored.
+- **Rows under an item are what `load` returns for the list**, where before each came through
+  `load` by itself. An include must leave out removed rows; a to-one include does not by itself.
+- **A row without a declared list throws** (a `load` that ignores the argument, or a row cached
+  before the list was declared), as does an item that is not a row.
+- **`hydrationLimits.loads` counts rows**: each `load`, each item and each row under it, wherever
+  it appears. The error reads "past N rows".
+- **A cache behind `load`** clears the parent's entry when an item or a row under one changes.
+- **Why.** A declared list is one jump to explicit leaves, so the tree under it is a finite
+  include the declaration already spells (Aron, 2026-11-19: "things that have `down`, the `down`
+  should become an include", "load should just also include down"). The per-row reads cost, in
+  Zealot, one query plus two cache reads per participant on every check that reached a
+  conversation (102 reads at 50 participants, measured 2026-11-19). Zealot is the only app that
+  declares a list; template, Kingdom and Tribe declare none and their two-parameter `load` is
+  unaffected.
+
 ## 0.25.0 — the lenses a rule is judged in are exported
 
 - **`lensesAtRow(map, resource)`** and **`lensesAtListItem(map, resource, field)`** (with the types
