@@ -9,6 +9,8 @@ import {
   createPermissions,
   createRebacCheck,
   createRebacPaths,
+  type DeclaredListsToLoad,
+  type DeclaredListToLoad,
   type EntitlementEntry,
   PathLimitError,
   type PermissionEntry,
@@ -21,6 +23,8 @@ import {
   validateActionRule,
   validateSchema,
 } from '../index';
+import { hydrationLimits } from '../src/helpers/hydration/hydrate';
+import { createHydratorReadingEachRowThroughLoad } from './createHydratorReadingEachRowThroughLoad';
 import { annotate, loadModels } from './fixtures/load';
 import { stringColumn } from './schemaMaps';
 
@@ -169,13 +173,13 @@ const matches = (where: Row) => (row: Row) =>
   Object.entries(where).every(([key, value]) => row[key] === value);
 
 const hydratorOver = (data: Store, over: SchemaMap = map, loads: string[] = []) =>
-  createHydrator({
+  createHydratorReadingEachRowThroughLoad({
     map: over,
     load: async (resource, where) => {
       loads.push(`load ${resource} ${JSON.stringify(where)}`);
       return data[resource]?.find(matches(where)) ?? null;
     },
-    loadMany: async (resource, where) => {
+    loadItems: async (resource, where) => {
       loads.push(`loadMany ${resource} ${JSON.stringify(where)}`);
       return data[resource]?.filter(matches(where)) ?? [];
     },
@@ -672,10 +676,6 @@ describe('createHydrator: one jump down', () => {
     expect(loads.filter((line) => line.startsWith('loadMany')).length).toBe(1);
     expect(loads.some((line) => line.includes('db:fanUsers'))).toBe(false);
   });
-
-  test('a map that declares a list needs `loadMany`', () => {
-    expect(() => createHydrator({ map, load: async () => null })).toThrow(/pass `loadMany`/);
-  });
 });
 
 // The adversarial review's reproductions (A-1 to A-6), each asserting the fixed behaviour.
@@ -716,10 +716,10 @@ describe('what a record may carry into a check', () => {
 
   test('under an item too: a declared relation holds the loaded row or nothing', async () => {
     const data = store();
-    const hydrate = createHydrator({
+    const hydrate = createHydratorReadingEachRowThroughLoad({
       map,
       load: async (resource, where) => data[resource]?.find(matches(where)) ?? null,
-      loadMany: async () =>
+      loadItems: async () =>
         [
           { uuid: 'p-x', forumUserUuid: null },
           { uuid: 'p-y', forumUserUuid: 'fu-nope' },
@@ -1196,5 +1196,210 @@ describe('what the hydrator does not follow, no check reads', () => {
     ).toThrow(/keeps its foreign key on `Conversation`/);
     const rowRule = { ...hydrated, permissionRules: { read: reads('pinnedIn.id') } };
     expect(ask(otto, rules, { resource: 'db:message', record: rowRule }, 'read')).toBe(false);
+  });
+});
+
+describe('load brings the lists a resource declares', () => {
+  const withUser = (data: Store, membership: Row | undefined): Row | null =>
+    membership
+      ? {
+          ...membership,
+          user: data['db:user']?.find(matches({ uuid: membership.userUuid })) ?? null,
+        }
+      : null;
+  const itemsWithDeclaredPaths = (data: Store, where: Row): Row[] =>
+    (data['db:conversationParticipant'] ?? []).filter(matches(where)).map((item) => {
+      const forumUser = data['db:forumUser']?.find(matches({ uuid: item.forumUserUuid }));
+      return {
+        ...item,
+        forumUser: forumUser
+          ? {
+              ...forumUser,
+              fanUser: withUser(
+                data,
+                data['db:fanUsers']?.find(matches({ uuid: forumUser.fanUserUuid })),
+              ),
+              brandUser: withUser(
+                data,
+                data['db:brandUsers']?.find(matches({ uuid: forumUser.brandUserUuid })),
+              ),
+            }
+          : null,
+      };
+    });
+  type Asked = { resource: string; where: Row; declaredLists: DeclaredListsToLoad };
+  const hydratorIncluding = (
+    participantsOf: (data: Store, where: Row) => unknown = itemsWithDeclaredPaths,
+    asked: Asked[] = [],
+    data: Store = store(),
+  ) =>
+    createHydrator({
+      map,
+      load: async (resource, where, declaredLists) => {
+        asked.push({ resource, where, declaredLists });
+        const row = data[resource]?.find(matches(where));
+        if (!row) return null;
+        return declaredLists.participants
+          ? { ...row, participants: participantsOf(data, { conversationUuid: row.uuid }) }
+          : row;
+      },
+    });
+  const c1 = { uuid: 'c1', brandUuid: 'b1', createdByUuid: 'fu-rex' };
+
+  test('load is asked with the lists of the resource it reads: the items of each and its declared tree', async () => {
+    const asked: Asked[] = [];
+    await hydratorIncluding(itemsWithDeclaredPaths, asked)('db:conversation', c1);
+    const forConversation = asked.filter(({ resource }) => resource === 'db:conversation');
+    expect(forConversation).toHaveLength(1);
+    const { where, declaredLists } = forConversation[0] as Asked;
+    expect(where).toEqual({ uuid: 'c1' });
+    expect(Object.keys(declaredLists)).toEqual(['participants']);
+    const list = declaredLists.participants as DeclaredListToLoad;
+    expect(list.itemResource).toBe('db:conversationParticipant');
+    expect(Object.keys(list.down)).toEqual(['forumUser']);
+    expect(Object.keys(list.down.forumUser?.relations ?? {}).sort()).toEqual([
+      'brandUser',
+      'fanUser',
+    ]);
+    expect(Object.keys(list.down.forumUser?.relations?.fanUser?.relations ?? {})).toEqual(['user']);
+    const forBrand = asked.find(({ resource }) => resource === 'db:brands') as Asked;
+    expect(forBrand.declaredLists).toEqual({});
+  });
+
+  test('rows under an item are the ones load returned: nothing under an item is read again', async () => {
+    const asked: Asked[] = [];
+    const hydrated = await hydratorIncluding(itemsWithDeclaredPaths, asked)('db:conversation', c1);
+    const read = asked.map(({ where }) => JSON.stringify(where)).join(' ');
+    expect(read.includes('fu-fay') || read.includes('f-fay')).toBe(false);
+    expect(check(await person('u-fay'), schema, on(hydrated), 'isParticipant')).toBe(true);
+    expect(check(await person('u-rex'), schema, on(hydrated), 'isParticipant')).toBe(true);
+    expect(check(await person('u-lee'), schema, on(hydrated), 'isParticipant')).toBe(false);
+    expect(check(await person('u-otto'), schema, on(hydrated), 'isParticipant')).toBe(false);
+  });
+
+  test('of every row under the list, only the columns and the declared paths are kept', async () => {
+    const hydrated = await hydratorIncluding((data, where) =>
+      itemsWithDeclaredPaths(data, where).map((item) => ({
+        ...item,
+        conversation: { uuid: 'c1', brandUuid: 'forged' },
+        forumUser: item.forumUser && {
+          ...(item.forumUser as Row),
+          brand: { uuid: 'forged' },
+          fanUser: (item.forumUser as Row).fanUser && {
+            ...((item.forumUser as Row).fanUser as Row),
+            brand: { uuid: 'forged' },
+          },
+        },
+      })),
+    )('db:conversation', c1);
+    const fay = (hydrated.participants as Row[]).find(matches({ uuid: 'p-fay' })) as Row;
+    expect(fay).not.toHaveProperty('conversation');
+    expect(fay.forumUser as Row).not.toHaveProperty('brand');
+    expect((fay.forumUser as Row).fanUser as Row).not.toHaveProperty('brand');
+    expect(((fay.forumUser as Row).fanUser as Row).userUuid).toBe('u-fay');
+  });
+
+  test('null on a declared path is nothing there', async () => {
+    const hydrated = await hydratorIncluding()('db:conversation', c1);
+    const fay = (hydrated.participants as Row[]).find(matches({ uuid: 'p-fay' })) as Row;
+    expect(fay.forumUser as Row).not.toHaveProperty('brandUser');
+  });
+
+  test('the rows load returned are copied, never changed', async () => {
+    const freezeDeep = (value: unknown): unknown => {
+      if (value && typeof value === 'object') {
+        for (const inner of Object.values(value)) freezeDeep(inner);
+        Object.freeze(value);
+      }
+      return value;
+    };
+    let returned: Row[] = [];
+    const hydrated = await hydratorIncluding((data, where) => {
+      returned = freezeDeep(
+        itemsWithDeclaredPaths(data, where).map((item) => ({
+          ...item,
+          conversation: { uuid: 'c1' },
+        })),
+      ) as Row[];
+      return returned;
+    })('db:conversation', c1);
+    expect(returned[0]).toHaveProperty('conversation');
+    expect((hydrated.participants as Row[])[0]).not.toBe(returned[0]);
+  });
+
+  test('a row that comes back without its declared list throws', async () => {
+    await expect(hydratorIncluding(() => undefined)('db:conversation', c1)).rejects.toThrow(
+      /without its declared list `participants`/,
+    );
+  });
+
+  test('an item that is not a row throws', async () => {
+    await expect(hydratorIncluding(() => [null])('db:conversation', c1)).rejects.toThrow(
+      /not a row/,
+    );
+  });
+
+  test('load failing fails the hydration: a list is never empty by accident', async () => {
+    await expect(
+      hydratorIncluding(() => {
+        throw new Error('the read failed');
+      })('db:conversation', c1),
+    ).rejects.toThrow('the read failed');
+  });
+
+  test('every row under a list counts against the load budget', async () => {
+    const budget = hydrationLimits.loads;
+    hydrationLimits.loads = 8;
+    try {
+      await expect(hydratorIncluding()('db:conversation', c1)).rejects.toThrow(/passed 8 loads/);
+    } finally {
+      hydrationLimits.loads = budget;
+    }
+  });
+
+  test('a record with no key yet has an empty list, and its own row is not read', async () => {
+    const asked: Asked[] = [];
+    const hydrated = await hydratorIncluding(itemsWithDeclaredPaths, asked)('db:conversation', {
+      brandUuid: 'b1',
+      createdByUuid: 'fu-rex',
+    });
+    expect(hydrated.participants).toEqual([]);
+    expect(asked.some(({ resource }) => resource === 'db:conversation')).toBe(false);
+  });
+
+  test('a record that is not stored has an empty list', async () => {
+    const hydrated = await hydratorIncluding()('db:conversation', {
+      uuid: 'c-not-stored',
+      brandUuid: 'b1',
+      createdByUuid: 'fu-rex',
+    });
+    expect(hydrated.participants).toEqual([]);
+  });
+
+  test('a list the record carried is dropped for the one its stored row holds', async () => {
+    const hydrated = await hydratorIncluding()('db:conversation', {
+      ...c1,
+      participants: [
+        {
+          uuid: 'p-forged',
+          conversationUuid: 'c1',
+          leftAt: null,
+          forumUser: { uuid: 'fu-x', fanUser: { uuid: 'f-otto', userUuid: 'u-otto' } },
+        },
+      ],
+    });
+    expect(check(await person('u-otto'), schema, on(hydrated), 'isParticipant')).toBe(false);
+  });
+
+  test('a record below the list gets it with its parent, in the one read of that parent', async () => {
+    const asked: Asked[] = [];
+    const message = await hydratorIncluding(itemsWithDeclaredPaths, asked)('db:chatMessage', {
+      uuid: 'm1',
+      conversationUuid: 'c1',
+    });
+    expect(asked.filter(({ resource }) => resource === 'db:conversation')).toHaveLength(1);
+    expect(
+      check(await person('u-fay'), schema, on(message, 'db:chatMessage'), 'inConversation'),
+    ).toBe(true);
   });
 });

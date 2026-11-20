@@ -25,6 +25,7 @@ import {
 } from '../src/core/lens';
 import { identityKeyOfRow, listOf } from '../src/core/schemaMap';
 import { hydrationLimits } from '../src/helpers/hydration/hydrate';
+import { createHydratorReadingEachRowThroughLoad } from './createHydratorReadingEachRowThroughLoad';
 import { loadModels } from './fixtures/load';
 
 // json-rules' own lens, spelled in the root, decides which paths a rule may name; the hydrator
@@ -158,10 +159,10 @@ const db: Record<string, Record<string, Row>> = {
   conversation: { c1: { id: 'c1', orgId: 'o1', permissionRules: null } },
   message: { m1: { id: 'm1', conversationId: 'c1', authorId: 'u1', mentions: ['aron'] } },
 };
-const hydrate = createHydrator({
+const hydrate = createHydratorReadingEachRowThroughLoad({
   map,
   load: async (resource, where) => db[resource]?.[where.id as string] ?? null,
-  loadMany: async (resource, where) =>
+  loadItems: async (resource, where) =>
     Object.values(db[resource] ?? {}).filter((row) =>
       Object.entries(where).every(([key, value]) => row[key] === value),
     ),
@@ -673,6 +674,7 @@ describe('the root, item paths, unknown resources and wheres on an item', () => 
       },
     };
     const rows: Record<string, Record<string, Row>> = {
+      project: { p1: { id: 'p1' } },
       task: { t1: { id: 't1', projectId: 'p1', assigneeId: 'u1' } },
       user: {
         u1: { id: 'u1', orgId: 'o1', mentorId: 'u2' },
@@ -680,10 +682,10 @@ describe('the root, item paths, unknown resources and wheres on an item', () => 
       },
       org: { o1: { id: 'o1', name: 'acme' } },
     };
-    const load = createHydrator({
+    const load = createHydratorReadingEachRowThroughLoad({
       map: people,
       load: async (resource, where) => rows[resource]?.[where.id as string] ?? null,
-      loadMany: async (resource, where) =>
+      loadItems: async (resource, where) =>
         Object.values(rows[resource] ?? {}).filter((row) =>
           Object.entries(where).every(([key, value]) => row[key] === value),
         ),
@@ -744,14 +746,14 @@ describe('the root, item paths, unknown resources and wheres on an item', () => 
 
 describe('the starting record: a row is known by resource and id', () => {
   const loads: string[] = [];
-  const counting = createHydrator({
+  const counting = createHydratorReadingEachRowThroughLoad({
     map,
     load: async (resource, where) => {
       loads.push(`${resource}:${where.id}`);
       const row = db[resource]?.[where.id as string] ?? null;
       return row?.deletedAt ? null : row;
     },
-    loadMany: async () => [],
+    loadItems: async () => [],
   });
   const loopy: RebacSchema = {
     permissions: {
@@ -1235,11 +1237,11 @@ describe('under a list item only the declared paths exist', () => {
     expect(check(actorAs('x'), schema, { resource: 'conversation', record }, 'read')).toBe(true);
   });
 
-  test('an undeclared to-one that loadMany returned is gone from the item', async () => {
-    const forged = createHydrator({
+  test('an undeclared to-one that came back on an item is gone from it', async () => {
+    const forged = createHydratorReadingEachRowThroughLoad({
       map,
       load: async (resource, where) => db[resource]?.[where.id as string] ?? null,
-      loadMany: async (resource, where) =>
+      loadItems: async (resource, where) =>
         Object.values(db[resource] ?? {})
           .filter((row) => Object.entries(where).every(([key, value]) => row[key] === value))
           .map((row) => ({ ...row, conversation: { id: 'c1', orgId: 'forged' } })),
@@ -1323,10 +1325,10 @@ describe('one down boundary: an item holds only its declared tree', () => {
     },
   };
   const loading = (permissionRules: unknown) =>
-    createHydrator({
+    createHydratorReadingEachRowThroughLoad({
       map: items,
       load: async (resource, where) => rows[resource]?.[where.id as string] ?? null,
-      loadMany: async (resource, where) =>
+      loadItems: async (resource, where) =>
         Object.values(rows[resource] ?? {})
           .filter((row) => Object.entries(where).every(([key, value]) => row[key] === value))
           .map((row) => ({
