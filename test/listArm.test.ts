@@ -9,8 +9,8 @@ import {
   createPermissions,
   createRebacCheck,
   createRebacPaths,
+  type DeclaredListsToLoad,
   type EntitlementEntry,
-  type IncludeOfDeclaredLists,
   PathLimitError,
   type PermissionEntry,
   placeEntitlement,
@@ -179,7 +179,7 @@ const hydratorOver = (data: Store, over: SchemaMap = map, loads: string[] = []) 
       return data[resource]?.find(matches(where)) ?? null;
     },
     loadItems: async (resource, where) => {
-      loads.push(`loadMany ${resource} ${JSON.stringify(where)}`);
+      loads.push(`loadItems ${resource} ${JSON.stringify(where)}`);
       return data[resource]?.filter(matches(where)) ?? [];
     },
   });
@@ -627,8 +627,8 @@ describe('createHydrator: one jump down', () => {
       map,
       loads,
     )('db:conversation', data['db:conversation']?.[0] as Row);
-    expect(loads.filter((line) => line.startsWith('loadMany'))).toEqual([
-      'loadMany db:conversationParticipant {"conversationUuid":"c1"}',
+    expect(loads.filter((line) => line.startsWith('loadItems'))).toEqual([
+      'loadItems db:conversationParticipant {"conversationUuid":"c1"}',
     ]);
     const [fay] = c1.participants as Row[];
     expect(fay).toEqual({
@@ -652,7 +652,7 @@ describe('createHydrator: one jump down', () => {
     const hydrate = hydratorOver(store(), map, loads);
     const created = await hydrate('db:conversation', { brandUuid: 'b1', participants: forged });
     expect(created.participants).toEqual([]);
-    expect(loads.some((line) => line.startsWith('loadMany'))).toBe(false);
+    expect(loads.some((line) => line.startsWith('loadItems'))).toBe(false);
     expect(check(await person('u-otto', 'advocate'), schema, on(created), 'chat')).toBe(false);
     const existing = await hydrate('db:conversation', {
       uuid: 'c-empty',
@@ -672,7 +672,7 @@ describe('createHydrator: one jump down', () => {
       withBack,
       loads,
     )('db:conversation', data['db:conversation']?.[0] as Row);
-    expect(loads.filter((line) => line.startsWith('loadMany')).length).toBe(1);
+    expect(loads.filter((line) => line.startsWith('loadItems')).length).toBe(1);
     expect(loads.some((line) => line.includes('db:fanUsers'))).toBe(false);
   });
 });
@@ -1226,7 +1226,7 @@ describe('load brings the lists a resource declares', () => {
           : null,
       };
     });
-  type Asked = { resource: string; where: Row; include: IncludeOfDeclaredLists | undefined };
+  type Asked = { resource: string; where: Row; declaredLists: DeclaredListsToLoad };
   const hydratorIncluding = (
     participantsOf: (data: Store, where: Row) => unknown = itemsWithDeclaredPaths,
     asked: Asked[] = [],
@@ -1234,38 +1234,29 @@ describe('load brings the lists a resource declares', () => {
   ) =>
     createHydrator({
       map,
-      load: async (resource, where, include) => {
-        asked.push({ resource, where, include });
+      load: async (resource, where, declaredLists) => {
+        asked.push({ resource, where, declaredLists });
         const row = data[resource]?.find(matches(where));
         if (!row) return null;
-        return include?.participants
+        return declaredLists.participants
           ? { ...row, participants: participantsOf(data, { conversationUuid: row.uuid }) }
           : row;
       },
     });
   const c1 = { uuid: 'c1', brandUuid: 'b1', createdByUuid: 'fu-rex' };
 
-  test('load is given an include of the lists the resource declares, and none for a resource without one', async () => {
+  test('load is told the lists the resource declares and the paths under each, and `{}` for a resource with none', async () => {
     const asked: Asked[] = [];
     await hydratorIncluding(itemsWithDeclaredPaths, asked)('db:conversation', c1);
     const forConversation = asked.filter(({ resource }) => resource === 'db:conversation');
     expect(forConversation).toHaveLength(1);
-    const { where, include } = forConversation[0] as Asked;
+    const { where, declaredLists } = forConversation[0] as Asked;
     expect(where).toEqual({ uuid: 'c1' });
-    expect(include).toEqual({
-      participants: {
-        include: {
-          forumUser: {
-            include: {
-              fanUser: { include: { user: true } },
-              brandUser: { include: { user: true } },
-            },
-          },
-        },
-      },
+    expect(declaredLists).toEqual({
+      participants: { forumUser: { fanUser: { user: {} }, brandUser: { user: {} } } },
     });
     const forBrand = asked.find(({ resource }) => resource === 'db:brands') as Asked;
-    expect(forBrand.include).toBeUndefined();
+    expect(forBrand.declaredLists).toEqual({});
   });
 
   test('rows under an item are the ones load returned: nothing under an item is read again', async () => {
@@ -1411,26 +1402,16 @@ describe('load brings the lists a resource declares', () => {
     ).rejects.toThrow(/without its declared list `participants`/);
   });
 
-  test('the record’s own row is read by its key, the read a to-one reaching it shares', async () => {
-    const asked: Asked[] = [];
-    const data = store();
-    (data['db:conversationParticipant'] as Row[]).length = 0;
-    await hydratorIncluding(itemsWithDeclaredPaths, asked, data)('db:conversation', c1);
-    expect(
-      asked.filter(({ resource }) => resource === 'db:conversation').map(({ where }) => where),
-    ).toEqual([{ uuid: 'c1' }]);
-  });
-
   test('rows under an item count against the budget, not only the items', async () => {
     const budget = hydrationLimits.loads;
     const data = store();
     const before = { loads: 0 };
     const counting = createHydrator({
       map,
-      load: async (resource, where, include) => {
+      load: async (resource, where, declaredLists) => {
         before.loads++;
         const row = data[resource]?.find(matches(where));
-        return row && include?.participants ? { ...row, participants: [] } : (row ?? null);
+        return row && declaredLists.participants ? { ...row, participants: [] } : (row ?? null);
       },
     });
     await counting('db:conversation', c1);
@@ -1551,5 +1532,65 @@ describe('a resource that declares two lists on different columns', () => {
     const hydrated = await hydrate('parent', { code: 'x' });
     expect(asked).toEqual([]);
     expect(hydrated.kids).toEqual([]);
+  });
+});
+
+describe('the record’s own row and a to-one that reaches it are one read', () => {
+  const column = (extra: Row = {}) => ({ kind: 'scalar', type: 'String', isList: false, ...extra });
+  const family = {
+    resources: { parent: 'Parent', kid: 'Kid' },
+    fieldMap: {
+      models: {
+        Parent: {
+          fields: {
+            id: { kind: 'scalar', type: 'Int', isList: false, isId: true },
+            featuredKidId: column(),
+            featuredKid: {
+              kind: 'object',
+              type: 'Kid',
+              isList: false,
+              fromFields: ['featuredKidId'],
+              toFields: ['id'],
+            },
+            kids: {
+              kind: 'object',
+              type: 'Kid',
+              isList: true,
+              annotations: { permissions: { down: [] } },
+            },
+          },
+        },
+        Kid: {
+          fields: {
+            id: column({ isId: true }),
+            parentId: { kind: 'scalar', type: 'Int', isList: false },
+            parent: {
+              kind: 'object',
+              type: 'Parent',
+              isList: false,
+              fromFields: ['parentId'],
+              toFields: ['id'],
+            },
+          },
+        },
+      },
+    },
+  } as unknown as SchemaMap;
+
+  test('the row is read once, by its id as the record holds it, when its own to-one leads back to it', async () => {
+    const asked: Row[] = [];
+    const hydrate = createHydrator({
+      map: family,
+      load: async (resource, where) => {
+        if (resource === 'kid') return { id: 'k1', parentId: 5 };
+        asked.push(where);
+        return where.id === 5
+          ? { id: 5, featuredKidId: 'k1', kids: [{ id: 'k1', parentId: 5 }] }
+          : null;
+      },
+    });
+    const hydrated = await hydrate('parent', { id: 5, featuredKidId: 'k1' });
+    expect(asked).toEqual([{ id: 5 }]);
+    expect(hydrated.kids).toEqual([{ id: 'k1', parentId: 5 }]);
   });
 });

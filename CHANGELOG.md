@@ -1,17 +1,19 @@
 ## Unreleased — `load` brings the lists a resource declares; `loadMany` is gone
 
 **Breaking.** `createHydrator({ map, load })`: `loadMany` is removed, and `load` takes a third
-argument, `include`: the lists the resource being loaded declares with the declared paths under
-each, in the shape of a Prisma `include`, or undefined when it declares none
-(`findFirst({ where, include })`). `load` returns the row holding every live item under each
-list's field name, each item holding the row on every declared path. `IncludeOfDeclaredLists` is
-exported.
+argument, `declaredLists`: the lists the resource being loaded declares, by list field name, each
+with the declared paths under an item as nested relation names (`{}` when it declares none).
+`load` returns the row holding every live item under each list's field name, each item holding
+the row on every declared path. The hydrator knows no ORM; `prismaIncludeOfDeclaredLists` turns
+`declaredLists` into a Prisma `include`. `DeclaredListsToLoad`, `DeclaredPaths` and
+`PrismaInclude` are exported.
 
 - **A list is part of its parent's row.** Wherever the row is reached it carries the same list,
   in the one read of that row. The hydrator reads nothing under an item; it copies each item,
   keeping only its columns and the declared paths, and never changes what `load` returned.
 - **The record you pass cannot bring its own list.** The hydrator reads that record's own stored
-  row once, by its key (the key a to-one reaching it uses), and takes the lists from it. A record
+  row once, by its identity with the values as the record holds them (a to-one that joins on those
+  columns shares the read), and takes the lists from it. A record
   with no key yet, **or one `load` does not return (not stored, removed), has `[]`**: before, its
   items were read by its key whether or not it was stored.
 - **Rows under an item are what `load` returns for the list**, where before each came through

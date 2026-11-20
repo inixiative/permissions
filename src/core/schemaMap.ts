@@ -367,7 +367,7 @@ export const keyFromResourceAndColumns = (resource: string, where: Row): string 
   `${resource}\u0000${JSON.stringify(Object.entries(where).sort(([a], [b]) => a.localeCompare(b)))}`;
 
 // why: the engine id field is what the app loads by (Zealot's `uuid`), so it wins over the model's `isId`
-/** The columns that pick a row: the engine id field when the model has it and the row a value, else the model's id columns, else undefined. */
+/** The columns that pick a row, with the values the row holds: the engine id field when the model has it and the row a value, else the model's id columns, else undefined. */
 export const identityColumnsOfRow = (
   map: SchemaMap,
   resource: string,
@@ -375,10 +375,8 @@ export const identityColumnsOfRow = (
   field = idField(),
 ): Row | undefined => {
   const model = modelOf(map.fieldMap, map.resources[resource] as string);
-  const id = fieldOf(map.fieldMap, map.resources[resource] as string, field)
-    ? recordId(record, field)
-    : undefined;
-  if (id !== undefined) return { [field]: id };
+  if (fieldOf(map.fieldMap, map.resources[resource] as string, field) && !hasNoValue(record[field]))
+    return { [field]: record[field] };
   const { idColumns } = indexMap(map);
   if (!idColumns.has(resource)) {
     const single = Object.entries(model?.fields ?? {})
@@ -390,13 +388,14 @@ export const identityColumnsOfRow = (
     );
   }
   const columns = idColumns.get(resource) as readonly string[];
-  const values = columns.map((column) => [column, recordId(record, column)] as const);
-  return values.length && values.every(([, value]) => value !== undefined)
-    ? Object.fromEntries(values)
-    : undefined;
+  if (!columns.length || columns.some((column) => hasNoValue(record[column]))) return undefined;
+  const identity: Row = {};
+  for (const column of columns) identity[column] = record[column];
+  return identity;
 };
 
-/** A row's key (`identityColumnsOfRow`, encoded with its resource), or undefined (the object). */
+// why: a key is text, so `5` and `'5'` are one row here while `load` is asked with the value as held
+/** A row's key (`identityColumnsOfRow`, each value as a string, encoded with its resource), or undefined (the object). */
 export const identityKeyOfRow = (
   map: SchemaMap,
   resource: string,
@@ -404,7 +403,10 @@ export const identityKeyOfRow = (
   field = idField(),
 ): string | undefined => {
   const columns = identityColumnsOfRow(map, resource, record, field);
-  return columns && keyFromResourceAndColumns(resource, columns);
+  if (!columns) return undefined;
+  const asText: Row = {};
+  for (const [column, value] of Object.entries(columns)) asText[column] = String(value);
+  return keyFromResourceAndColumns(resource, asText);
 };
 
 /** Every to-one relation of `resource` the hydrator follows, by field name. */

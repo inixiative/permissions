@@ -223,9 +223,9 @@ is refused), and a path may not start back up that key. A list that is not decla
 crossed.
 
 - **What loads, and what doesn't.** A declared list is part of its parent's row: `load` is asked
-  for the parent with an include of the lists it declares, and returns the row holding every live
-  item, each item holding the row on every declared path (in a Prisma app, one `findFirst` with
-  that include). Wherever that row is reached, as the record you pass or as a parent of it,
+  for the parent with the lists it declares, and returns the row holding every live item, each
+  item holding the row on every declared path (in a Prisma app, one `findFirst` with the include
+  `prismaIncludeOfDeclaredLists` gives). Wherever that row is reached, as the record you pass or as a parent of it,
   it carries the same list. The hydrator reads nothing more under an item and keeps of each item
   only its columns and the declared paths: none of its other parents, no second list, nothing
   above the rows on a declared path. That is what "one jump down" means, and it is why loading
@@ -836,21 +836,27 @@ Give it the map and `load`, one read of a resource's record by its target column
 column of a composite key). `load` is the cache seam: the hydrator de-duplicates loads within one
 hydration, your wrapper caches across calls.
 
-`load` takes a third argument, `include`: the lists the resource declares
-(`/// @permissions(down: [...])`) with the declared paths under each, already in the shape of a
-Prisma `include` (`{ participants: { include: { forumUser: { include: { fanUser: true } } } } }`).
-It is undefined for a resource that declares no list, so it goes to the read as it is. Return the
-row with every list on it:
+`load` takes a third argument, `declaredLists`: the lists the resource declares
+(`/// @permissions(down: [...])`), by list field name, each with the declared paths under an item
+as nested relation names (`{ participants: { forumUser: { fanUser: {}, brandUser: {} } } }`; `{}`
+for a resource that declares none). The hydrator knows no ORM, so how the row is read is yours;
+`prismaIncludeOfDeclaredLists(declaredLists)` gives the Prisma `include` (undefined when there is
+nothing to include). Return the row with every list on it:
 
 - every live item under the list's field name, and on each item the row on every declared path;
 - each of those rows exactly as `load` would return it by itself: a removed or hidden row left
-  out (a to-one include does not filter by itself), nothing truncated. A truncated list denies
-  real members, and a removed row left in admits one;
+  out, nothing truncated. A truncated list denies real members, and a removed row left in admits
+  one;
 - a row that comes back without a declared list throws, so a `load` that ignores the argument
   fails loudly instead of denying everyone.
 
 ```ts
-import { createHydrator, createRebacCheck, type SchemaMap } from '@inixiative/permissions';
+import {
+  createHydrator,
+  createRebacCheck,
+  prismaIncludeOfDeclaredLists,
+  type SchemaMap,
+} from '@inixiative/permissions';
 // written by `bunx field-map generate` after `prisma generate`
 import { prismaMap } from './generated/prismaMap.gen';
 
@@ -863,13 +869,22 @@ const map: SchemaMap = {
 const check = createRebacCheck(map);
 const hydrate = createHydrator({
   map,
-  load: (resource, where, include) =>
-    cached(resource, where, () => db[resource].findFirst({ where, include })),
+  load: (resource, where, declaredLists) =>
+    cached(resource, where, () =>
+      db[resource].findFirst({ where, include: prismaIncludeOfDeclaredLists(declaredLists) }),
+    ),
 });
 
 const doc = await hydrate('document', await db.document.findFirstOrThrow({ where: { id } }));
 check(permix, schema, { resource: 'document', record: doc }, 'manage');
 ```
+
+**If your rows can be removed without being deleted (soft deletes), this sample is not enough.**
+Prisma filters a to-many include you put a `where` on, but a to-one include takes no `where`: a
+removed row under an item comes back, and a rule that reads it admits someone it should not.
+Leave those rows out before `load` returns: drop every row under an item that carries your
+removal mark, or make the items themselves follow their parents' removal so the list never holds
+them.
 
 Because the row carries its lists, a cache behind `load` clears the parent's entry when an item,
 or a row under one, changes.
@@ -883,7 +898,7 @@ or a row under one, changes.
   already carried there is dropped. A request body spread into a record
   (`hydrate('message', { ...body })`) can therefore not bring its own `conversation` with a
   participant list in it. For the record you pass, the hydrator reads that record's own stored
-  row once, by its key, and takes the lists from it; a record with no key yet, or one `load`
+  row once, by its identity, and takes the lists from it; a record with no key yet, or one `load`
   does not return (not stored, removed), has `[]`. Everything else is left as given (a holder's
   `targetEntitlements` the app loaded, a relation keyed on the other side); no stored rule may
   name it ([the lens](#what-a-rule-may-read-the-relation-lens)). Columns are left as given too:
@@ -904,9 +919,10 @@ or a row under one, changes.
   `rel` walks it. Use it for an edge that is not part of ownership, or to break a loop in the
   schema.
 - **Cycles:** a stored row is one object wherever the hydrator reaches it, so a loop is the real
-  cyclic graph and every row loads once. The root is your record, not a stored row, so an edge
+  cyclic graph and every row loads once per key it is reached by (a to-one that joins on a column
+  other than the row's identity reads it under that key). The root is your record, not a stored row, so an edge
   back to it loads the row. Under a list item the declared paths are loaded as written and never
-  linked. A hydration that passes 10,000 loads throws. A cyclic record is not
+  linked. A hydration that takes in more than 10,000 rows throws. A cyclic record is not
   `JSON.stringify`-able; serialise the row, not the hydrated record.
 
 Records are plain data: `check` reads the record it is given and cannot tell a loaded row from
