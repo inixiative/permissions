@@ -30,7 +30,6 @@ export {
   schemaRuleIssues,
   validateSchema,
 } from './src/core/validateSchema';
-export * from './src/core/validateTenantPermissionRules';
 export * from './src/helpers/delegation/capAtRole';
 export * from './src/helpers/delegation/delegate';
 export * from './src/helpers/delegation/permissions';

@@ -12,8 +12,8 @@ import {
   whyRelationPathCannotBeWalked,
 } from './lens';
 import { listsOf, relationOf, type SchemaMap } from './schemaMap';
-import type { ActionRule, RebacSchema, TenantPath } from './types';
-import { type ActionRuleContext, validateActionRule } from './validateActionRule';
+import type { ActionRule, RebacSchema } from './types';
+import { validateActionRule } from './validateActionRule';
 
 /** Walk a `{ rel }` path from `at` as a check hops it: the lenses where it lands, or why it cannot be walked. */
 const walkRelationPath = (
@@ -207,21 +207,6 @@ export const issuesForRuleReadsOutsideLens = (
     (issue) => issue.code !== 'action' && issueRefusesTheRead(issue),
   );
 
-/**
- * Every issue of one rule placed at `context.resource`'s `context.action`: its shape, a loop back
- * to its own action and, with the `map`, every read outside the lens. Empty when `check` merges it.
- */
-export const issuesForActionRuleAt = (
-  rule: unknown,
-  context: ActionRuleContext,
-  map?: SchemaMap,
-): ValidationIssue[] => {
-  const shape = validateActionRule(rule, context).errors;
-  return shape.length || !map
-    ? shape
-    : issuesForRuleReadsOutsideLens(map, context.schema, context.resource, rule as ActionRule);
-};
-
 // why: a resource with no model in the map has no lens, so nothing it reads could be refused
 const unmapped = (map: SchemaMap, schema: RebacSchema): ValidationIssue[] => {
   const far = new Set(
@@ -272,49 +257,14 @@ const lensWarnings = (map: SchemaMap, schema: RebacSchema): ValidationIssue[] =>
       : [];
   });
 
-/** The relation path of a `tenantPaths` entry. */
-export const pathOfTenantPath = (tenantPath: TenantPath): string =>
-  typeof tenantPath === 'string' ? tenantPath : tenantPath.path;
-
-// Every `tenantPaths` entry that is not a walk of followed to-one relations from its resource.
-const tenantPathIssues = (map: SchemaMap, schema: RebacSchema): ValidationIssue[] =>
-  Object.entries(schema.permissions).flatMap(([resource, permission]) =>
-    (permission?.tenantPaths ?? []).flatMap((tenantPath) => {
-      const path = pathOfTenantPath(tenantPath);
-      const problem =
-        path === ''
-          ? { message: 'a tenant path names at least one relation' }
-          : whyRelationPathCannotBeWalked(map, lensesAtRow(map, resource), path);
-      return problem
-        ? [{ path: `${resource}.tenantPaths`, code: 'tenantPaths', message: problem.message }]
-        : [];
-    }),
-  );
-
-/** Every action a well-formed rule at `resource` names that its resource does not have. */
-export const issuesForUndefinedActions = (
-  map: SchemaMap,
-  schema: RebacSchema,
-  resource: string,
-  rule: ActionRule,
-): ValidationIssue[] =>
-  relIssues(map, schema, lensesAtRow(map, resource), rule, '$').filter(
-    (issue) => issue.code === 'action',
-  );
-
 /**
  * A whole schema against the map, for a test or boot: well formed, positive, inside the lens,
- * every action defined, every tenant path walkable (`errors`), and every resource whose row
- * hydrates too much (`warnings`).
+ * every action defined (`errors`), and every resource whose row hydrates too much (`warnings`).
  */
 export const validateSchema = (
   map: SchemaMap,
   schema: RebacSchema,
 ): ValidationResult & { warnings: ValidationIssue[] } => {
-  const errors = [
-    ...issuesOfEveryActionRule(schema, true),
-    ...readIssues(map, schema),
-    ...tenantPathIssues(map, schema),
-  ];
+  const errors = [...issuesOfEveryActionRule(schema, true), ...readIssues(map, schema)];
   return { ok: errors.length === 0, errors, warnings: lensWarnings(map, schema) };
 };

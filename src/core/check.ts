@@ -23,9 +23,9 @@ export type RebacCheck<R extends string = string> = (
  */
 export const createRebacCheck = <R extends string = string>(
   map: SchemaMap<R>,
-  { absent = 'null' }: CheckOptions = {},
+  { absent = 'null', additionalRules }: CheckOptions = {},
 ): RebacCheck<R> => {
-  const walker = createWalker(map, absent, booleanAlgebra);
+  const walker = createWalker(map, absent, booleanAlgebra, false, additionalRules);
   return (permix, schema, subject, actionOrRule) => walker(permix, schema, subject, actionOrRule);
 };
 
@@ -47,9 +47,9 @@ export type PathsOptions = CheckOptions & { limit?: number };
  */
 export const createRebacPaths = <R extends string = string>(
   map: SchemaMap<R>,
-  { absent = 'null', limit = 20 }: PathsOptions = {},
+  { absent = 'null', limit = 20, additionalRules }: PathsOptions = {},
 ): RebacPaths<R> => {
-  const walker = createWalker(map, absent, pathsAlgebra(limit));
+  const walker = createWalker(map, absent, pathsAlgebra(limit), false, additionalRules);
   return (permix, schema, subject, actionOrRule) => walker(permix, schema, subject, actionOrRule);
 };
 

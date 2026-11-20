@@ -61,18 +61,18 @@ export type ActionRuleContext = {
   resource: string;
   action: string;
   rowRules?: Record<string, unknown> | null;
-  /** Each tenant's rules for `resource` that reach the same record (`action → rule`). */
-  tenantRules?: readonly (Record<string, unknown> | null | undefined)[];
+  /** The other rule sets that reach the same record (`action → rule`). */
+  additionalRules?: readonly (Record<string, unknown> | null | undefined)[];
 };
 
 const cycles = (
   rule: unknown,
-  { schema, resource, action, rowRules, tenantRules = [] }: ActionRuleContext,
+  { schema, resource, action, rowRules, additionalRules = [] }: ActionRuleContext,
 ) => {
   const actions = schema.permissions[resource]?.actions ?? {};
   const reached = delegationReach(
     allDelegates(rule),
-    (next) => [actions[next], rowRules?.[next], ...tenantRules.map((rules) => rules?.[next])],
+    (next) => [actions[next], rowRules?.[next], ...additionalRules.map((rules) => rules?.[next])],
     allDelegates,
   );
   return reached.has(action)
@@ -83,7 +83,7 @@ const cycles = (
 /**
  * An action rule's shape, and every `{ rule }` in it a positive json-rules condition. Given where
  * the rule sits (`context`), also refuses a rule that delegates back to its own action on the same
- * record, through the schema, the record's other rules or its tenants' rules.
+ * record, through the schema, the record's other rules or the additional rule sets.
  */
 export const validateActionRule = (
   rule: unknown,

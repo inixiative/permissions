@@ -1,22 +1,14 @@
-## 0.26.0 — a tenant's own rules for the records under it
+## 0.26.0 — an app can hand the check more rules for a record
 
-- **`tenantPermissionRules`** (`resource → action → ActionRule`) on a tenant row, and
-  **`tenantPaths`** on a resource's schema entry: the relation paths from a record to the rows above
-  it whose rules it reads. `check` ORs each such rule with the schema rule and the record's own
-  `permissionRules` when it resolves that action. It only widens, and it cannot name an action the
-  schema lacks.
-- **A tenant path may be guarded by kind** (`{ path, kinds: { field, values } }`): it counts only on a
-  record of that kind, so a relation set for several owner kinds is a tenant path only where the
-  tenant owns the record.
-- **`validateTenantPermissionRules(rules, { schema, map?, tenant? })`** validates the value before an app
-  saves it; with `tenant`, it refuses a resource whose records never reach that kind of row. `validateSchema` refuses a tenant path that is not a walk of to-one relations.
-  `validateActionRule`'s context takes `tenantRules`, so a loop through a tenant's rule is a cycle.
-- **Why.** A row rule (`permissionRules`) shares one record, and the schema is the same for every
-  tenant. Nothing let one tenant say "every contact of mine is readable" or "any seller here may
-  request on any deal" without a code change per customer. Now that is data the tenant owns.
-- **Not limited.** A tenant may open any action of any resource that declares `tenantPaths`. Which
-  actions an app lets a tenant open is the app's call for now; a lens over the schema that limits
-  it is the planned follow-up.
+- **`additionalRules`** on `createRebacCheck`, `createRebacPaths` and `createCanGrantEntitlement`: a
+  function from a resource and a record to more rule sets (`action → ActionRule`). `check` ORs each
+  with the schema rule and the record's own `permissionRules`, where the row rule is merged today.
+  It only widens, cannot name an action the schema lacks, and a rule that is not positive, loops or
+  reads outside the lens is dropped. `validateActionRule`'s context takes `additionalRules`, so a
+  loop through one is a cycle.
+- **Why.** A row rule shares one record, and the schema is the same for every tenant. An app that
+  lets a tenant open every record it owns needs to pass those rules in. The library still has no
+  notion of a tenant: the app decides which rows a record's extra rules come from.
 
 ## 0.25.0 — the lenses a rule is judged in are exported
 

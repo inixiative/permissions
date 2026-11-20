@@ -25,7 +25,6 @@ what.
 | place | `placeEntitlement`, `placeUnder` | Build the stand-in records a grant is checked on, below its hydrated anchor along the entry's path. |
 | hydrate | `createHydrator` | Build the loader that puts on a record every relation the lens follows, so a check never reads a relation that was not loaded; `hydrationLimits` is its load budget. |
 | validate | `validateActionRule` | Whether one action rule is well formed and positive, and does not delegate back to its own action. |
-| validate | `validateTenantPermissionRules` | Whether a tenant's rules for the records under it name only resources with tenant paths and actions the schema has, each rule well formed, positive, loop-free and (with the map) inside the lens, before the app saves them. |
 | validate | `validateSchema`, `schemaRuleIssues` | Every issue in a schema against its map (shape, cycles, reads outside the lens, undefined actions); the shape issues alone, without the map. |
 | validate | `entitlementProblem`, `wellFormedEntitlements` | Why one entitlement entry is malformed, or null; the well-formed entries of a list. |
 | validate | `whyEntitlementWhereLeavesLens` | Why an entitlement's `where` reads something the lens does not load, or null, for an app that validates a row before saving it. |
@@ -51,7 +50,7 @@ what.
 | hop to a related row | `src/core/evaluate.ts` (`{ rel }` and the list arm), `src/core/bridgeHop.ts` (a bridge) | — |
 | remember a node's answer for one check | `src/core/evaluate.ts` (`walkAction`; `isNodeOnPath` is the counted test for a node on the path, `entitled`'s owner test included; a remembered answer's footprint is read against `visited` uncounted; the per-check state is `WhatOneCheckRemembers`) | — (a node reached after a hop: kept when no test in its walk found a node on the path, reused while no answer in its footprint is on the path; nothing outlives the check) |
 | consult an entitlement | `src/core/entitled.ts` (`entitled`) | — |
-| walk an anchor path on a record | `src/core/schemaMap.ts` (`rowsAlongAnchorPath`; `anchorRowReachedFrom`, whether it reaches the anchor) | — (used by `entitled`, `rowsAbove`, placement and `tenantRulesOf` in `evaluate.ts`) |
+| walk an anchor path on a record | `src/core/schemaMap.ts` (`rowsAlongAnchorPath`; `anchorRowReachedFrom`, whether it reaches the anchor) | — (used by `entitled`, `rowsAbove` and placement) |
 | walk the delegation graph | `src/core/reachableFrom.ts` (`delegationReach`) | — (used by `reachableFrom` and `validateActionRule`'s cycle test) |
 | identify a row | `src/core/schemaMap.ts` (`identityKeyOfRow`, `keyFromResourceAndColumns`), `src/core/recordId.ts` (`recordId`, `hasNoValue`: null, undefined or `''` is no value); on a walk, `src/core/evaluate.ts` (`identifyRowOncePerCheck`, once per row and resource in one check) | — (the hydrator and loop detection share one key) |
 | load a row | `src/helpers/hydration/hydrate.ts` | — (the app's `load` / `loadMany` are called nowhere else) |

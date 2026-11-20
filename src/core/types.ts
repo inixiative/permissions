@@ -26,26 +26,8 @@ export type ActionRule =
   | boolean // terminal allow (`true`) / deny (`false`)
   | null; // terminal deny (equivalent to `false`)
 
-/**
- * A relation path from a record to a tenant row above it (`'organization'`, `'space.organization'`).
- * With `kinds`, the path counts only on a record whose `kinds.field` is one of `kinds.values`: a
- * `user` relation that is set for several owner kinds is a tenant path only when the user owns it.
- */
-export type TenantPath =
-  | string
-  | { path: string; kinds: { field: string; values: readonly string[] } };
-
-/**
- * One resource's permission entry: `actions: { name → ActionRule }`. `tenantPaths` name the rows
- * above a record whose `tenantPermissionRules` also apply to it.
- */
-export type ResourcePermission = {
-  actions: Record<string, ActionRule>;
-  tenantPaths?: readonly TenantPath[];
-};
-
-/** A tenant row's own rules for the records under it: `resource → action → ActionRule`, each ORed with the schema's. */
-export type TenantPermissionRules = Record<string, Record<string, ActionRule>>;
+/** One resource's permission entry: `actions: { name → ActionRule }`. */
+export type ResourcePermission = { actions: Record<string, ActionRule> };
 
 /**
  * The permission schema. `permissions` maps a (map-qualified) resource — e.g. `db:User` — to its
@@ -76,8 +58,19 @@ export type Subject<R extends string = string> = {
  */
 export type Anchor = { resource: string; id: string; path?: string };
 
+/**
+ * More rule sets for a record, each `action → ActionRule`: the app decides where they come from
+ * (the rows that own the record, for one). `check` ORs each with the schema rule and the record's
+ * own `permissionRules`, so they only widen, and drops one it would refuse as a row rule.
+ */
+export type AdditionalRules = (
+  resource: string,
+  record: Row,
+) => readonly (Record<string, ActionRule> | null | undefined)[];
+
 export type CheckOptions = {
   absent?: Absent;
+  additionalRules?: AdditionalRules;
 };
 
 /**
