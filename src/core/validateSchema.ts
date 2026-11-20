@@ -257,14 +257,33 @@ const lensWarnings = (map: SchemaMap, schema: RebacSchema): ValidationIssue[] =>
       : [];
   });
 
+// Every `tenantPaths` entry that is not a walk of followed to-one relations from its resource.
+const tenantPathIssues = (map: SchemaMap, schema: RebacSchema): ValidationIssue[] =>
+  Object.entries(schema.permissions).flatMap(([resource, permission]) =>
+    (permission?.tenantPaths ?? []).flatMap((tenantPath) => {
+      const problem =
+        tenantPath === ''
+          ? { message: 'a tenant path names at least one relation' }
+          : whyRelationPathCannotBeWalked(map, lensesAtRow(map, resource), tenantPath);
+      return problem
+        ? [{ path: `${resource}.tenantPaths`, code: 'tenantPaths', message: problem.message }]
+        : [];
+    }),
+  );
+
 /**
  * A whole schema against the map, for a test or boot: well formed, positive, inside the lens,
- * every action defined (`errors`), and every resource whose row hydrates too much (`warnings`).
+ * every action defined, every tenant path walkable (`errors`), and every resource whose row
+ * hydrates too much (`warnings`).
  */
 export const validateSchema = (
   map: SchemaMap,
   schema: RebacSchema,
 ): ValidationResult & { warnings: ValidationIssue[] } => {
-  const errors = [...issuesOfEveryActionRule(schema, true), ...readIssues(map, schema)];
+  const errors = [
+    ...issuesOfEveryActionRule(schema, true),
+    ...readIssues(map, schema),
+    ...tenantPathIssues(map, schema),
+  ];
   return { ok: errors.length === 0, errors, warnings: lensWarnings(map, schema) };
 };

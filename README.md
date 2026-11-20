@@ -141,6 +141,40 @@ its own action (a cycle), or that reads outside the [relation lens](#what-a-rule
 widens nothing. Validate tenant-authored rules with `validateActionRule`
 before persisting them too, so the author hears about it.
 
+### A tenant's own rules: `tenantPermissionRules`
+
+A row rule opens one record. A tenant's rule opens every record of a model under that tenant: it is
+the tenant's own addition to the schema, stored as data. A tenant row carries
+`tenantPermissionRules` (`resource → action → ActionRule`), and a resource says which rows above its
+records count, as relation paths:
+
+```ts
+'db:contact': {
+  actions: { ...ownerActions() },
+  tenantPaths: ['user', 'organization', 'space', 'space.organization'],
+},
+```
+
+```ts
+organization.tenantPermissionRules = { 'db:contact': { read: true } };
+```
+
+When `check` resolves an action on a record, it ORs the schema rule, the record's own
+`permissionRules`, and the rule each tenant on those paths holds for that resource and action. So it
+only widens: a tenant cannot make the schema stricter, and cannot add an action the schema lacks.
+Each stored rule is validated before it is merged, exactly as a row rule is, so one that is not
+positive, loops back to its own action or reads outside the lens widens nothing. List every tenant
+up the owner chain in `tenantPaths` to let a parent's rule reach its children's records.
+
+`validateTenantPermissionRules(rules, { schema, map })` is the check to run before saving: it
+refuses a resource without `tenantPaths`, an action the resource does not have, and any rule
+`check` would ignore. `validateSchema` refuses a `tenantPaths` entry that is not a walk of to-one
+relations.
+
+**This is as open as the app makes it.** A tenant may put `true` on any action of any resource that
+declares `tenantPaths`, `own` included. The library does not limit which actions a tenant may open;
+an app that wants a limit refuses the write.
+
 ## Crossing a list: some item passes
 
 A `{ rel, action }` walk is to-one and never crosses a list. A rule that turns on a row in a list
@@ -744,8 +778,9 @@ the redundant ones; anything but an array is none.
 
 ## Tenant boundaries
 
-The library has no notion of a tenant. A boundary is whatever junction rows your app turns into
-tables, and there are two kinds:
+The library does not know which of your models is a tenant: a resource names the rows above it
+whose [`tenantPermissionRules`](#a-tenants-own-rules-tenantpermissionrules) it reads, and a boundary
+is whatever junction rows your app turns into tables. Boundaries are of two kinds:
 
 - **Acting for a tenant (membership).** A member of an organization holds a role *at* the
   organization: table entries on `db:organization`, installed from the membership row. Whatever the

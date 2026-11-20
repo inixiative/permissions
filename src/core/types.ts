@@ -26,8 +26,18 @@ export type ActionRule =
   | boolean // terminal allow (`true`) / deny (`false`)
   | null; // terminal deny (equivalent to `false`)
 
-/** One resource's permission entry: `actions: { name → ActionRule }`. */
-export type ResourcePermission = { actions: Record<string, ActionRule> };
+/**
+ * One resource's permission entry: `actions: { name → ActionRule }`. `tenantPaths` are the relation
+ * paths from a record to the rows above it whose `tenantPermissionRules` also apply to it
+ * (`'organization'`, `'space.organization'`).
+ */
+export type ResourcePermission = {
+  actions: Record<string, ActionRule>;
+  tenantPaths?: readonly string[];
+};
+
+/** A tenant row's own rules for the records under it: `resource → action → ActionRule`, each ORed with the schema's. */
+export type TenantPermissionRules = Record<string, Record<string, ActionRule>>;
 
 /**
  * The permission schema. `permissions` maps a (map-qualified) resource — e.g. `db:User` — to its

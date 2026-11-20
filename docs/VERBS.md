@@ -25,6 +25,7 @@ what.
 | place | `placeEntitlement`, `placeUnder` | Build the stand-in records a grant is checked on, below its hydrated anchor along the entry's path. |
 | hydrate | `createHydrator` | Build the loader that puts on a record every relation the lens follows, so a check never reads a relation that was not loaded; `hydrationLimits` is its load budget. |
 | validate | `validateActionRule` | Whether one action rule is well formed and positive, and does not delegate back to its own action. |
+| validate | `validateTenantPermissionRules` | Whether a tenant's rules for the records under it name only resources with tenant paths and actions the schema has, each rule well formed, positive, loop-free and (with the map) inside the lens, before the app saves them. |
 | validate | `validateSchema`, `schemaRuleIssues` | Every issue in a schema against its map (shape, cycles, reads outside the lens, undefined actions); the shape issues alone, without the map. |
 | validate | `entitlementProblem`, `wellFormedEntitlements` | Why one entitlement entry is malformed, or null; the well-formed entries of a list. |
 | validate | `whyEntitlementWhereLeavesLens` | Why an entitlement's `where` reads something the lens does not load, or null, for an app that validates a row before saving it. |

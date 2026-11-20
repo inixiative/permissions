@@ -1,3 +1,20 @@
+## 0.26.0 — a tenant's own rules for the records under it
+
+- **`tenantPermissionRules`** (`resource → action → ActionRule`) on a tenant row, and
+  **`tenantPaths`** on a resource's schema entry: the relation paths from a record to the rows above
+  it whose rules it reads. `check` ORs each such rule with the schema rule and the record's own
+  `permissionRules` when it resolves that action. It only widens, and it cannot name an action the
+  schema lacks.
+- **`validateTenantPermissionRules(rules, { schema, map? })`** validates the value before an app
+  saves it. `validateSchema` refuses a tenant path that is not a walk of to-one relations.
+  `validateActionRule`'s context takes `tenantRules`, so a loop through a tenant's rule is a cycle.
+- **Why.** A row rule (`permissionRules`) shares one record, and the schema is the same for every
+  tenant. Nothing let one tenant say "every contact of mine is readable" or "any seller here may
+  request on any deal" without a code change per customer. Now that is data the tenant owns.
+- **Not limited.** A tenant may open any action of any resource that declares `tenantPaths`. Which
+  actions an app lets a tenant open is the app's call for now; a lens over the schema that limits
+  it is the planned follow-up.
+
 ## 0.25.0 — the lenses a rule is judged in are exported
 
 - **`lensesAtRow(map, resource)`** and **`lensesAtListItem(map, resource, field)`** (with the types

@@ -7,7 +7,13 @@ import { answerOnce } from './freezeThenJudgeOnce';
 import { permixId, rowId } from './identity';
 import type { PositionUnderListItem } from './lens';
 import { recordId } from './recordId';
-import { identityKeyOfRow, listOf, relationOf, type SchemaMap } from './schemaMap';
+import {
+  identityKeyOfRow,
+  listOf,
+  relationOf,
+  rowsAlongAnchorPath,
+  type SchemaMap,
+} from './schemaMap';
 import type { ActionRule, PermixLike, RebacSchema, Row } from './types';
 import { validateActionRule } from './validateActionRule';
 import { issuesForRuleReadsOutsideLens } from './validateSchema';
@@ -49,6 +55,7 @@ type RememberedAnswer<T> = {
 type WhatOneCheckRemembers<T = unknown> = {
   rowIds: WeakMap<Row, Map<string, string>>;
   rowRulesThatHold: WeakMap<Row, Map<string, boolean>>;
+  tenantRulesThatHold: WeakMap<Row, Map<string, ActionRule[]>>;
   answers: WeakMap<Row, Map<string, RememberedAnswer<T>>> | undefined;
   nodesFoundOnPath: number;
   /** null at no hops, where nothing is kept; undefined until a node past a hop meets its first child. */
@@ -59,6 +66,7 @@ type WhatOneCheckRemembers<T = unknown> = {
 export const startOneCheck = <T>(): WhatOneCheckRemembers<T> => ({
   rowIds: new WeakMap(),
   rowRulesThatHold: new WeakMap(),
+  tenantRulesThatHold: new WeakMap(),
   answers: undefined,
   nodesFoundOnPath: 0,
   footprintOfThisNode: null,
@@ -205,6 +213,21 @@ const walkAction = <R extends string, T>(
   return answer;
 };
 
+/** The rules for `resource` on each tenant row `record` reaches along the resource's `tenantPaths`. */
+const tenantRulesOf = <R extends string, T>(
+  walk: Walk<R, T>,
+  resource: R,
+  record: Row,
+): Record<string, ActionRule>[] =>
+  (walk.schema.permissions[resource]?.tenantPaths ?? []).flatMap((path) => {
+    const segments = path.split('.');
+    const tenant = rowsAlongAnchorPath(walk.map, resource, record, segments)[segments.length]?.row;
+    const rules = (tenant?.tenantPermissionRules as Record<string, unknown> | null | undefined)?.[
+      resource
+    ];
+    return isPlainObject(rules) ? [rules as Record<string, ActionRule>] : [];
+  });
+
 const walkActionRules = <R extends string, T>(
   walk: Walk<R, T>,
   permix: PermixLike,
@@ -215,24 +238,31 @@ const walkActionRules = <R extends string, T>(
 ): T => {
   const schemaRule = walk.schema.permissions[resource]?.actions[actionOrRule] ?? null;
   const rowRules = record.permissionRules as Record<string, ActionRule> | null | undefined;
+  const tenantRules = tenantRulesOf(walk, resource, record);
+  const holds = (rule: ActionRule) =>
+    validateActionRule(rule, {
+      schema: walk.schema,
+      resource,
+      action: actionOrRule,
+      rowRules,
+      tenantRules,
+    }).ok && issuesForRuleReadsOutsideLens(walk.map, walk.schema, resource, rule).length === 0;
+  const node = `${resource}\u0000${actionOrRule}`;
   const rowRule = rowRules?.[actionOrRule];
   const rowRuleHolds =
     rowRule !== undefined &&
-    answerOnce(
-      walk.oneCheck.rowRulesThatHold,
-      record,
-      `${resource}\u0000${actionOrRule}`,
-      () =>
-        validateActionRule(rowRule, {
-          schema: walk.schema,
-          resource,
-          action: actionOrRule,
-          rowRules,
-        }).ok &&
-        issuesForRuleReadsOutsideLens(walk.map, walk.schema, resource, rowRule).length === 0,
-    );
-  // Row-level override is additive (OR) with the schema rule — a per-record grant can only widen.
-  const merged: ActionRule = rowRuleHolds ? { any: [schemaRule, rowRule] } : schemaRule;
+    answerOnce(walk.oneCheck.rowRulesThatHold, record, node, () => holds(rowRule));
+  const tenantRulesThatHold = tenantRules.length
+    ? answerOnce(walk.oneCheck.tenantRulesThatHold, record, node, () =>
+        tenantRules.flatMap((rules) => {
+          const rule = rules[actionOrRule];
+          return rule !== undefined && holds(rule) ? [rule] : [];
+        }),
+      )
+    : [];
+  // A record's own rule and its tenants' rules are additive (OR) with the schema rule: each can only widen.
+  const added = [...(rowRuleHolds ? [rowRule as ActionRule] : []), ...tenantRulesThatHold];
+  const merged: ActionRule = added.length ? { any: [schemaRule, ...added] } : schemaRule;
   return walk.algebra.any([
     () => evaluate(walk, permix, resource, record, merged, visited),
     () => entitled(walk, permix, resource, record, actionOrRule, visited),
