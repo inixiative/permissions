@@ -3,7 +3,6 @@ import type { Condition, FieldMap } from '@inixiative/json-rules';
 import {
   type ActionRule,
   createCanGrantEntitlement,
-  createHydrator,
   createPermissions,
   createRebacCheck,
   type EntitlementEntry,
@@ -13,6 +12,7 @@ import {
   type SchemaMap,
   validateSchema,
 } from '../index';
+import { createHydratorReadingEachRowThroughLoad } from './createHydratorReadingEachRowThroughLoad';
 import { annotate, loadModels } from './fixtures/load';
 import { stringColumn } from './schemaMaps';
 
@@ -624,6 +624,7 @@ describe('a junction list: a resource is reached through a project it is attache
   };
   const rows: Record<string, Row[]> = {
     'db:organization': [o1, { id: 'o2' }],
+    'db:integrationResource': [{ id: 'r1' }, { id: 'r2' }],
     'db:project': [
       { id: 'p1', organizationId: 'o1' },
       { id: 'p2', organizationId: 'o2' },
@@ -635,10 +636,10 @@ describe('a junction list: a resource is reached through a project it is attache
   };
   const matches = (where: Row) => (row: Row) =>
     Object.entries(where).every(([key, value]) => row[key] === value);
-  const hydrate = createHydrator({
+  const hydrate = createHydratorReadingEachRowThroughLoad({
     map: junction,
     load: async (of, where) => rows[of]?.find(matches(where)) ?? null,
-    loadMany: async (of, where) => rows[of]?.filter(matches(where)) ?? [],
+    loadItems: async (of, where) => rows[of]?.filter(matches(where)) ?? [],
   });
   const read = async (permix: Awaited<ReturnType<typeof holding>>, id: string) =>
     createRebacCheck(junction)(

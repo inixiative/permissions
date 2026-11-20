@@ -222,12 +222,14 @@ item model has exactly one foreign key back to the parent (an implicit many-to-m
 is refused), and a path may not start back up that key. A list that is not declared is never
 crossed.
 
-- **What loads, and what doesn't.** `createHydrator` loads a declared list wherever its model is
-  hydrated, as the record you pass or as a parent of it: one `loadMany` by the items' foreign key,
-  then under each item only the declared paths, through `load`. Nothing else loads from an item:
-  none of its other parents, no second list, nothing above the rows on a declared path. That is
-  what "one jump down" means, and it is why loading never backtracks into the record it came from.
-  Batching the per-item loads is left out until a list is long enough to need it.
+- **What loads, and what doesn't.** A declared list is part of its parent's row: `load` is asked
+  for the parent with its `down`, and returns the row holding every item, each item holding the
+  row on every declared path (in a Prisma app, one `findFirst` with the include
+  `prismaIncludeOfDown` gives). Wherever that row is reached, as the record you pass or as a parent of it,
+  it carries the same list. The hydrator reads nothing more under an item and keeps of each item
+  only its columns and the declared paths: none of its other parents, no second list, nothing
+  above the rows on a declared path. That is what "one jump down" means, and it is why loading
+  never backtracks into the record it came from.
 - **One jump in the engine too.** An item's view holds no list, so a list arm met under an item
   finds nothing whatever the record holds, and a bridge hop under an item denies.
 - **A column an item does not carry is unknown.** Under an item the check reads with json-rules
@@ -832,13 +834,28 @@ loading artifact.
 `createHydrator` is that pattern over the **same schema map** the checks walk, so the two can't drift.
 Give it the map and `load`, one read of a resource's record by its target columns (`{ id }`, or every
 column of a composite key). `load` is the cache seam: the hydrator de-duplicates loads within one
-hydration, your wrapper caches across calls. A map that declares a list
-(`/// @permissions(down: [...])`) also needs `loadMany`, one read of the items by their foreign
-key back to the parent; return every row or throw, since a truncated list denies real members.
+hydration, your wrapper caches across calls.
+
+`load` takes a third argument, `down`: what the resource declares with
+`/// @permissions(down: [...])`, as its declared lists by list field name, each with the paths
+under an item as nested relation names (`{ participants: { forumUser: { fanUser: {}, brandUser: {} } } }`;
+`{}` for a resource that declares none). The hydrator knows no ORM, so how the row is read is
+yours; `prismaIncludeOfDown(down)` gives the Prisma `include` (undefined when there is nothing to
+include). Return the row with every list on it:
+
+- every item under the list's field name, and on each item the row on every declared path;
+- nothing truncated: a truncated list denies real members;
+- a row that comes back without a declared list throws, so a `load` that ignores the argument
+  fails loudly instead of denying everyone.
 
 ```ts
 import { buildPrismaMapV7 } from '@inixiative/prisma-map';
-import { createHydrator, createRebacCheck, type SchemaMap } from '@inixiative/permissions';
+import {
+  createHydrator,
+  createRebacCheck,
+  prismaIncludeOfDown,
+  type SchemaMap,
+} from '@inixiative/permissions';
 
 const prismaMap = buildPrismaMapV7();
 const map: SchemaMap = {
@@ -850,28 +867,37 @@ const map: SchemaMap = {
 const check = createRebacCheck(map);
 const hydrate = createHydrator({
   map,
-  load: (resource, where) => cached(resource, where, () => db[resource].findFirst({ where })),
-  loadMany: (resource, where) => db[resource].findMany({ where }), // only if the map declares a list
+  load: (resource, where, down) =>
+    cached(resource, where, () =>
+      db[resource].findFirst({ where, include: prismaIncludeOfDown(down) }),
+    ),
 });
 
 const doc = await hydrate('document', await db.document.findFirstOrThrow({ where: { id } }));
 check(permix, schema, { resource: 'document', record: doc }, 'manage');
 ```
 
+Because the row carries its lists, a cache behind `load` clears the parent's entry when an item,
+or a row under one, changes.
+
 - **What it follows:** every to-one relation with its foreign key on the record (`fromFields`) that
   leads to a resource in the map, and every declared list, one jump down (see
   [Crossing a list](#crossing-a-list-some-item-passes)). Other lists, back-relations and models
   outside the map are not followed.
 - **It owns what it follows.** A followed to-one relation holds the row the hydrator loaded, or
-  nothing, and a declared list holds the items it loaded (`[]` when the record has no key yet): a
-  value the record already carried there is dropped. A request body spread into a record
+  nothing, and a declared list holds the items of a row `load` returned: a value the record
+  already carried there is dropped. A request body spread into a record
   (`hydrate('message', { ...body })`) can therefore not bring its own `conversation` with a
-  participant list in it. Everything else is left as given (a holder's `targetEntitlements` the
-  app loaded, a relation keyed on the other side); no stored rule may name it
-  ([the lens](#what-a-rule-may-read-the-relation-lens)). Columns are left as given too: build the
-  record from the stored row, and take from a request body only the fields the caller may set.
-  Under a list item every relation the declaration does not load, to-one or list, is dropped,
-  whatever `loadMany` returned, and a list arm met there denies.
+  participant list in it. For the record you pass, the hydrator reads that record's own stored
+  row once, by its identity, and takes the lists from it; a record with no key yet, or one `load`
+  does not return has `[]`. Everything else is left as given (a holder's
+  `targetEntitlements` the app loaded, a relation keyed on the other side); no stored rule may
+  name it ([the lens](#what-a-rule-may-read-the-relation-lens)). Columns are left as given too:
+  build the record from the stored row, and take from a request body only the fields the caller
+  may set. Under a list item every relation the declaration does not load, to-one or list, is
+  dropped, whatever `load` returned, and a list arm met there denies.
+- **The budget counts rows.** `hydrationLimits.loads` is the most rows one hydration takes in:
+  each `load`, each item of a list and each row under it, counted wherever it appears.
 - **Check the schema against the map:** `validateSchema(map, schema)` returns every read outside
   the lens and every action named where it isn't defined, which would otherwise deny forever,
   along with every rule `validateActionRule` refuses. Run it in a test or at boot.
@@ -884,9 +910,10 @@ check(permix, schema, { resource: 'document', record: doc }, 'manage');
   `rel` walks it. Use it for an edge that is not part of ownership, or to break a loop in the
   schema.
 - **Cycles:** a stored row is one object wherever the hydrator reaches it, so a loop is the real
-  cyclic graph and every row loads once. The root is your record, not a stored row, so an edge
+  cyclic graph and every row loads once per key it is reached by (a to-one that joins on a column
+  other than the row's identity reads it under that key). The root is your record, not a stored row, so an edge
   back to it loads the row. Under a list item the declared paths are loaded as written and never
-  linked. A hydration that passes 10,000 loads throws. A cyclic record is not
+  linked. A hydration that takes in more than 10,000 rows throws. A cyclic record is not
   `JSON.stringify`-able; serialise the row, not the hydrated record.
 
 Records are plain data: `check` reads the record it is given and cannot tell a loaded row from

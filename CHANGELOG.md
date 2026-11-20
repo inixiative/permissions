@@ -1,3 +1,96 @@
+## 0.23.1 — `load` brings the lists a resource declares; `loadMany` is gone (the 0.26 change, on json-rules 3)
+
+**Breaking.** `createHydrator({ map, load })`: `loadMany` is removed, and `load` takes a third
+argument, `down`: what the resource being loaded declares with `/// @permissions(down: [...])`,
+as its declared lists by list field name, each with the paths under an item as nested relation
+names (`{}` when it declares none). `load` returns the row holding every item under each list's
+field name, each item holding the row on every declared path. The hydrator knows no ORM;
+`prismaIncludeOfDown` turns `down` into a Prisma `include`. `Down`, `DownPaths` and
+`PrismaIncludeOfDown` are exported.
+
+- **A list is part of its parent's row.** Wherever the row is reached it carries the same list,
+  in the one read of that row. The hydrator reads nothing under an item; it copies each item,
+  keeping only its columns and the declared paths, and never changes what `load` returned.
+- **The record you pass cannot bring its own list.** The hydrator reads that record's own stored
+  row once, by its identity with the values as the record holds them (a to-one that joins on those
+  columns shares the read), and takes the lists from it. A record
+  with no key yet, **or one `load` does not return, has `[]`**: before, its
+  items were read by its key whether or not it was stored.
+- **Rows under an item are what `load` returns for the list**, where before each came through
+  `load` by itself.
+- **A row without a declared list throws** (a `load` that ignores the argument, or a row cached
+  before the list was declared), as does an item that is not a row.
+- **`hydrationLimits.loads` counts rows**: each `load`, each item and each row under it, wherever
+  it appears. The error reads "past N rows".
+- **A cache behind `load`** clears the parent's entry when an item or a row under one changes.
+- **A bigint key no longer throws** when a row's key is built (`keyFromResourceAndColumns`); before, a
+  bigint foreign key on any to-one threw.
+- **Why.** A declared list is one jump to explicit leaves, so the tree under it is a finite
+  include the declaration already spells (Aron, 2026-11-19: "things that have `down`, the `down`
+  should become an include", "load should just also include down"). The per-row reads cost, in
+  Zealot, one query plus two cache reads per participant on every check that reached a
+  conversation (102 reads at 50 participants, measured 2026-11-19). Zealot is the only app that
+  declares a list; template, Kingdom and Tribe declare none and their two-parameter `load` is
+  unaffected.
+
+## 0.26.0 — an app can hand the check more rules for a record
+
+- **`additionalRules`** on `createRebacCheck`, `createRebacPaths` and `createCanGrantEntitlement`: a
+  function from a resource and a record to more rule sets (`action → ActionRule`). `check` ORs each
+  with the schema rule and the record's own `permissionRules`, where the row rule is merged today.
+  It only widens, cannot name an action the schema lacks, and a rule that is not positive, loops or
+  reads outside the lens is dropped. `validateActionRule`'s context takes `additionalRules`, so a
+  loop through one is a cycle.
+- **Why.** A row rule shares one record, and the schema is the same for every tenant. An app that
+  lets a tenant open every record it owns needs to pass those rules in. The library still has no
+  notion of a tenant: the app decides which rows a record's extra rules come from.
+
+## 0.25.0 — the lenses a rule is judged in are exported
+
+- **`lensesAtRow(map, resource)`** and **`lensesAtListItem(map, resource, field)`** (with the types
+  `LensesAtRow`, `PositionUnderListItem`): the json-rules lenses a read is judged in, at a row or at
+  an item of a declared list (null when the list is not declared). `validateSchema`'s list arm
+  reads `lensesAtListItem`, so there is one way to place a walk under an item.
+- **`relationHopsFrom(map, schema, at, walked?)`**, **`declaredListsOf(map, resource)`** and
+  **`issuesForRuleReadsOutsideLens`** are exported: the hops a `{ rel }` may take next (to-one
+  relations and bridges, each with where it lands), the lists a list arm may cross, and the lens
+  issues of a rule outside the schema. `validateSchema` and `relationHopsFrom` share one walk of a
+  `{ rel }` path (`walkRelationPath`), so what is offered is what is accepted.
+- **Why.** rules-builder's permission builder built its own views of a resource (every column and
+  relation, `__actor` on every model, its own `@permissions(down)` parse), which offered paths this
+  library refuses (a path back to a model, an undeclared list's item, `__actor` past the row a rule
+  is read on). An editor that reads these lenses offers what `validateSchema` accepts and nothing
+  else (plan `rules-builder/docs/plans/0.34-computation-and-evaluation.md`).
+
+## 0.24.0 — the schema map is `@inixiative/field-map`'s, on json-rules 4.2
+
+**The change.** `SchemaMap.fieldMap` is a [`@inixiative/field-map`](https://github.com/inixiative/field-map)
+`FieldMap`, and every read of it goes through field-map's own-property readers (`modelOf`,
+`fieldOf`) and kind tests (`hasColumn`, `isScalarField`). json-rules is `^4.2.0`, which reads the same map as its
+`LensFieldMap` with no cast. Pass the map `field-map generate` writes: `fieldMap: prismaMap`.
+
+**Why.** One schema package for every building block (Aron, 2026-11-18; plan
+`docs/plans/field-map-package.md` in the inixiative workspace). The map's shape was declared three
+times here (json-rules' `FieldMap`, a local `Annotated` for `annotations`, a local `Keyed` for
+`isId` and `indexes`) and read by index, so a model or field named after an `Object.prototype`
+key resolved. field-map's types carry `isId`, `annotations` and `indexes`, strictly and readonly.
+
+- **`SchemaMap.fieldMap: FieldMap` from field-map**, not json-rules' `LensFieldMap`: the map
+  permissions walks is the app's schema. Bridges reach the walk through `schema.bridges`, never as
+  fields of the map, so the two branches that looked for a `bridge` field in it are gone.
+- **Gone:** the local `fieldOf(map, resource, segment)`, `isColumn` (field-map's `hasColumn`), `Annotated`, `Keyed` and the
+  `isId` casts. `docs/VERBS.md` and `test/verbs.test.ts` add the rule: no `.models[...]` or
+  `.fields[...]` index read in `src`.
+- **A stricter map type.** A scalar's `type` is one of field-map's `SCALAR_TYPES`, and every entry
+  is readonly. A generated map passes as is; a hand-written one with a free-form scalar `type`
+  stops compiling.
+- **json-rules 4.0's lens gate** (a plain path past a to-many relation is refused) changes nothing
+  here: the relation lens already spells only to-one chains, and a list is crossed only by the
+  list arm. The full check passes unchanged.
+- Tests build their maps with field-map's types; `test/fixtures/load.ts` returns a new map instead
+  of writing into a readonly entry.
+- New dependency: `@inixiative/field-map` `^0.1.0`.
+
 ## 0.23.0 — rules are judged in json-rules' own lens, spelled in the root
 
 **The change.** Every path a stored rule reads (a schema rule on first use, a row's
