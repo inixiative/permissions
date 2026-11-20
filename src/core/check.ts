@@ -1,6 +1,6 @@
 import { type Admission, booleanAlgebra, pathsAlgebra } from './algebra';
 import type { SchemaMap } from './schemaMap';
-import type { ActionRule, PermixLike, RebacSchema, Subject } from './types';
+import type { ActionRule, CheckOptions, PermixLike, RebacSchema, Subject } from './types';
 import { createWalker } from './walker';
 
 export type RebacCheck<R extends string = string> = (
@@ -22,8 +22,11 @@ export type RebacCheck<R extends string = string> = (
  * that is not acting) is unknown, never null (json-rules `absent: 'unknown'`, always). A loop through a relation denies; a rule naming
  * itself on one record throws.
  */
-export const createRebacCheck = <R extends string = string>(map: SchemaMap<R>): RebacCheck<R> => {
-  const walker = createWalker(map, booleanAlgebra);
+export const createRebacCheck = <R extends string = string>(
+  map: SchemaMap<R>,
+  { additionalRules }: CheckOptions = {},
+): RebacCheck<R> => {
+  const walker = createWalker(map, booleanAlgebra, false, additionalRules);
   return (permix, schema, subject, actionOrRule) => walker(permix, schema, subject, actionOrRule);
 };
 
@@ -34,7 +37,7 @@ export type RebacPaths<R extends string = string> = (
   actionOrRule: ActionRule,
 ) => Admission[];
 
-export type PathsOptions = { limit?: number };
+export type PathsOptions = CheckOptions & { limit?: number };
 
 /**
  * Every way a check is admitted, on the same walk `check` runs: one {@link Admission} per way, each
@@ -45,9 +48,9 @@ export type PathsOptions = { limit?: number };
  */
 export const createRebacPaths = <R extends string = string>(
   map: SchemaMap<R>,
-  { limit = 20 }: PathsOptions = {},
+  { limit = 20, additionalRules }: PathsOptions = {},
 ): RebacPaths<R> => {
-  const walker = createWalker(map, pathsAlgebra(limit));
+  const walker = createWalker(map, pathsAlgebra(limit), false, additionalRules);
   return (permix, schema, subject, actionOrRule) => walker(permix, schema, subject, actionOrRule);
 };
 

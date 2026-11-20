@@ -9,7 +9,7 @@ import { permixId, rowId } from './identity';
 import type { PositionUnderListItem } from './lens';
 import { recordId } from './recordId';
 import { identityKeyOfRow, listOf, relationOf, type SchemaMap } from './schemaMap';
-import type { ActionRule, PermixLike, RebacSchema, Row } from './types';
+import type { ActionRule, AdditionalRules, PermixLike, RebacSchema, Row } from './types';
 import { validateActionRule } from './validateActionRule';
 import { issuesForRuleReadsOutsideLens } from './validateSchema';
 
@@ -21,6 +21,8 @@ export type Walk<R extends string, T = boolean> = {
   schema: RebacSchema<R>;
   getDict: () => BridgeDictionary | undefined;
   algebra: Algebra<T>;
+  /** The app's extra rule sets for a record, ORed in beside its own `permissionRules`. */
+  additionalRules?: AdditionalRules;
   /** The grant check's liveness walk: every entitlement `where` counts as holding. */
   ignoreWheres?: boolean;
   /**
@@ -50,6 +52,7 @@ type RememberedAnswer<T> = {
 type WhatOneCheckRemembers<T = unknown> = {
   rowIds: WeakMap<Row, Map<string, string>>;
   rowRulesThatHold: WeakMap<Row, Map<string, boolean>>;
+  additionalRulesThatHold: WeakMap<Row, Map<string, ActionRule[]>>;
   answers: WeakMap<Row, Map<string, RememberedAnswer<T>>> | undefined;
   nodesFoundOnPath: number;
   /** null at no hops, where nothing is kept; undefined until a node past a hop meets its first child. */
@@ -60,6 +63,7 @@ type WhatOneCheckRemembers<T = unknown> = {
 export const startOneCheck = <T>(): WhatOneCheckRemembers<T> => ({
   rowIds: new WeakMap(),
   rowRulesThatHold: new WeakMap(),
+  additionalRulesThatHold: new WeakMap(),
   answers: undefined,
   nodesFoundOnPath: 0,
   footprintOfThisNode: null,
@@ -216,24 +220,33 @@ const walkActionRules = <R extends string, T>(
 ): T => {
   const schemaRule = walk.schema.permissions[resource]?.actions[actionOrRule] ?? null;
   const rowRules = record.permissionRules as Record<string, ActionRule> | null | undefined;
+  const additionalRules = (walk.additionalRules?.(resource, record) ?? []).filter(
+    (rules): rules is Record<string, ActionRule> => isPlainObject(rules),
+  );
+  const holds = (rule: ActionRule) =>
+    validateActionRule(rule, {
+      schema: walk.schema,
+      resource,
+      action: actionOrRule,
+      rowRules,
+      additionalRules,
+    }).ok && issuesForRuleReadsOutsideLens(walk.map, walk.schema, resource, rule).length === 0;
+  const node = `${resource}\u0000${actionOrRule}`;
   const rowRule = rowRules?.[actionOrRule];
   const rowRuleHolds =
     rowRule !== undefined &&
-    answerOnce(
-      walk.oneCheck.rowRulesThatHold,
-      record,
-      `${resource}\u0000${actionOrRule}`,
-      () =>
-        validateActionRule(rowRule, {
-          schema: walk.schema,
-          resource,
-          action: actionOrRule,
-          rowRules,
-        }).ok &&
-        issuesForRuleReadsOutsideLens(walk.map, walk.schema, resource, rowRule).length === 0,
-    );
-  // Row-level override is additive (OR) with the schema rule — a per-record grant can only widen.
-  const merged: ActionRule = rowRuleHolds ? { any: [schemaRule, rowRule] } : schemaRule;
+    answerOnce(walk.oneCheck.rowRulesThatHold, record, node, () => holds(rowRule));
+  const additionalRulesThatHold = additionalRules.length
+    ? answerOnce(walk.oneCheck.additionalRulesThatHold, record, node, () =>
+        additionalRules.flatMap((rules) => {
+          const rule = rules[actionOrRule];
+          return rule !== undefined && holds(rule) ? [rule] : [];
+        }),
+      )
+    : [];
+  // A record's own rule and the app's additional rules are additive (OR) with the schema rule: each can only widen.
+  const added = [...(rowRuleHolds ? [rowRule as ActionRule] : []), ...additionalRulesThatHold];
+  const merged: ActionRule = added.length ? { any: [schemaRule, ...added] } : schemaRule;
   return walk.algebra.any([
     () => evaluate(walk, permix, resource, record, merged, visited),
     () => entitled(walk, permix, resource, record, actionOrRule, visited),

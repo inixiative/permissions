@@ -1,4 +1,4 @@
-import type { Absent, Condition, JoinedBridge, Row } from '@inixiative/json-rules';
+import type { Condition, JoinedBridge, Row } from '@inixiative/json-rules';
 
 export type { Row };
 
@@ -59,6 +59,20 @@ export type Subject<R extends string = string> = {
  * record (`'space.organization'`). A record anchored at itself has no path.
  */
 export type Anchor = { resource: string; id: string; path?: string };
+
+/**
+ * More rule sets for a record, each `action → ActionRule`: the app decides where they come from
+ * (the rows that own the record, for one). `check` ORs each with the schema rule and the record's
+ * own `permissionRules`, so they only widen, and drops one it would refuse as a row rule.
+ */
+export type AdditionalRules = (
+  resource: string,
+  record: Row,
+) => readonly (Record<string, ActionRule> | null | undefined)[];
+
+export type CheckOptions = {
+  additionalRules?: AdditionalRules;
+};
 
 /**
  * An installed entitlement, as the engine reads it back: it applies to a record only when the

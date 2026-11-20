@@ -5,7 +5,7 @@ import { withExactStrings } from './exactStrings';
 import { answerOnce, freezeThenJudgeOnce } from './freezeThenJudgeOnce';
 import { idField } from './recordId';
 import { indexMap, type SchemaMap } from './schemaMap';
-import type { ActionRule, PermixLike, RebacSchema, Row, Subject } from './types';
+import type { ActionRule, AdditionalRules, PermixLike, RebacSchema, Row, Subject } from './types';
 import { validateActionRule } from './validateActionRule';
 import {
   issuesForRuleReadsOutsideLens,
@@ -40,6 +40,7 @@ export const createWalker = <R extends string, T>(
   map: SchemaMap<R>,
   algebra: Algebra<T>,
   ignoreWheres = false,
+  additionalRules?: AdditionalRules,
 ) => {
   indexMap(map as SchemaMap);
   // why: an inline rule passed again as the same object is judged once (and frozen); a fresh literal each call is judged each time
@@ -89,6 +90,7 @@ export const createWalker = <R extends string, T>(
           getDict,
           algebra,
           ignoreWheres,
+          ...(additionalRules ? { additionalRules } : {}),
           idField: idField(),
           oneCheck: startOneCheck(),
           ...(above ? { above } : {}),
