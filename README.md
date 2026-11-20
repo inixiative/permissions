@@ -880,11 +880,14 @@ check(permix, schema, { resource: 'document', record: doc }, 'manage');
 ```
 
 **If your rows can be removed without being deleted (soft deletes), this sample is not enough.**
-Prisma filters a to-many include you put a `where` on, but a to-one include takes no `where`: a
-removed row under an item comes back, and a rule that reads it admits someone it should not.
-Leave those rows out before `load` returns: drop every row under an item that carries your
-removal mark, or make the items themselves follow their parents' removal so the list never holds
-them.
+`prismaIncludeOfDeclaredLists` names relations and adds no filter, so the read returns removed
+rows unless something leaves them out, and a rule that reads one admits someone it should not:
+
+- **items:** give each list a `where` for live rows (a client extension that scopes every
+  to-many include does it once), or filter the returned list;
+- **rows under an item:** Prisma takes a `where` on an optional to-one include and none on a
+  required one, so drop removed rows from the returned tree, or make the items follow their
+  parents' removal so the list never holds an item whose row is gone.
 
 Because the row carries its lists, a cache behind `load` clears the parent's entry when an item,
 or a row under one, changes.

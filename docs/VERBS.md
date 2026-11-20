@@ -24,7 +24,7 @@ what.
 | narrow a grant | `delegatedWhere` | The `where` of a grant passed on from a held one: the added conditions, then the held `where`'s conjuncts, flat. |
 | place | `placeEntitlement`, `placeUnder` | Build the stand-in records a grant is checked on, below its hydrated anchor along the entry's path. |
 | hydrate | `createHydrator` | Build the loader that puts on a record every relation the lens follows, so a check never reads a relation that was not loaded; `hydrationLimits` is its load budget. |
-| include | `prismaIncludeOfDeclaredLists` | Turn the declared lists `load` is asked to bring into a Prisma `include` for the read of their parent; undefined when there are none. The hydrator itself knows no ORM. |
+| build an include | `prismaIncludeOfDeclaredLists` | Turn the declared lists `load` is asked to bring into a Prisma `include` for the read of their parent; undefined when there are none. The hydrator itself knows no ORM. |
 | validate | `validateActionRule` | Whether one action rule is well formed and positive, and does not delegate back to its own action. |
 | validate | `validateSchema`, `schemaRuleIssues` | Every issue in a schema against its map (shape, cycles, reads outside the lens, undefined actions); the shape issues alone, without the map. |
 | validate | `entitlementProblem`, `wellFormedEntitlements` | Why one entitlement entry is malformed, or null; the well-formed entries of a list. |

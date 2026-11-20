@@ -6,7 +6,7 @@ with the declared paths under an item as nested relation names (`{}` when it dec
 `load` returns the row holding every live item under each list's field name, each item holding
 the row on every declared path. The hydrator knows no ORM; `prismaIncludeOfDeclaredLists` turns
 `declaredLists` into a Prisma `include`. `DeclaredListsToLoad`, `DeclaredPaths` and
-`PrismaInclude` are exported.
+`PrismaIncludeOfDeclaredLists` are exported.
 
 - **A list is part of its parent's row.** Wherever the row is reached it carries the same list,
   in the one read of that row. The hydrator reads nothing under an item; it copies each item,
@@ -17,12 +17,15 @@ the row on every declared path. The hydrator knows no ORM; `prismaIncludeOfDecla
   with no key yet, **or one `load` does not return (not stored, removed), has `[]`**: before, its
   items were read by its key whether or not it was stored.
 - **Rows under an item are what `load` returns for the list**, where before each came through
-  `load` by itself. An include must leave out removed rows; a to-one include does not by itself.
+  `load` by itself. The read must leave out removed rows, among the items and under them;
+  `prismaIncludeOfDeclaredLists` adds no filter.
 - **A row without a declared list throws** (a `load` that ignores the argument, or a row cached
   before the list was declared), as does an item that is not a row.
 - **`hydrationLimits.loads` counts rows**: each `load`, each item and each row under it, wherever
   it appears. The error reads "past N rows".
 - **A cache behind `load`** clears the parent's entry when an item or a row under one changes.
+- **A bigint key no longer throws** when a row's key is built (`keyFromResourceAndColumns`); before, a
+  bigint foreign key on any to-one threw.
 - **Why.** A declared list is one jump to explicit leaves, so the tree under it is a finite
   include the declaration already spells (Aron, 2026-11-19: "things that have `down`, the `down`
   should become an include", "load should just also include down"). The per-row reads cost, in

@@ -22,6 +22,7 @@ import {
   validateActionRule,
   validateSchema,
 } from '../index';
+import { identityKeyOfRow } from '../src/core/schemaMap';
 import { hydrationLimits } from '../src/helpers/hydration/hydrate';
 import { createHydratorReadingEachRowThroughLoad } from './createHydratorReadingEachRowThroughLoad';
 import { annotate, loadModels } from './fixtures/load';
@@ -1490,15 +1491,18 @@ describe('a resource that declares two lists on different columns', () => {
 
   test('the record’s own row is read by its id, so one empty join column empties neither list', async () => {
     const asked: Row[] = [];
+    const toldToBring: DeclaredListsToLoad[] = [];
     const hydrate = createHydrator({
       map: twoLists,
-      load: async (_resource, where) => {
+      load: async (_resource, where, declaredLists) => {
         asked.push(where);
+        toldToBring.push(declaredLists);
         return where.id === 'p1' ? stored : null;
       },
     });
     const hydrated = await hydrate('parent', { id: 'p1', code: null });
     expect(asked).toEqual([{ id: 'p1' }]);
+    expect(toldToBring).toEqual([{ kids: {}, tags: {} }]);
     expect(hydrated.kids).toEqual([{ id: 'k1', parentId: 'p1' }]);
     expect(hydrated.tags).toEqual([]);
   });
@@ -1592,5 +1596,67 @@ describe('the record’s own row and a to-one that reaches it are one read', () 
     const hydrated = await hydrate('parent', { id: 5, featuredKidId: 'k1' });
     expect(asked).toEqual([{ id: 5 }]);
     expect(hydrated.kids).toEqual([{ id: 'k1', parentId: 5 }]);
+  });
+});
+
+describe('a row’s identity: read with the value as held, keyed as text', () => {
+  const column = (extra: Row = {}) => ({ kind: 'scalar', type: 'String', isList: false, ...extra });
+  const numbered = {
+    resources: { parent: 'Parent', kid: 'Kid' },
+    fieldMap: {
+      models: {
+        Parent: {
+          fields: {
+            uuid: { kind: 'scalar', type: 'Int', isList: false, isId: true },
+            kids: {
+              kind: 'object',
+              type: 'Kid',
+              isList: true,
+              annotations: { permissions: { down: [] } },
+            },
+          },
+        },
+        Kid: {
+          fields: {
+            uuid: column({ isId: true }),
+            parentUuid: { kind: 'scalar', type: 'Int', isList: false },
+            parent: {
+              kind: 'object',
+              type: 'Parent',
+              isList: false,
+              fromFields: ['parentUuid'],
+              toFields: ['uuid'],
+            },
+          },
+        },
+      },
+    },
+  } as unknown as SchemaMap;
+  const readsOf = async (record: Row): Promise<Row[]> => {
+    const asked: Row[] = [];
+    await createHydrator({
+      map: numbered,
+      load: async (_resource, where) => {
+        asked.push(where);
+        return { ...record, kids: [] };
+      },
+    })('parent', record);
+    return asked;
+  };
+
+  test('the engine id field is sent as the record holds it: a number stays a number, zero is a value', async () => {
+    expect(await readsOf({ uuid: 5 })).toEqual([{ uuid: 5 }]);
+    expect(await readsOf({ uuid: 0 })).toEqual([{ uuid: 0 }]);
+  });
+
+  test('a bigint id is read, not thrown on', async () => {
+    expect(await readsOf({ uuid: 5n })).toEqual([{ uuid: 5n }]);
+  });
+
+  test('the key of a row is text: 5 and "5" are one row', () => {
+    expect(identityKeyOfRow(numbered, 'parent', { uuid: 5 })).toBe(
+      identityKeyOfRow(numbered, 'parent', { uuid: '5' }) as string,
+    );
+    expect(identityKeyOfRow(numbered, 'parent', { uuid: 5 })).toBeDefined();
   });
 });

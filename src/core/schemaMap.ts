@@ -364,7 +364,10 @@ export const keysFrom = (relation: Pick<Relation, 'from' | 'to'>, parent: Row): 
 
 /** The one encoding of a row's key: its resource and the columns that pick it, in column order. */
 export const keyFromResourceAndColumns = (resource: string, where: Row): string =>
-  `${resource}\u0000${JSON.stringify(Object.entries(where).sort(([a], [b]) => a.localeCompare(b)))}`;
+  `${resource}\u0000${JSON.stringify(
+    Object.entries(where).sort(([a], [b]) => a.localeCompare(b)),
+    (_column, value) => (typeof value === 'bigint' ? `${value}n` : value),
+  )}`;
 
 // why: the engine id field is what the app loads by (Zealot's `uuid`), so it wins over the model's `isId`
 /** The columns that pick a row, with the values the row holds: the engine id field when the model has it and the row a value, else the model's id columns, else undefined. */

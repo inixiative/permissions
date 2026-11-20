@@ -1,10 +1,14 @@
 import type { DeclaredListsToLoad, DeclaredPaths } from './hydrate';
 
-/** A Prisma `include`: a relation is `true`, or carries the include under it. */
-export type PrismaInclude = { [relation: string]: true | { include: PrismaInclude } };
+/** A Prisma `include` of declared lists and paths: a relation is `true`, or carries the include under it. */
+export type PrismaIncludeOfDeclaredLists = {
+  [relation: string]: true | { include: PrismaIncludeOfDeclaredLists };
+};
 
-const prismaIncludeOfDeclaredPaths = (paths: DeclaredPaths): true | { include: PrismaInclude } => {
-  const include: PrismaInclude = {};
+const prismaIncludeOfDeclaredPaths = (
+  paths: DeclaredPaths,
+): true | { include: PrismaIncludeOfDeclaredLists } => {
+  const include: PrismaIncludeOfDeclaredLists = {};
   for (const [relation, below] of Object.entries(paths))
     include[relation] = prismaIncludeOfDeclaredPaths(below);
   return Object.keys(include).length ? { include } : true;
@@ -12,13 +16,14 @@ const prismaIncludeOfDeclaredPaths = (paths: DeclaredPaths): true | { include: P
 
 /**
  * The lists `load` is asked to bring, as a Prisma `include` for the read of their parent
- * (`findFirst({ where, include })`), or undefined when the resource declares none. Prisma does not
- * leave removed rows out of a to-one include: the app's `load` still returns only live rows.
+ * (`findFirst({ where, include })`), or undefined when the resource declares none. It names
+ * relations only and adds no filter: leaving removed rows out, among the items and under them,
+ * is still `load`'s.
  */
 export const prismaIncludeOfDeclaredLists = (
   declaredLists: DeclaredListsToLoad,
-): PrismaInclude | undefined => {
-  const include: PrismaInclude = {};
+): PrismaIncludeOfDeclaredLists | undefined => {
+  const include: PrismaIncludeOfDeclaredLists = {};
   for (const [listField, paths] of Object.entries(declaredLists))
     include[listField] = prismaIncludeOfDeclaredPaths(paths);
   return Object.keys(include).length ? include : undefined;
