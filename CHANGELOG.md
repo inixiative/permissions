@@ -18,11 +18,13 @@ is an app's map, not a library concept.
 - **The engine fills them** with json-rules 4.4's `recordWithBridgeData` before each `{ rule }`:
   any `<prefix>:` key a record or far row carries is dropped, and each supplied model's one row is
   put on. `permix.setActor` / `getActor`, `PermixLike.getActor` and the `Actor` type are gone.
-- **Every read of a supplied row, and the field of every comparison with a path, needs `exists`
-  beside it** (json-rules 4.4's positive gate). `ruleFieldEqualsPath(field, path)` writes the leaf.
+- **A match needs `exists` on its field** (json-rules 4.4's positive gate): a field compared with a
+  path or bind (`ownerId` with `actor:User.id`), since two missing values match. A comparison with
+  a literal needs none; a missing supplied row fails it on its own. `ruleFieldEqualsPath(field,
+  path)` writes the match.
 - **`makeKindRules(map)`**: the standard polymorphic rules (R-2026-11-19-15), kinds read from the map
   (a resource's polymorphic axis, or a supplied model's enum field): `ruleForEachKind`,
-  `ruleKindIsOneOf`, `ruleActionThroughEachKind`, every kind check holding an `exists`. A kind the
+  `ruleKindIsOneOf`, `ruleActionThroughEachKind`, every kind checked by its literal value. A kind the
   map does not have throws when the rule is built.
 - **A stored or additional rule the gate refuses throws** (a row's `permissionRules`, an
   `additionalRules` entry), as the schema's does; before, it was dropped without a word.
@@ -31,8 +33,8 @@ is an app's map, not a library concept.
 - **Typed, at the root.** A model or column a supplied map lacks, a read into its relations, a
   supplied path in a `where`, `org.actor:User`, an enum value outside its enum, and every `__actor.*`
   are refused.
-- **The `absent` option is gone.** Under the positive gate, with `exists` beside every comparison
-  that needs a value, a missing value and a null one give the same answer, so the setting changed
+- **The `absent` option is gone.** Under the positive gate, with `exists` beside every match, a
+  missing value and a null one give the same answer, so the setting changed
   nothing (the 11-21 review checked every operator); the check uses json-rules' default.
 - **`RebacSchema.bridges` is `JoinedBridge[]`** (json-rules 4.3): a supplied bridge is never a
   `{ rel }` hop.

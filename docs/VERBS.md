@@ -30,7 +30,7 @@ what.
 | validate | `entitlementProblem`, `wellFormedEntitlements` | Why one entitlement entry is malformed, or null; the well-formed entries of a list. |
 | validate | `whyEntitlementWhereLeavesLens` | Why an entitlement's `where` reads something the lens does not load, or null, for an app that validates a row before saving it. |
 | fan out | `makeKindRules` | The standard polymorphic rules for one map, kinds read from the map (a resource's polymorphic axis, or a supplied model's enum field): `ruleForEachKind` (one branch per kind, each checking its own kind first), `ruleKindIsOneOf`, `ruleActionThroughEachKind` (the same action through each kind's own relation). Every kind check holds an `exists`. Throws for a kind the map does not have. |
-| match | `ruleFieldEqualsPath` | A field equals what a path reads, both checked to exist first: the leaf of a match. |
+| match | `ruleFieldEqualsPath` | A field equals what a path reads, the field checked to exist first, since two missing values match. |
 | lens | `lensesAtRow`, `lensesAtListItem` | The json-rules lenses a read is judged in at one row (`lens` for a `where` or a path, `rule` with the supplied maps for a `{ rule }`); at an item of a declared list, or null for a list that is not declared. For an editor that authors rules in the lens they are judged in. |
 | offer | `relationHopsFrom`, `declaredListsOf` | The segments a `{ rel }` may take next from a row (to-one relations and bridges whose walk `validateSchema` accepts), each with the resource it lands on; the declared lists a list arm may cross. |
 | validate | `issuesForRuleReadsOutsideLens` | Every read of one well-formed action rule at a resource outside the lens, for a rule not in the schema (a transition's permission side, a draft). |

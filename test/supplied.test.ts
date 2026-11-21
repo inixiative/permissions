@@ -77,16 +77,17 @@ describe('supplied maps: rows the call gives, read by every rule as <prefix>:<Mo
     expect(read(both, { ownerId: 'u1' }, actorData('User', { id: 'u1' }))).toBe(false);
   });
 
-  test('a comparison against a supplied row, or with a kind, needs exists beside it', () => {
+  test('a match against a supplied row needs exists on its field; a kind against a literal does not', () => {
     const bare: ActionRule = {
       rule: { field: 'ownerId', operator: Operator.equals, path: 'actor:User.id' },
     };
-    expect(issues(bare).join('\n')).toMatch(/may not be there/);
+    expect(issues(bare).join('\n')).toMatch(/two missing values match/);
     expect(() => read(bare, { ownerId: 'u1' })).toThrow(/not a well-formed positive rule/);
     const kind: ActionRule = {
       rule: { field: 'actor:Acting.model', operator: Operator.in, value: ['User'] },
     };
-    expect(issues(kind).join('\n')).toMatch(/may not be there/);
+    expect(issues(kind)).toEqual([]);
+    expect(read(kind, {})).toBe(false);
   });
 
   test('a record, or any row reached from it, never brings its own supplied row', () => {

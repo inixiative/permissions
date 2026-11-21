@@ -11,7 +11,7 @@ import type { ActionRule } from './types';
 /**
  * The standard shape of a polymorphic check (Aron 2026-11-19, R-2026-11-19-15): fan out over the
  * kinds, each branch checking its own kind before anything else, every rule positive, and every
- * value a rule needs checked with `exists` beside it (R-2026-11-21-07).
+ * match against another read checked with `exists` beside it (R-2026-11-21-07).
  */
 
 /** A branch of a fan-out: the rule a kind must also meet, or `true` when its kind check is all. */
@@ -19,28 +19,23 @@ export type KindBranch = ActionRule;
 
 const exists = (field: string): Condition => ({ field, operator: Operator.exists });
 
+// A literal kind fails on a missing value on its own, so it needs no exists.
 const kindCheck = (field: string, kinds: readonly string[]): ActionRule => {
   if (kinds.length === 0) throw new Error(`a kind check on \`${field}\` names no kind`);
   return {
-    rule: {
-      all: [
-        exists(field),
-        kinds.length === 1
-          ? { field, operator: Operator.equals, value: kinds[0] }
-          : { field, operator: Operator.in, value: [...kinds] },
-      ],
-    },
+    rule:
+      kinds.length === 1
+        ? { field, operator: Operator.equals, value: kinds[0] }
+        : { field, operator: Operator.in, value: [...kinds] },
   };
 };
 
 const branchOf = (check: ActionRule, rule: KindBranch): ActionRule =>
   rule === true ? check : { all: [check, rule] };
 
-/** `field` equals what `path` reads, both checked to exist first: the leaf of a match (`ownerId` is `actor:User.id`). */
+/** `field` equals what `path` reads, with `field` checked to exist first, since two missing values match (`ownerId` is `actor:User.id`). */
 export const ruleFieldEqualsPath = (field: string, path: string): ActionRule => ({
-  rule: {
-    all: [exists(field), exists(path), { field, operator: Operator.equals, path }],
-  },
+  rule: { all: [exists(field), { field, operator: Operator.equals, path }] },
 });
 
 /**

@@ -412,7 +412,7 @@ check(permix, schema, {
 ## Polymorphic rules: the fan-out
 
 The standard shape of a polymorphic check (R-2026-11-19-15): fan out over the kinds, each branch
-checking its own kind first, every rule positive, every kind checked to exist. A kind with no row
+checking its own kind first, every rule positive, every match checking its field exists. A kind with no row
 (`default`, `Internal`) is named by its kind alone. `makeKindRules(map)` builds them, reading the
 kinds from the map: a resource's polymorphic axis (`map.polymorphism`), or a supplied model's enum
 field (`'actor:Acting'`, `'model'`). A kind the map does not have throws when the rule is built.

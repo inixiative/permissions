@@ -80,12 +80,7 @@ const schemaOf = (manage: ActionRule): RebacSchema => ({
 const manage = (rule: ActionRule, data: Record<string, Row[]>, record: Row) =>
   check(permix, schemaOf(rule), { resource: 'db:token', record, data }, 'manage');
 const isKind = (field: string, value: string): ActionRule => ({
-  rule: {
-    all: [
-      { field, operator: Operator.exists },
-      { field, operator: Operator.equals, value },
-    ],
-  },
+  rule: { field, operator: Operator.equals, value },
 });
 
 describe('the fan-out: each branch checks its own kind first', () => {
@@ -95,7 +90,7 @@ describe('the fan-out: each branch checks its own kind first', () => {
     default: true,
   });
 
-  test('builds one positive branch per kind given, each kind checked to exist', () => {
+  test('builds one positive branch per kind given, the match checking its field exists', () => {
     expect(rule).toEqual({
       any: [
         {
@@ -108,7 +103,6 @@ describe('the fan-out: each branch checks its own kind first', () => {
               rule: {
                 all: [
                   { field: 'userId', operator: 'exists' },
-                  { field: 'actor:User.id', operator: 'exists' },
                   { field: 'userId', operator: 'equals', path: 'actor:User.id' },
                 ],
               },
@@ -160,12 +154,7 @@ describe('the fan-out: each branch checks its own kind first', () => {
 
   test("kind membership, on a resource's side and on a supplied model's enum, read the same way", () => {
     expect(kind.ruleKindIsOneOf('db:token', 'ownerModel', ['Organization', 'Space'])).toEqual({
-      rule: {
-        all: [
-          { field: 'ownerModel', operator: 'exists' },
-          { field: 'ownerModel', operator: 'in', value: ['Organization', 'Space'] },
-        ],
-      },
+      rule: { field: 'ownerModel', operator: 'in', value: ['Organization', 'Space'] },
     });
     const userOrInternal = kind.ruleKindIsOneOf('actor:Acting', 'model', ['User', 'Internal']);
     expect(manage(userOrInternal, user, {})).toBe(true);
