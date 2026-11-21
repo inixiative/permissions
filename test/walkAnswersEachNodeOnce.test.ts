@@ -34,7 +34,6 @@ const counting = (permix: PermixLike) => {
       return permix.check(resource, action, id, data);
     },
     isSuperadmin: () => permix.isSuperadmin?.() ?? false,
-    getActor: () => permix.getActor(),
     entitlements: (resource, action) => permix.entitlements?.(resource, action) ?? [],
   };
   const total = () => [...calls.values()].reduce((sum, n) => sum + n, 0);

@@ -13,6 +13,7 @@ import {
   type EntitlementEntry,
   PathLimitError,
   type PermissionEntry,
+  type PermixLike,
   placeEntitlement,
   type RebacSchema,
   type ResourcePermission,
@@ -26,7 +27,7 @@ import { identityKeyOfRow } from '../src/core/schemaMap';
 import { hydrationLimits } from '../src/helpers/hydration/hydrate';
 import { createHydratorReadingEachRowThroughLoad } from './createHydratorReadingEachRowThroughLoad';
 import { annotate, loadModels } from './fixtures/load';
-import { stringColumn } from './schemaMaps';
+import { actorData, actorMap, stringColumn } from './schemaMaps';
 
 // Zealot's conversation slice (schemas/zealot.prisma), as field-map reads it. The list field reads
 //   /// @permissions(down: [forumUser.fanUser.user, forumUser.brandUser.user])
@@ -53,7 +54,7 @@ const resources = {
 const mapOver = (over: typeof models): SchemaMap => ({
   resources,
   fieldMap: { models: over },
-  actors: { models: ['User'] },
+  supplied: { actor: actorMap },
 });
 const map = mapOver(models);
 
@@ -210,6 +211,18 @@ const hydratorOver = (data: Store, over: SchemaMap = map, loads: string[] = []) 
 const conversation = async (uuid: string, data: Store = store()) =>
   hydratorOver(data)('db:conversation', data['db:conversation']?.find(matches({ uuid })) as Row);
 
+// Who a `person` permix stands for: a check is told it through the subject's `data`.
+const actedBy = new WeakMap<object, string>();
+const acting = <Subject extends { data?: Record<string, Row[]> }, Rest extends unknown[], Out>(
+  ask: (permix: PermixLike, schema: RebacSchema, subject: Subject, ...rest: Rest) => Out,
+) => {
+  return (permix: PermixLike, schema: RebacSchema, subject: Subject, ...rest: Rest): Out => {
+    const uuid = actedBy.get(permix);
+    const data = uuid === undefined ? {} : actorData('User', { uuid });
+    return ask(permix, schema, { ...subject, data: { ...data, ...subject.data } }, ...rest);
+  };
+};
+
 type Role = 'manage' | 'advocate';
 const person = async (uuid: string, brand?: Role) => {
   const permix = createPermissions();
@@ -217,12 +230,12 @@ const person = async (uuid: string, brand?: Role) => {
     { resource: 'db:user', id: uuid, actions: { own: true } },
     ...(brand ? [{ resource: 'db:brands', id: 'b1', actions: { [brand]: true } }] : []),
   ]);
-  permix.setActor({ model: 'User', record: { uuid } });
+  actedBy.set(permix, uuid);
   return permix;
 };
 
-const check = createRebacCheck(map);
-const paths = createRebacPaths(map);
+const check = acting(createRebacCheck(map));
+const paths = acting(createRebacPaths(map));
 const canGrant = createCanGrantEntitlement(map);
 const on = (record: Row, resource = 'db:conversation') => ({ resource, record });
 
@@ -463,7 +476,7 @@ describe('capping, paths and cycles', () => {
     );
     const record = await conversation('c-dual');
     expect(paths(hal, schema, on(record), 'isParticipant')).toEqual([[['fan']], [['rep']]]);
-    const one = createRebacPaths(map, { limit: 1 });
+    const one = acting(createRebacPaths(map, { limit: 1 }));
     expect(() => one(hal, schema, on(record), 'isParticipant')).toThrow(PathLimitError);
   });
 
@@ -763,7 +776,7 @@ describe('what a record may carry into a check', () => {
     expect(check(lee, schema, on(present), 'isParticipant')).toBe(true);
   });
 
-  test('a read under an item of a path nothing loaded is refused inline and widens nothing in a row rule', async () => {
+  test('a read under an item of a path nothing loaded is refused inline and throws in a row rule', async () => {
     const otto = await person('u-otto');
     const c1 = await conversation('c1');
     const reads: ActionRule = {
@@ -775,7 +788,9 @@ describe('what a record may carry into a check', () => {
       /loads no `forumUser.brand` under an item/,
     );
     const rowRule = { ...c1, permissionRules: { isParticipant: reads } };
-    expect(check(otto, schema, on(rowRule), 'isParticipant')).toBe(false);
+    expect(() => check(otto, schema, on(rowRule), 'isParticipant')).toThrow(
+      /beside the schema's is refused.*loads no `forumUser.brand` under an item/,
+    );
     // off an item the same read is unknown too: a check never reads a missing value as null
     const offItem: ActionRule = {
       rule: { field: 'brand.deletedAt', operator: 'exists' },
@@ -855,7 +870,7 @@ describe('one list per walk', () => {
 
   test('the engine does not cross a second list, though the data is there', async () => {
     const fay = await person('u-fay');
-    const ask = createRebacCheck(twoLists);
+    const ask = acting(createRebacCheck(twoLists));
     const nested: ActionRule = { rel: 'bs', arrayOperator: 'any', condition: inner };
     const delegated: ActionRule = { rel: 'bs', arrayOperator: 'any', condition: 'inner' };
     // the one list crossed from its own row passes: the data and the rule are sound
@@ -865,7 +880,9 @@ describe('one list per walk', () => {
         /second list under an item/,
       );
       const rowRule = { ...record, permissionRules: { in: second } };
-      expect(ask(fay, rules({ in: null }), { resource: 'a', record: rowRule }, 'in')).toBe(false);
+      expect(() => ask(fay, rules({ in: null }), { resource: 'a', record: rowRule }, 'in')).toThrow(
+        /beside the schema's is refused.*second list under an item/,
+      );
     }
     for (const second of [nested, delegated]) {
       const schemaWithSecond = rules({ in: second });
@@ -1010,7 +1027,7 @@ describe('the declaration carries what the rule walks', () => {
       '`db:conversation.participants` loads no `forumUser.fanUser.user` under an item: name it in `/// @permissions(down: [...])`',
       '`db:conversation.participants` loads no `forumUser.brandUser.user` under an item: name it in `/// @permissions(down: [...])`',
     ]);
-    const ask = createRebacCheck(twoSegments);
+    const ask = acting(createRebacCheck(twoSegments));
     const c1 = await c1Over(twoSegments);
     const fay = await fayWith('operate');
     expect(() => ask(fay, rules, on(c1), 'isParticipant')).toThrow(
@@ -1039,7 +1056,7 @@ describe('the declaration carries what the rule walks', () => {
     expect(loads.filter((line) => line.startsWith('load db:user'))).toEqual([
       'load db:user {"uuid":"u-rex"}',
     ]);
-    const ask = createRebacCheck(twoSegments);
+    const ask = acting(createRebacCheck(twoSegments));
     expect(ask(await fayWith('self'), tableOnly, on(c1), 'isParticipant')).toBe(true);
     expect(ask(await person('u-fay'), tableOnly, on(c1), 'isParticipant')).toBe(false);
     expect(ask(await person('u-otto'), tableOnly, on(c1), 'isParticipant')).toBe(false);
@@ -1071,7 +1088,7 @@ describe('validation edges under an item', () => {
     expect(errors[0]?.message).toMatch(/leads to `Note`, which is not a resource in the map/);
   });
 
-  test('a bridge under an item is refused by validateSchema and inline, and widens nothing in a row rule', async () => {
+  test('a bridge under an item is refused by validateSchema and inline, and throws in a row rule', async () => {
     const bridges: JoinedBridge[] = [
       {
         endpoints: [
@@ -1107,7 +1124,9 @@ describe('validation edges under an item', () => {
       ...subject,
       record: { ...record, permissionRules: { isParticipant: viaBridge } },
     };
-    expect(check(otto, bridged({}), rowRule, 'isParticipant')).toBe(false);
+    expect(() => check(otto, bridged({}), rowRule, 'isParticipant')).toThrow(
+      /beside the schema's is refused.*stays on the declared relations/,
+    );
     // control: off an item the same hop reaches the far row
     const item = { resource: 'db:conversationParticipant', record: record.participants[0] as Row };
     const hop: ActionRule = { rel: 'crm:Account', action: 'open' };
@@ -1199,7 +1218,7 @@ describe('what the hydrator does not follow, no check reads', () => {
     });
     expect(hydrated.pinnedIn).toEqual({ id: 'c1' });
     expect(hydrated.attachments).toEqual([{ id: 'a1' }]);
-    const ask = createRebacCheck(lib);
+    const ask = acting(createRebacCheck(lib));
     const rules: RebacSchema = {
       permissions: {
         'db:message': { actions: { read: null } },
@@ -1217,7 +1236,9 @@ describe('what the hydrator does not follow, no check reads', () => {
       ask(otto, rules, { resource: 'db:message', record: hydrated }, reads('pinnedIn.id')),
     ).toThrow(/keeps its foreign key on `Conversation`/);
     const rowRule = { ...hydrated, permissionRules: { read: reads('pinnedIn.id') } };
-    expect(ask(otto, rules, { resource: 'db:message', record: rowRule }, 'read')).toBe(false);
+    expect(() => ask(otto, rules, { resource: 'db:message', record: rowRule }, 'read')).toThrow(
+      /beside the schema's is refused.*keeps its foreign key on `Conversation`/,
+    );
   });
 });
 

@@ -88,6 +88,7 @@ export const createWalker = <R extends string, T>(
           absent,
           schema,
           getDict,
+          ...(subject.data ? { data: subject.data } : {}),
           algebra,
           ignoreWheres,
           ...(additionalRules ? { additionalRules } : {}),

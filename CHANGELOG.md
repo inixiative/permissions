@@ -1,46 +1,41 @@
-## 0.26.0 — the actor is `actor:<Model>`; `load` brings declared lists; `additionalRules`
+## 0.26.0 — supplied maps (who is acting is data the call gives); `load` brings declared lists; `additionalRules`
 
-### The actor is `actor:<Model>`, over a supplied bridge
+### Supplied maps: the library supports maps, not actors
 
 Breaking, with no compatibility path (no users).
 
 Why: a `{ rule }` read who is acting as untyped Json under `__actor`, so a typo or a field of the
-wrong kind of actor passed and read null. Aron 2026-11-19: "Instead of the DB prefix, we should
-have the actor prefix... Then we can remove the `__actor`", over json-rules' new bridge with no
-join ("a different type of bridging where it doesn't need the `on`"). Plan:
-`docs/plans/typed-actor.md`, reviewed adversarially twice.
+wrong kind of actor passed and read null. Aron 2026-11-19 asked for an `actor:` prefix over a
+json-rules bridge with no join; on 11-21 (R-2026-11-21-07): "The permissions library should just
+support maps, and you put a map. If you have actors, you have actors", the engine bridges the data
+sent in the call, and "write an existence check for everything that needs to exist". So the actor
+is an app's map, not a library concept.
 
-- **`SchemaMap.actors`** (`ActorDeclaration`): the models that act with a row (`models`), the
-  pseudo kinds that act with none (`pseudo`), and the acting's facts (`acting`). `Actor.record` is
-  optional (a pseudo kind) and `Actor` gains `acting?`. The kind is `actor:Acting.model`, an enum
-  of every declared kind (Aron: "we have to start checking the model. Because it has to be all
-  positive rules"); `actor:Acting` replaces the first draft's `actor:Session`.
-- **`makeKindRules(map)`**: the standard polymorphic rules (R-2026-11-19-15), kinds read from
-  `map.polymorphism` and `map.actors`: `ruleForEachKind`, `ruleKindIsOneOf`,
-  `ruleActionThroughEachKind`, `ruleForEachActorKind`, `ruleActorKindIsOneOf`, `ruleActorIdMatches`.
-  A kind the map does not have throws when the rule is built.
-- **The positive gate refuses a null check** (json-rules 4.3, R-2026-11-19-16), so a schema rule or
-  `where` with `equals null` is refused on every check. Name the value that is there.
-- **The rule lens bridges to the actor.** A supplied json-rules bridge from the row a rule is read on
-  to `actor:Acting` and each `actor:<Model>` (its own columns). `actor:User.email`,
-  `actor:Token.ownerModel`, `path: 'actor:User.id'` read; `actor:Usr.*`, `actor:User.nope`,
-  `actor:User.org.*`, `org.actor:User`, an `actor:` path in a `where` and every `__actor.*` are
-  refused. `__actor` is gone.
-- **`recordWithActor(map, record, actor)`** drops any `actor:` key the record brought and writes
-  every declared actor key (the acting row, the others empty), so a record never carries an actor
-  of its own; an acting model a declaring map leaves out throws.
-- **A check reads a value the record does not carry as unknown, never null** (json-rules
-  `absent: 'unknown'`, always; the `absent` option is gone, since `'null'`
-  would let a token, or nobody, match `ownerId equals actor:User.id` where `ownerId` is null).
-  Aron: "Empty is undefined, not null." Records that carry their columns (Prisma rows, null for
-  null) read as before. A record missing a column a rule reads no longer passes `equals null`,
-  `in [null]` or an `equals path` on it, so a caller's records must carry every column its rules
-  read (the UI included).
-- **An enum value outside its enum is a schema error** (json-rules `value_not_allowed`, kept for
-  every rule, reported by `validateSchema` like an operator that does not fit its field).
+- **`SchemaMap.supplied`**: field maps by prefix whose rows each check is given in `subject.data`,
+  keyed `<prefix>:<Model>` beside the joined bridges' far rows. A `{ rule }` reads them as
+  `<prefix>:<Model>.<column>`. Template's `actor` map (`Acting.model`, each kind's columns) is one;
+  an app may declare several, or none.
+- **The engine fills them** with json-rules 4.4's `recordWithBridgeData` before each `{ rule }`:
+  any `<prefix>:` key a record or far row carries is dropped, and each supplied model's one row is
+  put on. `permix.setActor` / `getActor`, `PermixLike.getActor` and the `Actor` type are gone.
+- **Every read of a supplied row, and the field of every comparison with a path, needs `exists`
+  beside it** (json-rules 4.4's positive gate). `ruleFieldEqualsPath(field, path)` writes the leaf.
+- **`makeKindRules(map)`**: the standard polymorphic rules (R-2026-11-19-15), kinds read from the map
+  (a resource's polymorphic axis, or a supplied model's enum field): `ruleForEachKind`,
+  `ruleKindIsOneOf`, `ruleActionThroughEachKind`, every kind check holding an `exists`. A kind the
+  map does not have throws when the rule is built.
+- **A stored or additional rule the gate refuses throws** (a row's `permissionRules`, an
+  `additionalRules` entry), as the schema's does; before, it was dropped without a word.
+- **The positive gate refuses a null check** (json-rules 4.3, R-2026-11-19-16). Name the value
+  that is there.
+- **Typed, at the root.** A model or column a supplied map lacks, a read into its relations, a
+  supplied path in a `where`, `org.actor:User`, an enum value outside its enum, and every `__actor.*`
+  are refused.
+- **A check reads a value the record does not carry as unknown** (json-rules `absent: 'unknown'`,
+  always; the `absent` option is gone).
 - **`RebacSchema.bridges` is `JoinedBridge[]`** (json-rules 4.3): a supplied bridge is never a
   `{ rel }` hop.
-- Peer `@inixiative/json-rules` ^4.3.0.
+- Peer `@inixiative/json-rules` ^4.4.0.
 
 ### `load` brings the lists a resource declares; `loadMany` is gone
 

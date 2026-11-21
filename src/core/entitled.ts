@@ -30,7 +30,6 @@ export const entitled = <R extends string, T>(
 ): T => {
   const { above } = walk;
   if (above && !above.has(record)) return walk.algebra.none;
-  const actor = permix.getActor();
   const held = [...reachableFrom(walk.schema, resource, action)].flatMap(
     (implying) => permix.entitlements?.(resource, implying) ?? [],
   );
@@ -51,7 +50,7 @@ export const entitled = <R extends string, T>(
           anchorRowReachedFrom(walk.map, resource, record, anchor, true, walk.idField) !== undefined
             ? walk.algebra.through(
                 ref,
-                evaluate(walk, asOwner(owner, actor), resource, record, action, visited),
+                evaluate(walk, asOwner(owner), resource, record, action, visited),
               )
             : walk.algebra.none,
     ),

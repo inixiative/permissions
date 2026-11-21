@@ -1,19 +1,41 @@
-import type { SchemaMap } from '../index';
+import type { FieldMap } from '@inixiative/field-map';
+import type { Row, SchemaMap } from '../index';
 
 export const stringColumn = { kind: 'scalar', type: 'String', isList: false } as const;
 
-/** The models that can act in these maps: a user, and a token with its owner. */
-export const actorModels = {
-  User: { fields: { id: stringColumn, uuid: stringColumn, userId: stringColumn } },
-  Token: {
-    fields: {
-      id: stringColumn,
-      uuid: stringColumn,
-      userId: stringColumn,
-      ownerModel: stringColumn,
+/**
+ * The app's supplied `actor` map, as template declares one: `Acting` says which kind is acting
+ * (`model`, every kind, `Internal` acting with no row), and each kind with a row has its own columns.
+ */
+export const actorMap: FieldMap = {
+  models: {
+    Acting: { fields: { model: { kind: 'enum', type: 'ActingKind', isList: false } } },
+    User: { fields: { id: stringColumn, uuid: stringColumn, userId: stringColumn } },
+    Token: {
+      fields: {
+        id: stringColumn,
+        uuid: stringColumn,
+        userId: stringColumn,
+        ownerModel: stringColumn,
+      },
     },
   },
+  enums: { ActingKind: ['User', 'Token', 'Internal'] },
 };
+
+/** Who is acting, as the check's `data` gives it: `actor:Acting` names the kind, `actor:<kind>` its row. */
+export const actorData = (
+  model: string | null,
+  record?: Row,
+  data: Record<string, Row[]> = {},
+): Record<string, Row[]> =>
+  model === null
+    ? data
+    : {
+        ...data,
+        'actor:Acting': [{ model }],
+        ...(record ? { [`actor:${model}`]: [record] } : {}),
+      };
 
 /** A list relation `name` on a resource: its items' resource and its `/// @permissions(down: [...])` paths. */
 export type ListOf = { item: string; down: readonly string[] };
@@ -21,7 +43,7 @@ export type ListOf = { item: string; down: readonly string[] };
 /**
  * A map of resources, each its own model, with `id`, each relation's foreign key (`<name>Id`) and
  * the given `columns` as String columns, and the given `lists`: a check reads below the root only
- * what the model has. `User` and `Token` can act (`actor:User`, `actor:Token`).
+ * what the model has. Its supplied `actor` map is {@link actorMap}.
  */
 export const mapOf = (
   relations: Record<string, Record<string, string>>,
@@ -80,9 +102,8 @@ export const mapOf = (
             },
           ]),
         ),
-        ...actorModels,
       },
     },
-    actors: { models: ['User', 'Token'] },
+    supplied: { actor: actorMap },
   };
 };

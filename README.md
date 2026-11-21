@@ -6,7 +6,7 @@ One check, over your own data, that covers:
 
 - **RBAC:** roles as table grants. Tokens and integrations act for their owner, capped at a role or, with `full`, holding the owner's permissions whole.
 - **ReBAC:** relationship walks (`{ rel, action }`) over your schema's relations, polymorphic owners included.
-- **ABAC:** conditions on the record and on the actor, who is acting (`{ rule }`, `actor:<Model>`).
+- **ABAC:** conditions on the record and on the rows the call supplies, such as who is acting (`{ rule }`, `actor:<Model>`).
 - **RuBAC:** rules as data: every condition is a serializable [`@inixiative/json-rules`](https://github.com/inixiative/json-rules) rule, positive by design (`validateActionRule` refuses the rest), the same AST everywhere it appears.
 - **Delegation (entitlements):** attenuated grants a holder passes on (copied, narrowed, lowered, never widened), each re-checked live at every link of its chain and at every tenant boundary it crosses.
 
@@ -67,8 +67,8 @@ The nouns are below. The verbs, one per operation with the name that says the ac
 | **delegate** | a token or integration that acts from its owner's permissions: `full`, capped at a ceiling, entitlements, or a mix |
 | **full** | the owner's permissions, whole and live |
 | **ceiling** | the action a delegate's role maps to; the owner's grants are kept at it (`capAtRole`) |
-| **actor** | who is acting: a credential kind (`model`, e.g. `User`, `Token`) and its row, set once per request and read by rules as `actor:<Model>` |
-| **permix** | the installed form of the actor's permissions that `check` reads |
+| **supplied map** | a field map whose rows each check is given in its `data` (an app's `actor` map: who is acting), read by rules as `<prefix>:<Model>` |
+| **permix** | the installed form of a holder's permissions that `check` reads |
 | **pseudo record** | the would-be row a create or a grant is checked on; the rows built for it below the anchor, with keys and parents but no ids, are **stand-ins** |
 
 ## Permission algebra (`ActionRule`)
@@ -78,7 +78,7 @@ type ActionRule =
   | string                       // rbac: delegate to another action on the same resource
   | { rel: string; action: string }  // rebac: walk a relation, then check `action` on the target
   | { rel: string; arrayOperator: 'any'; condition: ActionRule } // rebac across a list: some item passes
-  | { rule: Condition }          // abac: a json-rules predicate over the record, the actor as `actor:<Model>`
+  | { rule: Condition }          // abac: a json-rules predicate over the record and its supplied rows (`actor:<Model>`)
   | { any: ActionRule[] }        // OR
   | { all: ActionRule[] }        // AND
   | boolean                      // terminal: `true` allows, `false` denies
@@ -308,7 +308,7 @@ const check = createRebacCheck(map);
 
 check(permix, schema, { resource: 'membership', record }, 'manage');
 // string → permix grant or schema delegation; { rel } walks `record.organization` (or a bridge —
-// see below); { rule } evals json-rules over the record (the actor as actor:<Model>); any/all compose. A data loop denies; a rule naming itself throws.
+// see below); { rule } evals json-rules over the record and its supplied rows (actor:<Model>); any/all compose. A data loop denies; a rule naming itself throws.
 ```
 
 **There is no `self` arm. Identity lives in the table.** The actor's table holds grants on its own
@@ -369,46 +369,53 @@ reported.
   `PathLimitError`; stacked diamonds double the count at each layer. A walk that finds few
   admissions costs what a denying `check` costs today.
 
-## The actor
+## Supplied maps: data the call gives (who is acting, for one)
 
-The actor is who is acting: its kind (`model`), its row (`record`; none for a pseudo kind), and
-facts about the acting (`acting`, such as who is impersonating). The app declares who can act on
-the map and sets the actor once per request. A `{ rule }` reads the kind as `actor:Acting.model`,
-the acting's facts beside it on `actor:Acting`, and the acting row as `actor:<Model>` (its own
-columns), each over a json-rules supplied bridge (a bridge with no join; the check puts the rows
-on the record).
+The library has no notion of an actor. A map declares **supplied** field maps by prefix: models
+whose rows each check is given in its `data`, beside the joined bridges' far rows, keyed
+`<prefix>:<Model>` the same way. A `{ rule }` at any resource reads them as
+`<prefix>:<Model>.<column>`, over a json-rules supplied bridge from the row the rule is on. An app
+with no supplied maps reads none; an app with several reads them all alike.
 
 ```ts
-const map: SchemaMap = {
-  resources, fieldMap: prismaMap, polymorphism,
-  actors: { models: ['User', 'Token'], pseudo: ['Internal'], acting: { impersonatedBy: { kind: 'scalar', type: 'String' } } },
+// the app's own actor map: which kind is acting, and each kind's own columns
+const actor: FieldMap = {
+  models: {
+    Acting: { fields: { model: { kind: 'enum', type: 'ActingKind' } } },
+    User: { fields: { id: { kind: 'scalar', type: 'String' } } },
+  },
+  enums: { ActingKind: ['User', 'Token', 'Internal'] },
 };
-permix.setActor({ model: 'User', record: user });
-permix.setActor({ model: 'Internal' }); // a pseudo kind: no row
+const map: SchemaMap = { resources, fieldMap: prismaMap, polymorphism, supplied: { actor } };
+
+check(permix, schema, {
+  resource: 'db:Doc',
+  record: doc,
+  data: { 'actor:Acting': [{ model: 'User' }], 'actor:User': [user] },
+}, 'read');
 ```
 
-Write actor rules with the blocks below (R-2026-11-19-14..16): the kind, then `exists`, then the
-match.
-
-- **Typed.** `actor:Usr.id`, `actor:User.nope`, a read into the actor's relations
-  (`actor:User.org.id`) and `actor:Acting.model = 'Robot'` are refused like any read outside the
-  lens or any value outside its enum.
-- **Not acting is unknown, never null.** The check drops any `actor:` key a record brought, writes
-  `actor:Acting` and every declared `actor:<Model>` (the acting row, the others empty), and reads
-  what a record does not carry as unknown, always. That is the engine's floor, not how a rule is
-  written.
-- **Only at the row a rule is read on.** A `where` reads the record alone, so an `actor:` path there
-  is refused; `org.actor:User` is not a path. A kind the map does not declare throws. A superadmin
-  skips the schema, so it skips these too.
+- **The engine fills them; a record never brings its own.** Before each `{ rule }` the check runs
+  json-rules' `recordWithBridgeData`: any `<prefix>:` key the record (or a far row) carries is
+  dropped, and each supplied model's one row from `data` is put on it. Nothing in `data` for a model
+  means it is not there, and every rule reading it fails.
+- **Every read of one needs `exists` beside it** (R-2026-11-21-07), as does the field of every
+  comparison with a path: `ruleFieldEqualsPath('ownerId', 'actor:User.id')` is
+  `all: [ownerId exists, actor:User.id exists, ownerId equals actor:User.id]`. A rule without it is a
+  schema error.
+- **Typed, at the root only.** A model a supplied map lacks, a column its model lacks, a read into
+  its relations and an enum value outside its enum are refused. A `where` reads the record alone,
+  so a supplied path there is refused, and `org.actor:User` is not a path.
+- **Stored rules too.** A row's `permissionRules` or an `additionalRules` entry that is not
+  positive, loops or reads outside the lens throws, as the schema's would.
 
 ## Polymorphic rules: the fan-out
 
 The standard shape of a polymorphic check (R-2026-11-19-15): fan out over the kinds, each branch
-checking its own kind first, every rule positive. A pseudo kind (`default`, `Internal`) has no row
-and no id, so it is named by its kind alone; "the id does not exist" is not a positive rule, and
-the positive gate refuses a null check (`equals null`), which holds on every row without a value.
-`makeKindRules(map)` builds them, reading the kinds from `map.polymorphism` and `map.actors`, so no
-app restates them; a kind the map does not have throws when the rule is built.
+checking its own kind first, every rule positive, every kind checked to exist. A kind with no row
+(`default`, `Internal`) is named by its kind alone. `makeKindRules(map)` builds them, reading the
+kinds from the map: a resource's polymorphic axis (`map.polymorphism`), or a supplied model's enum
+field (`'actor:Acting'`, `'model'`). A kind the map does not have throws when the rule is built.
 
 ```ts
 const kind = makeKindRules(map);
@@ -416,24 +423,22 @@ const kind = makeKindRules(map);
 // one branch per kind of a side, each checking its own kind first; a kind left out denies
 kind.ruleForEachKind('db:token', 'ownerModel', {
   Organization: { rel: 'organization', action: 'manage' },
-  User: kind.ruleActorIdMatches('userId', 'User'),
-  default: true, // a pseudo kind: its kind check is the whole branch
+  User: ruleFieldEqualsPath('userId', 'actor:User.id'),
+  default: true, // a kind with no row: its kind check is the whole branch
 });
 // the same action through each kind's own relation (the registry's foreign key)
 kind.ruleActionThroughEachKind('db:token', 'ownerModel', 'manage');
-// kind membership, on a side and on the actor
+// kind membership, on a resource's side and on a supplied model
 kind.ruleKindIsOneOf('db:token', 'ownerModel', ['Organization', 'Space']);
-kind.ruleActorKindIsOneOf(['Token', 'User']);
+kind.ruleKindIsOneOf('actor:Acting', 'model', ['Token', 'User']);
 // a fan-out over who is acting
-kind.ruleForEachActorKind({ Internal: true, User: kind.ruleActorIdMatches('ownerId', 'User') });
-// the leaf: the kind, then exists, then the match
-kind.ruleActorIdMatches('ownerId', 'User'); // all: [actor:Acting.model = 'User', actor:User.id exists, ownerId equals actor:User.id]
+kind.ruleForEachKind('actor:Acting', 'model', { Internal: true, User: ruleFieldEqualsPath('ownerId', 'actor:User.id') });
 ```
 
-Each takes an optional path prefix (`'integration.'`) for a side on a related row. They return
-ordinary `ActionRule`s: validation, the walk and the builder see plain rules. The walk infers no
-kind check on a `{ rel }` hop; under the full owner chain a Space-owned row also carries its
-organization, and only an explicit branch says which kinds may walk it.
+A resource's side takes an optional path prefix (`'integration.'`) for a side on a related row.
+They return ordinary `ActionRule`s: validation, the walk and the builder see plain rules. The walk
+infers no kind check on a `{ rel }` hop; under the full owner chain a Space-owned row also carries
+its organization, and only an explicit branch says which kinds may walk it.
 
 ## Bridges (cross-source `rel` walks)
 
@@ -477,12 +482,11 @@ import { createPermissions } from '@inixiative/permissions';
 
 const permix = createPermissions<'read' | 'manage' | 'own'>();
 await permix.setup([{ resource: 'organization', id: 'o1', actions: { own: true } }]);
-permix.setActor({ model: 'User', record: { id: 'u1' } });
 permix.check('organization', 'own', 'o1'); // true
 ```
 
-Holds the actor's role-derived grants (keyed by `resource` / `resource:id`), its entitlements, a
-superadmin bypass, and the actor. App code populates it from roles and entitlements (hydration
+Holds the holder's role-derived grants (keyed by `resource` / `resource:id`), its entitlements and a
+superadmin bypass; who is acting comes in the check's `data`. App code populates it from roles and entitlements (hydration
 stays app-side); the check engine reads it back through the `PermixLike` slice.
 
 ### Entitlements

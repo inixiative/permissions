@@ -27,31 +27,17 @@ export type PolymorphicAxis = { field: string; fkMap: Partial<Record<string, rea
 export type Polymorphism = Partial<Record<string, { axes: readonly PolymorphicAxis[] }>>;
 
 /**
- * Who can act. A `{ rule }` reads which kind is acting as `actor:Acting.model` (every declared kind,
- * pseudo kinds included), the acting row as `actor:<Model>` (its own columns, over a json-rules
- * supplied bridge), and facts about the acting (who is impersonating) beside `model` on
- * `actor:Acting`. Read once per map: the lenses are built and cached per map object, so a map is not
- * changed after its first check.
- */
-export type ActorDeclaration = {
-  /** Models of `fieldMap` that can act with a row (`'User'`, `'Token'`). */
-  models: readonly string[];
-  /** Kinds that act with no row (`'Internal'`): named by `actor:Acting.model` alone. */
-  pseudo?: readonly string[];
-  /** Fields of `actor:Acting` beside `model` (`impersonatedBy`). */
-  acting?: ModelEntry['fields'];
-};
-
-/**
  * The schema the checks walk: `resources` names the `fieldMap` model behind each resource, the
  * `fieldMap` (an `@inixiative/field-map` map) lists each model's relations and foreign keys,
- * `polymorphism` says which kind a relation makes a polymorphic record, and `actors` who can act.
+ * `polymorphism` says which kind a relation makes a polymorphic record, and `supplied` the field maps
+ * whose rows each check is given in its `data` (who is acting, for one), by prefix: a `{ rule }` reads
+ * `<prefix>:<Model>.<column>`. Read once per map: lenses are built and cached per map object.
  */
 export type SchemaMap<R extends string = string> = {
   resources: Record<R, string>;
   fieldMap: FieldMap;
   polymorphism?: Polymorphism;
-  actors?: ActorDeclaration;
+  supplied?: Record<string, FieldMap>;
 };
 
 /** A to-one relation the hydrator follows: where it leads, its key, and on a polymorphic record the kinds it admits. */

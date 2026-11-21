@@ -1,6 +1,8 @@
 # The typed actor: `__actor.<kind>.*`
 
-Status: built (2026-11-19; the fan-out, `actor:Acting` and the null-check refusal added after a third adversarial review and Aron's calls, R-2026-11-19-13..16) as permissions 0.26 over json-rules 4.3's supplied bridges, after two adversarial reviews and Aron's calls (11-19: `actor:` prefix; empty is undefined, `absent: 'unknown'`, plus explicit `exists` guards; impersonation as its own supplied row, `actor:Session`). Replaces TRACKING "Actor bridge".
+Status: **reshaped 2026-11-21 (R-2026-11-21-07).** Aron: "The permissions library should just support maps, and you put a map. If you have actors, you have actors." What shipped in permissions 0.26 is general: `SchemaMap.supplied` (field maps by prefix), rows given in the check's `data`, filled by json-rules 4.4's `recordWithBridgeData`, every read of them guarded by `exists` (the positive gate), and the kind blocks reading kinds from the map. The actor taxonomy below (`SchemaMap.actors`, pseudo kinds, `recordWithActor`, `permix.setActor`) is template's to declare as its `actor` map, not the library's; the sections below are the 11-19 design, kept for its why.
+
+Earlier status: built 2026-11-19 (the fan-out, `actor:Acting` and the null-check refusal, R-2026-11-19-13..16) over json-rules 4.3's supplied bridges.
 
 ## Problem
 

@@ -1,15 +1,17 @@
 import { describe, expect, test } from 'bun:test';
+import { Operator } from '@inixiative/json-rules';
 import {
   type ActionRule,
-  type Actor,
   createRebacCheck,
   makeKindRules,
   type PermixLike,
   type RebacSchema,
+  type Row,
+  ruleFieldEqualsPath,
   type SchemaMap,
   validateSchema,
 } from '../index';
-import { stringColumn } from './schemaMaps';
+import { actorData, actorMap, stringColumn } from './schemaMaps';
 
 const toOne = (type: string, key: string) =>
   ({ kind: 'object', type, isList: false, fromFields: [key], toFields: ['id'] }) as const;
@@ -57,15 +59,16 @@ const map: SchemaMap = {
       ],
     },
   },
-  actors: { models: ['User'], pseudo: ['Internal'] },
+  supplied: { actor: actorMap },
 };
 const kind = makeKindRules(map);
 const check = createRebacCheck(map);
-const as = (actor: Actor | null): PermixLike => ({
+const permix: PermixLike = {
   check: (resource, action) => resource === 'db:organization' && action === 'manage',
-  getActor: () => actor,
-});
-const user: Actor = { model: 'User', record: { id: 'u1' } };
+};
+const user = actorData('User', { id: 'u1' });
+const internal = actorData('Internal');
+const nobody = actorData(null);
 const schemaOf = (manage: ActionRule): RebacSchema => ({
   permissions: {
     'db:token': { actions: { manage } },
@@ -74,38 +77,45 @@ const schemaOf = (manage: ActionRule): RebacSchema => ({
     'db:user': { actions: { manage: false } },
   },
 });
-const manage = (rule: ActionRule, actor: Actor | null, record: Record<string, unknown>) =>
-  check(as(actor), schemaOf(rule), { resource: 'db:token', record }, 'manage');
+const manage = (rule: ActionRule, data: Record<string, Row[]>, record: Row) =>
+  check(permix, schemaOf(rule), { resource: 'db:token', record, data }, 'manage');
+const isKind = (field: string, value: string): ActionRule => ({
+  rule: {
+    all: [
+      { field, operator: Operator.exists },
+      { field, operator: Operator.equals, value },
+    ],
+  },
+});
 
 describe('the fan-out: each branch checks its own kind first', () => {
   const rule = kind.ruleForEachKind('db:token', 'ownerModel', {
     Organization: { rel: 'organization', action: 'manage' },
-    User: kind.ruleActorIdMatches('userId', 'User'),
+    User: ruleFieldEqualsPath('userId', 'actor:User.id'),
     default: true,
   });
 
-  test('builds one positive branch per kind given', () => {
+  test('builds one positive branch per kind given, each kind checked to exist', () => {
     expect(rule).toEqual({
       any: [
         {
-          all: [
-            { rule: { field: 'ownerModel', operator: 'equals', value: 'Organization' } },
-            { rel: 'organization', action: 'manage' },
-          ],
+          all: [isKind('ownerModel', 'Organization'), { rel: 'organization', action: 'manage' }],
         },
         {
           all: [
-            { rule: { field: 'ownerModel', operator: 'equals', value: 'User' } },
+            isKind('ownerModel', 'User'),
             {
-              all: [
-                { rule: { field: 'actor:Acting.model', operator: 'equals', value: 'User' } },
-                { rule: { field: 'actor:User.id', operator: 'exists' } },
-                { rule: { field: 'userId', operator: 'equals', path: 'actor:User.id' } },
-              ],
+              rule: {
+                all: [
+                  { field: 'userId', operator: 'exists' },
+                  { field: 'actor:User.id', operator: 'exists' },
+                  { field: 'userId', operator: 'equals', path: 'actor:User.id' },
+                ],
+              },
             },
           ],
         },
-        { rule: { field: 'ownerModel', operator: 'equals', value: 'default' } },
+        isKind('ownerModel', 'default'),
       ],
     });
     expect(validateSchema(map, schemaOf(rule)).errors).toEqual([]);
@@ -127,10 +137,10 @@ describe('the fan-out: each branch checks its own kind first', () => {
     ).toBe(false);
     expect(manage(rule, user, { ownerModel: 'User', userId: 'u1', user: { id: 'u1' } })).toBe(true);
     expect(manage(rule, user, { ownerModel: 'User', userId: null })).toBe(false);
-    expect(manage(rule, null, { ownerModel: 'User', userId: 'u1', user: { id: 'u1' } })).toBe(
+    expect(manage(rule, nobody, { ownerModel: 'User', userId: 'u1', user: { id: 'u1' } })).toBe(
       false,
     );
-    expect(manage(rule, null, { ownerModel: 'default' })).toBe(true);
+    expect(manage(rule, nobody, { ownerModel: 'default' })).toBe(true);
   });
 
   test('the same action through each kind, from the registry: a kind with no relation is left out', () => {
@@ -142,28 +152,30 @@ describe('the fan-out: each branch checks its own kind first', () => {
     ).toEqual({
       any: [
         {
-          all: [
-            { rule: { field: 'ownerModel', operator: 'equals', value: 'Organization' } },
-            { rel: 'organization', action: 'manage' },
-          ],
+          all: [isKind('ownerModel', 'Organization'), { rel: 'organization', action: 'manage' }],
         },
       ],
     });
   });
 
-  test('kind membership, on a side and on the actor', () => {
+  test("kind membership, on a resource's side and on a supplied model's enum, read the same way", () => {
     expect(kind.ruleKindIsOneOf('db:token', 'ownerModel', ['Organization', 'Space'])).toEqual({
-      rule: { field: 'ownerModel', operator: 'in', value: ['Organization', 'Space'] },
+      rule: {
+        all: [
+          { field: 'ownerModel', operator: 'exists' },
+          { field: 'ownerModel', operator: 'in', value: ['Organization', 'Space'] },
+        ],
+      },
     });
-    const userOrInternal = kind.ruleActorKindIsOneOf(['User', 'Internal']);
+    const userOrInternal = kind.ruleKindIsOneOf('actor:Acting', 'model', ['User', 'Internal']);
     expect(manage(userOrInternal, user, {})).toBe(true);
-    expect(manage(userOrInternal, { model: 'Internal' }, {})).toBe(true);
-    expect(manage(userOrInternal, null, {})).toBe(false);
-    const actorFan = kind.ruleForEachActorKind({
+    expect(manage(userOrInternal, internal, {})).toBe(true);
+    expect(manage(userOrInternal, nobody, {})).toBe(false);
+    const actorFan = kind.ruleForEachKind('actor:Acting', 'model', {
       Internal: true,
-      User: kind.ruleActorIdMatches('userId', 'User'),
+      User: ruleFieldEqualsPath('userId', 'actor:User.id'),
     });
-    expect(manage(actorFan, { model: 'Internal' }, {})).toBe(true);
+    expect(manage(actorFan, internal, {})).toBe(true);
     expect(manage(actorFan, user, { userId: 'u1' })).toBe(true);
     expect(manage(actorFan, user, { userId: 'u2' })).toBe(false);
   });
@@ -174,9 +186,11 @@ describe('the fan-out: each branch checks its own kind first', () => {
     );
     expect(() => kind.ruleKindIsOneOf('db:token', 'ownerModel', [])).toThrow('names no kind');
     expect(() => kind.ruleKindIsOneOf('db:token', 'nope', ['User'])).toThrow('no polymorphic axis');
-    expect(() => kind.ruleActorKindIsOneOf(['Robot'])).toThrow('has no kind `Robot`');
-    expect(() => kind.ruleActorIdMatches('userId', 'Internal')).toThrow(
-      'not an actor model with a row',
+    expect(() => kind.ruleKindIsOneOf('actor:Acting', 'model', ['Robot'])).toThrow(
+      'has no kind `Robot`',
+    );
+    expect(() => kind.ruleKindIsOneOf('actor:User', 'id', ['x'])).toThrow(
+      'not an enum field of a supplied model',
     );
   });
 });

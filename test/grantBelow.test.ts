@@ -21,7 +21,7 @@ import {
   wellFormedEntitlements,
   withoutRedundantEntitlements,
 } from '../index';
-import { mapOf, stringColumn } from './schemaMaps';
+import { actorData, mapOf, stringColumn } from './schemaMaps';
 
 // The grant check's first pass also counts an entitlement the writer holds when it is marked
 // `grantsBelow`, has no `where`, and the walk meets it on a hydrated row above the granted record
@@ -440,11 +440,15 @@ describe("R103's case grants when the held row is marked grantsBelow", () => {
   test('no actor: an outright manage on o1 held by entitlement never grants a person-only action', async () => {
     const atO1 = { resource: 'db:organization', id: 'o1' };
     const writer = await permixOf(holding([below(entry('db:organization', atO1, ['manage']))]));
-    writer.setActor({ model: 'User', record: { id: 'w1' } });
     const mint = entry('db:organization', atO1, ['token.create']);
-    expect(rebac(writer, schema, { resource: 'db:organization', record: o1 }, 'token.create')).toBe(
-      true,
-    );
+    expect(
+      rebac(
+        writer,
+        schema,
+        { resource: 'db:organization', record: o1, data: actorData('User', { id: 'w1' }) },
+        'token.create',
+      ),
+    ).toBe(true);
     expect(canGrant(writer, schema, mint, o1)).toBe(false);
   });
 
@@ -591,10 +595,9 @@ describe('the mark: a row without grantsBelow never counts in the first pass', (
     ['null', null],
     ['true', true],
   ])('a hand-built owner returning the mark beside a where (%s) does not count', (_name, where) => {
-    const backing: PermixLike = { check: () => true, getActor: () => null };
+    const backing: PermixLike = { check: () => true };
     const raw: PermixLike = {
       check: () => false,
-      getActor: () => null,
       entitlements: (resource, action) =>
         resource === 'db:space' && action === 'manage'
           ? [

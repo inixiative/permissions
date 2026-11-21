@@ -178,7 +178,6 @@ const table = async (actions: string[]) => {
     id: 'o1',
     actions: Object.fromEntries(actions.map((action) => [action, true])),
   } as PermissionEntry);
-  permix.setActor({ model: 'User', record: { id: 'w1' } });
   return permix;
 };
 const owner = () => table(['own']);
@@ -388,9 +387,11 @@ describe('the root of the where narrows the kinds: each leaf checked on each pse
   test('a leaf whose value is read from a path narrows nothing', () => {
     expect(
       kinds({
-        field: 'ownerModel',
-        operator: 'equals',
-        path: 'actor:Token.ownerModel',
+        all: [
+          { field: 'ownerModel', operator: 'exists' },
+          { field: 'actor:Token.ownerModel', operator: 'exists' },
+          { field: 'ownerModel', operator: 'equals', path: 'actor:Token.ownerModel' },
+        ],
       } as never),
     ).toEqual(['Organization', 'Space', 'OrganizationUser', 'SpaceUser']);
   });

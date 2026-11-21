@@ -9,13 +9,8 @@ export type RelationCheck = { rel: string; action: string }; // walk a relation,
  * `any` is the only operator, since every other one holds on a list with no rows.
  */
 export type ListCheck = { rel: string; arrayOperator: 'any'; condition: ActionRule };
-/** ABAC (json-rules) over the record, with who is acting read as `actor:Acting` and `actor:<Model>`. */
+/** ABAC (json-rules) over the record, and the supplied rows the check's `data` gives (`actor:User.id`). */
 export type RuleCheck = { rule: Condition };
-
-/** Who is acting: its kind (`model`, a declared model or pseudo kind), its row (`record`, none for a
- *  pseudo kind), and facts about the acting (`acting`, as `SchemaMap.actors.acting` declares).
- *  A `{ rule }` reads them as `actor:Acting.model`, `actor:<model>` and `actor:Acting.<field>`. */
-export type Actor = { model: string; record?: Row; acting?: Row };
 
 /** The serializable permission algebra: rebac (`rel`) + abac (`rule`) + rbac (`string` delegation). */
 export type ActionRule =
@@ -43,10 +38,10 @@ export type RebacSchema<R extends string = string> = {
 };
 
 /**
- * What the check evaluates against: the `record`, its (map-qualified) `resource`, and `data` —
- * supplemental hydrated rows per `map:model`, the same shape json-rules' `indexBridges`
- * takes. The check builds the bridge dictionary from `data` itself; `data` is only consulted when a
- * `rel` walk crosses a bridge and a downstream action reads the far record's fields.
+ * What the check evaluates against: the `record`, its (map-qualified) `resource`, and `data` — the
+ * rows of every bridge per `map:Model`, the shape json-rules' `indexBridges` takes: a joined bridge's
+ * far rows, which a `rel` walk across it finds by key, and each supplied model's one row (`actor:User`),
+ * which every `{ rule }` on the walk reads. The engine fills them; a record never brings its own.
  */
 export type Subject<R extends string = string> = {
   resource: R;
@@ -94,6 +89,5 @@ export type Entitlement = {
 export type PermixLike = {
   check: (resource: string, action: string, id?: string, data?: unknown) => boolean;
   isSuperadmin?: () => boolean;
-  getActor: () => Actor | null;
   entitlements?: (resource: string, action: string) => Entitlement[];
 };

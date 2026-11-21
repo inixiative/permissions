@@ -176,7 +176,6 @@ const table = async (resource: string, id: string, actions: string[]) => {
     id,
     actions: Object.fromEntries(actions.map((action) => [action, true])),
   } as PermissionEntry);
-  permix.setActor({ model: 'User', record: { id: 'w1' } });
   return permix;
 };
 const at = (resource: string, id: string, path?: string): Anchor =>

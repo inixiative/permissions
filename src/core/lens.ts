@@ -9,7 +9,6 @@ import {
   validateRuleInLens,
   walkLensPath,
 } from '@inixiative/json-rules';
-import { actingModel, actorMapName, actorModelsWithRows, actorPartsOfRuleLens } from './actor';
 import { freezeThenJudgeOnce } from './freezeThenJudgeOnce';
 import {
   followedToOneRelationOrWhyNot,
@@ -22,6 +21,7 @@ import {
   type SchemaMap,
   type SpelledRelationTree,
 } from './schemaMap';
+import { resourcesMapName, suppliedEndpointsAt, suppliedSetAt } from './supplied';
 
 /** Chains of at most `depth` relations; a row's lens (one kind per polymorphic model) is reported over `report`, refused over `refuse`. */
 export const relationLensLimits = { depth: 20, report: 1_000, refuse: 10_000 };
@@ -33,7 +33,7 @@ export type PositionUnderListItem = {
   prefix: readonly string[];
 };
 
-/** The lenses a read is judged in at one row: `rule` holds the actor (a `{ rule }`), `lens` does not (a `where`, a path). */
+/** The lenses a read is judged in at one row: `rule` holds the supplied maps (a `{ rule }`), `lens` does not (a `where`, a path). */
 export type LensesAtRow = {
   resource: string;
   lens: LensNarrowing | null;
@@ -41,26 +41,22 @@ export type LensesAtRow = {
   under?: PositionUnderListItem;
 };
 
-// why: the actor is supplied at the row a rule is read on, so only that model bridges to it; the rule lens judges reads, it never projects rows
+// why: supplied rows are filled at the row a rule is read on, so only that model bridges to them, at its root
 const lensAnchoredAtModel = (
   map: SchemaMap,
   model: string,
   relations: SpelledRelationTree,
-  actor: boolean,
+  supplied: boolean,
 ): LensNarrowing => {
-  if (!actor)
+  if (!supplied)
     return {
-      parent: { maps: { app: map.fieldMap }, mapName: 'app', model },
+      parent: { maps: { [resourcesMapName]: map.fieldMap }, mapName: resourcesMapName, model },
       root: { relations },
     };
-  const parts = actorPartsOfRuleLens(map, 'app', model);
+  const far = Object.fromEntries(suppliedEndpointsAt(map, model).map((key) => [key, {}]));
   return {
-    parent: {
-      ...stitchFieldMaps({ maps: { app: map.fieldMap, ...parts.maps }, bridges: parts.bridges }),
-      mapName: 'app',
-      model,
-    },
-    root: { relations: { ...relations, ...parts.relations } },
+    parent: { ...stitchFieldMaps(suppliedSetAt(map, model)), mapName: resourcesMapName, model },
+    root: { relations: { ...relations, ...far } },
   };
 };
 
@@ -293,9 +289,9 @@ export const issuesForReadsOutsideLens = (
   at: LensesAtRow,
   condition: Condition,
   path: string,
-  { actor }: { actor: boolean },
+  { supplied }: { supplied: boolean },
 ): ValidationIssue[] => {
-  const lens = actor ? at.rule : at.lens;
+  const lens = supplied ? at.rule : at.lens;
   if (!lens) return [];
   return validateRuleInLens(condition, lens).errors.flatMap((issue) => {
     if (codesForRuleNotFittingField.has(issue.code))
@@ -303,18 +299,17 @@ export const issuesForReadsOutsideLens = (
     if (!codesForPathOutsideLens.has(issue.code)) return [];
     const resolution = walkLensPath(lens, issue.path);
     const head = pathSegments(issue.path)[0] ?? '';
-    if (head.startsWith(`${actorMapName}:`))
+    const [prefix, model] = head.split(':');
+    if (model !== undefined && Object.hasOwn(map.supplied ?? {}, prefix))
       return [
         {
           path,
           code: 'lens',
-          message: !actor
-            ? `\`${issue.path}\`: a \`where\` reads the record alone; the actor is not on it`
-            : [actingModel, ...actorModelsWithRows(map)].includes(
-                  head.slice(actorMapName.length + 1),
-                )
-              ? `\`${issue.path}\`: a rule reads the actor's kind, its facts and its own columns only`
-              : `\`${head}\` is not an actor the map declares (\`actors.models\`)`,
+          message: !supplied
+            ? `\`${issue.path}\`: a \`where\` reads the record alone; supplied rows are not on it`
+            : model in (map.supplied?.[prefix]?.models ?? {})
+              ? `\`${issue.path}\`: a rule reads a supplied model's own columns only`
+              : `\`${head}\` is not a model of the supplied map \`${prefix}\``,
         },
       ];
     return [{ path, ...whyPathLeavesLens(map, at, issue.path, resolution) }];
@@ -329,7 +324,7 @@ export const whyWhereLeavesLensAtRow = (
 ): string | null => {
   if (typeof where !== 'object' || where === null || !at.lens) return null;
   return freezeThenJudgeOnce(where, at.lens, () => {
-    const misses = issuesForReadsOutsideLens(map, at, where, '$', { actor: false }).filter(
+    const misses = issuesForReadsOutsideLens(map, at, where, '$', { supplied: false }).filter(
       issueRefusesTheRead,
     );
     return misses.length

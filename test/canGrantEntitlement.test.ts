@@ -11,7 +11,7 @@ import {
   type RebacSchema,
   type Row,
 } from '../index';
-import { mapOf } from './schemaMaps';
+import { actorData, mapOf } from './schemaMaps';
 
 // A grant is an action: the writer could take every action the holder would hold, from where it
 // would act. Grant time mirrors read time through the same check (Aron, 2026-10-22 and 2026-10-25).
@@ -72,8 +72,13 @@ const columns = {
 };
 const canGrantEntitlement = createCanGrantEntitlement(mapOf(relations, columns));
 const rebac = createRebacCheck(mapOf(relations, columns));
-const check = (permix: Permix, resource: string, record: Row, action: string) =>
-  rebac(permix, schema, { resource, record }, action);
+const check = (
+  permix: Permix,
+  resource: string,
+  record: Row,
+  action: string,
+  data: Record<string, Row[]> = actorData('User', { id: 'h1' }),
+) => rebac(permix, schema, { resource, record, data }, action);
 
 const o1 = { id: 'o1' };
 const s1 = { id: 's1', organizationId: 'o1', organization: o1 };
@@ -93,10 +98,9 @@ const entry = (
   ...(where === undefined ? {} : { where }),
 });
 
-const writer = async (entries: PermissionEntry[], model = 'User') => {
+const writer = async (entries: PermissionEntry[]) => {
   const permix = createPermissions();
   await permix.setup(entries);
-  permix.setActor({ model, record: { id: 'w1' } });
   return permix;
 };
 const holding = (resource: string, id: string, actions: string[]) =>
@@ -141,7 +145,6 @@ describe('canGrantEntitlement: never more than the writer could do from that anc
     const assignFrom = async (owner: Permix) => {
       const holder = createPermissions();
       await holder.setup([assign], { owner });
-      holder.setActor({ model: 'User', record: { id: 'h1' } });
       return holder;
     };
     const fromManager = await assignFrom(await holding('db:organization', 'o1', ['manage']));
@@ -164,14 +167,12 @@ describe('canGrantEntitlement: never more than the writer could do from that anc
 
   test('a granted actor-gated action still meets the actor: a token holding token.create mints nothing', async () => {
     const mint = entry('db:organization', at('db:organization', 'o1'), ['token.create']);
-    const holderAs = async (model: string) => {
-      const holder = createPermissions();
-      await holder.setup([mint], { owner: await holding('db:organization', 'o1', ['manage']) });
-      holder.setActor({ model, record: { id: 'h1' } });
-      return holder;
-    };
-    expect(check(await holderAs('User'), 'db:organization', o1, 'token.create')).toBe(true);
-    expect(check(await holderAs('Token'), 'db:organization', o1, 'token.create')).toBe(false);
+    const holder = createPermissions();
+    await holder.setup([mint], { owner: await holding('db:organization', 'o1', ['manage']) });
+    const as = (model: string) =>
+      check(holder, 'db:organization', o1, 'token.create', actorData(model, { id: 'h1' }));
+    expect(as('User')).toBe(true);
+    expect(as('Token')).toBe(false);
   });
 
   test('a child resource from its direct owner: the integrations of s1, judged on the record the app placed under s1', async () => {
@@ -213,10 +214,9 @@ describe('canGrantEntitlement: never more than the writer could do from that anc
     const mint = entry('db:organization', at('db:organization', 'o1'), ['token.create']);
     const asPerson = await holding('db:organization', 'o1', ['own']);
     expect(may(asPerson, mint, o1)).toBe(false);
-    const asToken = await writer(
-      [{ resource: 'db:organization', id: 'o1', actions: { own: true } }],
-      'Token',
-    );
+    const asToken = await writer([
+      { resource: 'db:organization', id: 'o1', actions: { own: true } },
+    ]);
     expect(may(asToken, mint, o1)).toBe(false);
   });
 
@@ -226,7 +226,6 @@ describe('canGrantEntitlement: never more than the writer could do from that anc
     await token.setup([entry('db:organization', at('db:organization', 'o1'), ['manage', 'read'])], {
       owner: readOnlyOwner,
     });
-    token.setActor({ model: 'Token', record: { id: 't1' } });
     const manage = entry('db:organization', at('db:organization', 'o1'), ['manage']);
     expect(may(token, manage, o1)).toBe(false);
     expect(may(token, entry('db:organization', at('db:organization', 'o1'), ['read']), o1)).toBe(
@@ -262,7 +261,6 @@ describe('canGrantEntitlement on a placed record: a field it does not carry is u
     });
     const holder = createPermissions();
     await holder.setup([unnamed], { owner: await holding('db:space', 's1', ['manage']) });
-    holder.setActor({ model: 'User', record: { id: 'h1' } });
     const integrations = entry('db:integration', at('db:space', 's1', 'space'), ['manage']);
     const grants = (granted: EntitlementEntry) =>
       (placeEntitlement(mapOf(relations, columns), granted, s1) ?? []).every((record) =>
@@ -293,7 +291,6 @@ describe('a held entitlement is passed on only as a copy or a narrowing of itsel
   const holderOf = async (...held: EntitlementEntry[]) => {
     const holder = createPermissions();
     await holder.setup(held, { owner: await holding('db:space', 's1', ['manage']) });
-    holder.setActor({ model: 'User', record: { id: 'h1' } });
     return holder;
   };
   const placed = (where: Row = {}) => ({ ...integrationUnder(s1), ...where });
@@ -319,7 +316,6 @@ describe('a held entitlement is passed on only as a copy or a narrowing of itsel
   test('a held entitlement passes on only what its granter still backs: copying never revives the rest (R111)', async () => {
     const holder = createPermissions();
     await holder.setup([underS1(['manage'])], { owner: await holding('db:space', 's1', ['read']) });
-    holder.setActor({ model: 'User', record: { id: 'h1' } });
     expect(may(holder, underS1(['manage']), placed())).toBe(false);
     expect(may(holder, underS1(['read']), placed())).toBe(true);
   });
@@ -349,7 +345,6 @@ describe('a held entitlement passes on lower actions: each granted action reache
   const holderOf = async (held: EntitlementEntry) => {
     const holder = createPermissions();
     await holder.setup([held], { owner: await holding('db:space', 's1', ['own']) });
-    holder.setActor({ model: 'User', record: { id: 'h1' } });
     return holder;
   };
   const placed = integrationUnder(s1);
@@ -387,7 +382,6 @@ describe('passing on a lower action asks the grantor about that action, not the 
     await holder.setup([underS1(['manage'])], {
       owner: await holding('db:space', 's1', ['read']),
     });
-    holder.setActor({ model: 'User', record: { id: 'h1' } });
     return holder;
   };
 
@@ -404,7 +398,6 @@ describe('passing on a lower action asks the grantor about that action, not the 
     await holder.setup([underS1(['manage'])], {
       owner: await holding('db:organization', 'o1', ['read']),
     });
-    holder.setActor({ model: 'User', record: { id: 'h1' } });
     expect(may(holder, underS1(['read']), placed)).toBe(true);
     expect(may(holder, underS1(['manage']), placed)).toBe(false);
   });
@@ -412,7 +405,6 @@ describe('passing on a lower action asks the grantor about that action, not the 
   test('a grantor that lost even read passes on nothing', async () => {
     const holder = createPermissions();
     await holder.setup([underS1(['manage'])], { owner: await holding('db:space', 's9', ['own']) });
-    holder.setActor({ model: 'User', record: { id: 'h1' } });
     expect(may(holder, underS1(['read']), placed)).toBe(false);
   });
 });

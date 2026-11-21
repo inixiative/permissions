@@ -1,6 +1,5 @@
 import { type Absent, type BridgeDictionary, check as checkRule } from '@inixiative/json-rules';
 import { isNil, isPlainObject } from 'lodash-es';
-import { recordWithActor } from './actor';
 import type { Algebra } from './algebra';
 import { bridgeHop, lookupFar } from './bridgeHop';
 import { entitled } from './entitled';
@@ -9,6 +8,7 @@ import { permixId, rowId } from './identity';
 import type { PositionUnderListItem } from './lens';
 import { recordId } from './recordId';
 import { identityKeyOfRow, listOf, relationOf, type SchemaMap } from './schemaMap';
+import { recordWithSuppliedData } from './supplied';
 import type { ActionRule, AdditionalRules, PermixLike, RebacSchema, Row } from './types';
 import { validateActionRule } from './validateActionRule';
 import { issuesForRuleReadsOutsideLens } from './validateSchema';
@@ -20,6 +20,8 @@ export type Walk<R extends string, T = boolean> = {
   absent: Absent;
   schema: RebacSchema<R>;
   getDict: () => BridgeDictionary | undefined;
+  /** The check's `data`: every bridge's rows, the supplied models' read by each `{ rule }`. */
+  data?: Record<string, Row[]>;
   algebra: Algebra<T>;
   /** The app's extra rule sets for a record, ORed in beside its own `permissionRules`. */
   additionalRules?: AdditionalRules;
@@ -223,14 +225,24 @@ const walkActionRules = <R extends string, T>(
   const additionalRules = (walk.additionalRules?.(resource, record) ?? []).filter(
     (rules): rules is Record<string, ActionRule> => isPlainObject(rules),
   );
-  const holds = (rule: ActionRule) =>
-    validateActionRule(rule, {
-      schema: walk.schema,
-      resource,
-      action: actionOrRule,
-      rowRules,
-      additionalRules,
-    }).ok && issuesForRuleReadsOutsideLens(walk.map, walk.schema, resource, rule).length === 0;
+  // why: a stored or additional rule is judged as the schema's is: one that is not positive, loops or reads outside the lens throws
+  const holds = (rule: ActionRule) => {
+    const [problem] = [
+      ...validateActionRule(rule, {
+        schema: walk.schema,
+        resource,
+        action: actionOrRule,
+        rowRules,
+        additionalRules,
+      }).errors,
+      ...issuesForRuleReadsOutsideLens(walk.map, walk.schema, resource, rule),
+    ];
+    if (problem)
+      throw new Error(
+        `a rule for \`${resource}.${actionOrRule}\` beside the schema's is refused: \`${problem.path}\`: ${problem.message}`,
+      );
+    return true;
+  };
   const node = `${resource}\u0000${actionOrRule}`;
   const rowRule = rowRules?.[actionOrRule];
   const rowRuleHolds =
@@ -312,7 +324,8 @@ const walkRule = <R extends string, T>(
   }
 
   if ('rule' in rule) {
-    return checkRule(rule.rule, recordWithActor(walk.map, record, permix.getActor()), {
+    const model = walk.map.resources[resource];
+    return checkRule(rule.rule, recordWithSuppliedData(walk.map, model, record, walk.data), {
       absent: walk.absent,
     }) === true
       ? algebra.unit

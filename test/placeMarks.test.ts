@@ -214,7 +214,12 @@ describe('what fills a stand-in, and what never does', () => {
         caseInsensitive: true,
       },
       { field: 'integrationResource.kind', operator: 'in', value: ['channel'] },
-      { field: 'integrationResource.kind', operator: 'equals', path: 'channel' },
+      {
+        all: [
+          { field: 'integrationResource.kind', operator: 'exists' },
+          { field: 'integrationResource.kind', operator: 'equals', path: 'channel' },
+        ],
+      },
     ])
       expect(standIn(marked, leaf as Condition)).not.toHaveProperty('kind');
   });

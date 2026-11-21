@@ -2,13 +2,13 @@ import { describe, expect, test } from 'bun:test';
 import { Operator } from '@inixiative/json-rules';
 import type { AdditionalRules, PermixLike, RebacSchema, Row } from '../index';
 import { createRebacCheck, createRebacPaths } from '../index';
-import { mapOf } from './schemaMaps';
+import { actorData, mapOf } from './schemaMaps';
 
-const actor = (id: string): PermixLike => ({
+const permix: PermixLike = {
   check: () => false,
   isSuperadmin: () => false,
-  getActor: () => ({ model: 'User', record: { id } }),
-});
+};
+const stranger = actorData('User', { id: 'stranger' });
 
 const schema: RebacSchema = {
   permissions: {
@@ -17,6 +17,7 @@ const schema: RebacSchema = {
         own: {
           rule: {
             all: [
+              { field: 'ownerId', operator: Operator.exists },
               { field: 'actor:User.id', operator: Operator.exists },
               { field: 'ownerId', operator: Operator.equals, path: 'actor:User.id' },
             ],
@@ -52,7 +53,7 @@ const contactOf = (owner: Row, fields: Row = {}): Row => ({
   ...fields,
 });
 const can = (record: Row, action: string, resource = 'contact') =>
-  check(actor('stranger'), schema, { resource, record }, action);
+  check(permix, schema, { resource, record, data: stranger }, action);
 
 describe('additional rules for a record', () => {
   test('widen the action they name on that record, and nothing else', () => {
@@ -76,9 +77,9 @@ describe('additional rules for a record', () => {
     const walked = createRebacCheck(map, { additionalRules: selfOpening });
     const at = (owner: Row) =>
       walked(
-        actor('stranger'),
+        permix,
         viaOrganization,
-        { resource: 'contact', record: contactOf(owner) },
+        { resource: 'contact', record: contactOf(owner), data: stranger },
         'read',
       );
     expect(at(organization('org-1'))).toBe(false);
@@ -95,6 +96,7 @@ describe('additional rules for a record', () => {
               rule: {
                 all: [
                   { field: 'actor:User.id', operator: Operator.exists },
+                  { field: 'label', operator: Operator.exists },
                   { field: 'label', operator: Operator.equals, path: 'actor:User.id' },
                 ],
               },
@@ -118,24 +120,38 @@ describe('additional rules for a record', () => {
     ).toBe(true);
   });
 
-  test('widen nothing, and never throw, when a rule is one the core refuses', () => {
-    const stored = (rule: unknown, fields: Row = {}) =>
-      can(contactOf(organization('org-1', { contact: { read: rule } }), fields), 'read');
-    expect(stored('read')).toBe(false);
-    expect(stored({ rule: { field: 'label', operator: Operator.notEquals, value: 'x' } })).toBe(
-      false,
+  test('are refused, by a throw, when a rule is one the core refuses', () => {
+    const stored =
+      (rule: unknown, fields: Row = {}) =>
+      () =>
+        can(contactOf(organization('org-1', { contact: { read: rule } }), fields), 'read');
+    expect(stored('read')).toThrow('beside the schema');
+    expect(stored({ rule: { field: 'label', operator: Operator.notEquals, value: 'x' } })).toThrow(
+      'beside the schema',
     );
-    expect(stored({ rule: { field: 'secret', operator: Operator.equals, value: 'x' } })).toBe(
-      false,
+    expect(stored({ rule: { field: 'secret', operator: Operator.equals, value: 'x' } })).toThrow(
+      'beside the schema',
     );
-    expect(stored('manage', { permissionRules: { manage: 'read' } })).toBe(false);
+    expect(() =>
+      can(
+        contactOf(organization('org-1', { contact: { read: 'manage' } }), {
+          permissionRules: { manage: 'read' },
+        }),
+        'read',
+      ),
+    ).toThrow('beside the schema');
     expect(can(contactOf(organization('org-1', { contact: 'everything' })), 'read')).toBe(false);
   });
 
   test('admit a path the same way the check does', () => {
     const paths = createRebacPaths(map, { additionalRules: rulesOfTheOrganization });
     const at = (owner: Row) =>
-      paths(actor('stranger'), schema, { resource: 'contact', record: contactOf(owner) }, 'read');
+      paths(
+        permix,
+        schema,
+        { resource: 'contact', record: contactOf(owner), data: stranger },
+        'read',
+      );
     expect(at(organization('org-1'))).toHaveLength(0);
     expect(at(organization('org-1', { contact: { read: true } })).length).toBeGreaterThan(0);
   });
