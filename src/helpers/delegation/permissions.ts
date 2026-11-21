@@ -1,5 +1,5 @@
 import { createPermissions, type PermissionEntry, type Permix } from '../../core/permix';
-import type { Actor, PermixLike } from '../../core/types';
+import type { PermixLike } from '../../core/types';
 
 /**
  * Permissions as data: groups of entries. A group without `owner` is permissions grants; a group
@@ -21,8 +21,8 @@ export type BuiltOwners = Map<Permissions, PermixLike | typeof building>;
  * reached along many paths is never rebuilt per path. An owner reached again while it is still
  * being built is a loop in the data: that edge backs nothing.
  */
-export const installPermissions = async <Action extends string, A extends Actor>(
-  permix: Permix<Action, A>,
+export const installPermissions = async <Action extends string>(
+  permix: Permix<Action>,
   permissions: Permissions<Action>,
   built: BuiltOwners = new Map(),
 ): Promise<void> => {

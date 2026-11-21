@@ -4,7 +4,7 @@ import { createPermix } from 'permix';
 import { entitlementProblem } from './entitlementProblem';
 import { permixId } from './identity';
 import { coversEntitlement } from './redundantEntitlements';
-import type { Actor, Anchor, Entitlement, PermixLike } from './types';
+import type { Anchor, Entitlement, PermixLike } from './types';
 
 export type ActionState<Action extends string = string> = Partial<
   Record<Action, boolean | ((data?: unknown) => boolean)>
@@ -67,11 +67,12 @@ const validate = (entry: PermissionEntry, owner: PermixLike | undefined): void =
 /**
  * A thin, role-agnostic wrapper over `permix`. Holds the actor's granted actions (keyed by
  * `resource` or `resource:id`), its entitlements (kept beside the table, each with the table of
- * whoever granted it), a superadmin bypass, and the current actor (its credential `model` and `record`).
+ * whoever granted it), and a superadmin bypass. Who is acting is not held here: the check reads it
+ * from the supplied rows of its call's `data`.
  * App code populates it from roles/entitlements (hydration stays app-side); the rebac
  * {@link createRebacCheck} engine reads it back through the {@link PermixLike} slice.
  */
-export type Permix<Action extends string = string, A extends Actor = Actor> = {
+export type Permix<Action extends string = string> = {
   check: (resource: string, action: Action, id?: string, data?: unknown) => boolean;
   setup: (
     perms: PermissionEntry<Action> | PermissionEntry<Action>[],
@@ -80,18 +81,12 @@ export type Permix<Action extends string = string, A extends Actor = Actor> = {
   entitlements: (resource: string, action: Action) => Entitlement[];
   setSuperadmin: (value: boolean) => void;
   isSuperadmin: () => boolean;
-  setActor: (actor: A) => void;
-  getActor: () => A | null;
   getJSON: () => Record<string, Record<string, boolean>> | null;
 };
 
-export const createPermissions = <
-  Action extends string = string,
-  A extends Actor = Actor,
->(): Permix<Action, A> => {
+export const createPermissions = <Action extends string = string>(): Permix<Action> => {
   const permix = createPermix<Record<string, { action: Action }>>();
   let isSuperadmin = false;
-  let actor: A | null = null;
   let accumulated: PermissionState = {};
   let entitlements = new Map<string, Entitlement[]>();
   let granted = new Map<string, EntitlementEntry[]>();
@@ -155,10 +150,6 @@ export const createPermissions = <
       isSuperadmin = value;
     },
     isSuperadmin: () => isSuperadmin,
-    setActor: (value) => {
-      actor = value;
-    },
-    getActor: () => actor,
     getJSON: () => permix.dehydrate() as Record<string, Record<string, boolean>>,
   };
 };

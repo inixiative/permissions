@@ -27,6 +27,7 @@ import { identityKeyOfRow, listOf } from '../src/core/schemaMap';
 import { hydrationLimits } from '../src/helpers/hydration/hydrate';
 import { createHydratorReadingEachRowThroughLoad } from './createHydratorReadingEachRowThroughLoad';
 import { loadModels } from './fixtures/load';
+import { actorData, actorMap } from './schemaMaps';
 
 // json-rules' own lens, spelled in the root, decides which paths a rule may name; the hydrator
 // loads every row it can reach. Each case below returned true on 0.22.0 (the adversarial review's probes, T1–T8).
@@ -147,6 +148,7 @@ const map: SchemaMap = {
     signet: 'Signet',
   },
   fieldMap,
+  supplied: { actor: actorMap },
 };
 
 const db: Record<string, Record<string, Row>> = {
@@ -167,30 +169,53 @@ const hydrate = createHydratorReadingEachRowThroughLoad({
       Object.entries(where).every(([key, value]) => row[key] === value),
     ),
 });
-const check = createRebacCheck(map);
+// Who a permix stands for: a check is told it through the subject's `data`.
+const actedBy = new WeakMap<object, Row>();
+const acting = <Subject extends { data?: Record<string, Row[]> }, Rest extends unknown[], Out>(
+  ask: (permix: PermixLike, schema: RebacSchema, subject: Subject, ...rest: Rest) => Out,
+) => {
+  return (permix: PermixLike, schema: RebacSchema, subject: Subject, ...rest: Rest): Out => {
+    const record = actedBy.get(permix);
+    const data = record === undefined ? {} : actorData('User', record);
+    return ask(permix, schema, { ...subject, data: { ...data, ...subject.data } }, ...rest);
+  };
+};
+const check = acting(createRebacCheck(map));
 
 const actorAs = (id: string, entitlements: EntitlementEntry[] = []): PermixLike => {
-  const owner: PermixLike = { check: () => true, getActor: () => null };
-  return {
+  const owner: PermixLike = { check: () => true };
+  const permix: PermixLike = {
     check: () => false,
-    getActor: () => ({ model: 'User', record: { id } }),
     entitlements: (resource, action) =>
       entitlements
         .filter((entry) => entry.resource === resource && entry.actions[action] === true)
         .map((entry) => ({ ...entry, owner })),
   };
+  actedBy.set(permix, { id });
+  return permix;
 };
 const ruled = (resource: string, rule: ActionRule): RebacSchema => ({
   permissions: { [resource]: { actions: { act: rule } } },
 });
-const reads = (field: string, value: unknown = null): ActionRule => ({
-  rule: { field, operator: 'equals', value } as Condition,
+// A read of `field`: `exists`, or `equals value` (a rule names what is there, never a null).
+const reads = (field: string, value?: unknown): ActionRule => ({
+  rule: (value === undefined
+    ? { field, operator: 'exists' }
+    : { field, operator: 'equals', value }) as Condition,
 });
 const actorWrote = (field: string): ActionRule => ({
-  rule: { field, operator: 'equals', path: '__actor.record.id' },
+  rule: {
+    all: [
+      { field, operator: 'exists' },
+      { field: 'actor:User.id', operator: 'exists' },
+      { field, operator: 'equals', path: 'actor:User.id' },
+    ],
+  },
 });
-const codes = (schema: RebacSchema) =>
-  validateSchema(map, schema).errors.map((issue) => issue.code);
+// The refusals a schema gets, each once: an `exists` and its comparison reading one path are two reports of it.
+const codes = (schema: RebacSchema) => [
+  ...new Set(validateSchema(map, schema).errors.map((issue) => issue.code)),
+];
 
 describe('reads the hydrator never loaded are refused', () => {
   test('a path through an undeclared list a request body filled is refused', async () => {
@@ -276,7 +301,7 @@ describe('reads the hydrator never loaded are refused', () => {
     expect(whyEntitlementWhereLeavesLens(map, entry.resource, entry.where)).toMatch(
       /reads outside the lens: `conversation.drafts` is a list/,
     );
-    const writer: PermixLike = { check: () => true, getActor: () => null };
+    const writer: PermixLike = { check: () => true };
     expect(createCanGrantEntitlement(map)(writer, schema, entry, record)).toBe(false);
   });
 
@@ -313,21 +338,21 @@ describe('reads the hydrator never loaded are refused', () => {
       },
     });
     const subject = { resource: 'user', record: u1 };
-    expect(check(actorAs('x'), twoHops(reads('org.name', null)), subject, 'act')).toBe(false);
+    expect(check(actorAs('x'), twoHops(reads('org.name', 'other')), subject, 'act')).toBe(false);
     expect(check(actorAs('x'), twoHops(reads('org.name', 'acme')), subject, 'act')).toBe(true);
-    const held = (value: string | null): EntitlementEntry => ({
+    const held = (value: string): EntitlementEntry => ({
       resource: 'user',
       anchor: { resource: 'user', id: 'u1' },
       where: { field: 'org.name', operator: 'equals', value },
       actions: { vouch: true },
     });
-    expect(check(actorAs('x', [held(null)]), twoHops(null), subject, 'act')).toBe(false);
+    expect(check(actorAs('x', [held('other')]), twoHops(null), subject, 'act')).toBe(false);
     expect(check(actorAs('x', [held('acme')]), twoHops(null), subject, 'act')).toBe(true);
     const conversation = await hydrate('conversation', db.conversation?.c1 as Row);
     const fromConversation: RebacSchema = {
       permissions: {
         conversation: { actions: { act: { rel: 'org.creator', action: 'vouch' } } },
-        user: { actions: { vouch: reads('org.name', null) } },
+        user: { actions: { vouch: reads('org.name', 'other') } },
       },
     };
     expect(
@@ -351,7 +376,6 @@ describe('a loop made by data denies; a schema that names itself throws', () => 
   const owns = (id: string): PermixLike => ({
     check: (resource, action, recordId) =>
       resource === 'user' && action === 'own' && recordId === id,
-    getActor: () => null,
   });
 
   test('around the cycle: no grant denies, the owner is allowed, paths agree', async () => {
@@ -360,7 +384,7 @@ describe('a loop made by data denies; a schema that names itself throws', () => 
     const subject = { resource: 'user', record: u1 };
     expect(check(actorAs('x'), walks, subject, 'read')).toBe(false);
     expect(check(owns('u1'), walks, subject, 'read')).toBe(true);
-    expect(createRebacPaths(map)(actorAs('x'), walks, subject, 'read')).toEqual([]);
+    expect(acting(createRebacPaths(map))(actorAs('x'), walks, subject, 'read')).toEqual([]);
     expect(createRebacPaths(map)(owns('u1'), walks, subject, 'read')).toEqual([[]]);
   });
 
@@ -392,8 +416,8 @@ describe('a loop made by data denies; a schema that names itself throws', () => 
       (placeEntitlement(map, entry, anchor) ?? []).every((placed) =>
         createCanGrantEntitlement(map)(writer, walks, entry, placed),
       );
-    const orgReader: PermixLike = { check: (resource) => resource === 'org', getActor: () => null };
-    const nobody: PermixLike = { check: () => false, getActor: () => null };
+    const orgReader: PermixLike = { check: (resource) => resource === 'org' };
+    const nobody: PermixLike = { check: () => false };
     expect(grants(orgReader, u1.org as Row)).toBe(true);
     expect(grants(orgReader, tree)).toBe(true);
     expect(grants(nobody, u1.org as Row)).toBe(false);
@@ -416,7 +440,7 @@ describe('computed keys, class instances, frozen wheres and the actor in a where
     const schema: RebacSchema = {
       permissions: {
         conversation: { actions: { act: { rel: 'org', action: 'a' } } },
-        org: { actions: { a: reads('plan', null) } },
+        org: { actions: { a: reads('plan') } },
       },
     };
     const record = { id: 'c1', orgId: 'o1', org: { id: 'o1', name: 'acme', plan: 'pro' } };
@@ -438,7 +462,7 @@ describe('computed keys, class instances, frozen wheres and the actor in a where
         { resource: 'user', record },
         'act',
       );
-    expect(at(null)).toBe(false);
+    expect(at('other')).toBe(false);
     expect(at('acme')).toBe(true);
   });
 
@@ -460,11 +484,11 @@ describe('computed keys, class instances, frozen wheres and the actor in a where
     expect(ask()).toBe(true);
   });
 
-  test('a where reads the record alone, so an `__actor` path in it is refused', () => {
+  test('a where reads the record alone, so an actor path in it is refused', () => {
     const entry: EntitlementEntry = {
       resource: 'user',
       anchor: { resource: 'user', id: 'u1' },
-      where: { field: '__actor.record.id', operator: 'equals', value: null },
+      where: { field: 'actor:User.id', operator: 'exists' },
       actions: { act: true },
     };
     const record = { id: 'u1', orgId: 'o1' };
@@ -472,7 +496,7 @@ describe('computed keys, class instances, frozen wheres and the actor in a where
       check(actorAs('u1', [entry]), ruled('user', null), { resource: 'user', record }, 'act'),
     ).toBe(false);
     expect(whyEntitlementWhereLeavesLens(map, 'user', entry.where)).toMatch(
-      /`__actor` is not on it/,
+      /supplied rows are not on it/,
     );
     expect(codes(ruled('user', actorWrote('id')))).toEqual([]);
   });
@@ -571,13 +595,13 @@ describe('what the lens keeps', () => {
     expect(() => inline(reads('plann', 1))).toThrow('`user` has no field `plann`');
     expect(() => inline({ any: [reads('plann', 1)] })).toThrow('`user` has no field `plann`');
     const rowRule = { id: 'u1', plann: 1, permissionRules: { act: reads('plann', 1) } };
-    expect(
+    expect(() =>
       check(actorAs('x'), ruled('user', null), { resource: 'user', record: rowRule }, 'act'),
-    ).toBe(false);
+    ).toThrow('`user` has no field `plann`');
     expect(
       whyEntitlementWhereLeavesLens(map, 'user', { field: 'plann', operator: 'equals', value: 1 }),
     ).toMatch(/`user` has no field `plann`/);
-    expect(codes(ruled('user', reads('__actor.record.org.creator.org')))).toEqual([]);
+    expect(codes(ruled('user', reads('actor:User.org')))).toEqual(['lens']);
   });
 });
 
@@ -624,7 +648,7 @@ describe('the root, item paths, unknown resources and wheres on an item', () => 
     const creator = (partial.org as Row).creator as Row;
     expect(creator).not.toBe(partial);
     expect(creator.name).toBe('Una');
-    expect(check(actorAs('x'), named(null), { resource: 'user', record: partial }, 'act')).toBe(
+    expect(check(actorAs('x'), named('other'), { resource: 'user', record: partial }, 'act')).toBe(
       false,
     );
     const forged = await hydrate('user', { id: 'u1', name: 'EVIL', orgId: 'o1' });
@@ -780,10 +804,9 @@ describe('the starting record: a row is known by resource and id', () => {
   });
 
   test('the grant check’s first pass: a data loop can place the granted row above itself (as on main)', async () => {
-    const owner: PermixLike = { check: () => true, getActor: () => null };
+    const owner: PermixLike = { check: () => true };
     const held = (grantsBelow: boolean): PermixLike => ({
       check: () => false,
-      getActor: () => null,
       entitlements: (resource, action) =>
         resource === 'user' && action === 'y'
           ? [
@@ -1096,16 +1119,15 @@ describe('json-rules’ operator fit check', () => {
 });
 
 describe('the actor and the size of a lens', () => {
-  test('a rule reads the actor at its own row only; a where never does', () => {
-    expect(codes(ruled('user', reads('__actor.record.org.creator')))).toEqual([]);
-    expect(codes(ruled('user', reads('org.__actor.record.id')))).toEqual(['lens']);
+  test("a rule reads the actor's own columns at its own row only; a where never does", () => {
+    expect(codes(ruled('user', reads('actor:User.id')))).toEqual([]);
+    expect(codes(ruled('user', reads('actor:User.org.creator')))).toEqual(['lens']);
+    expect(codes(ruled('user', reads('actor:Usr.id')))).toEqual(['lens']);
+    expect(codes(ruled('user', reads('org.actor:User.id')))).toEqual(['lens']);
+    expect(codes(ruled('user', reads('__actor.record.id')))).toEqual(['lens']);
     expect(
-      whyEntitlementWhereLeavesLens(map, 'user', {
-        field: '__actor.record.id',
-        operator: 'equals',
-        value: null,
-      }),
-    ).toMatch(/`__actor` is not on it/);
+      whyEntitlementWhereLeavesLens(map, 'user', { field: 'actor:User.id', operator: 'exists' }),
+    ).toMatch(/supplied rows are not on it/);
   });
 
   test('a resource whose row hydrates more than the report limit is a warning, not an error', () => {
@@ -1447,6 +1469,7 @@ describe('the apps’ own maps', () => {
       'db:chatMessage': 'ChatMessage',
     },
     fieldMap: { models: loadModels('zealot') },
+    supplied: { actor: actorMap },
   };
   const participantReads = (field: string): RebacSchema => ({
     permissions: {
@@ -1455,7 +1478,15 @@ describe('the apps’ own maps', () => {
           act: {
             rel: 'participants',
             arrayOperator: 'any',
-            condition: { rule: { field, operator: 'equals', path: '__actor.record.uuid' } },
+            condition: {
+              rule: {
+                all: [
+                  { field, operator: 'exists' },
+                  { field: 'actor:User.uuid', operator: 'exists' },
+                  { field, operator: 'equals', path: 'actor:User.uuid' },
+                ],
+              },
+            },
           },
         },
       },
@@ -1463,15 +1494,13 @@ describe('the apps’ own maps', () => {
   });
 
   test('Zealot: under a participant a declared path reads; at a landing only the rest of `down` does', () => {
-    const ask = createRebacCheck(zealot);
+    const ask = acting(createRebacCheck(zealot));
     const record = {
       uuid: 'c1',
       participants: [{ uuid: 'p1', forumUser: { fanUser: { userUuid: 'u-fay' } } }],
     };
-    const fay: PermixLike = {
-      check: () => false,
-      getActor: () => ({ model: 'User', record: { uuid: 'u-fay' } }),
-    };
+    const fay: PermixLike = { check: () => false };
+    actedBy.set(fay, { uuid: 'u-fay' });
     const declared = participantReads('forumUser.fanUser.userUuid');
     expect(validateSchema(zealot, declared).ok).toBe(true);
     expect(ask(fay, declared, { resource: 'db:conversation', record }, 'act')).toBe(true);
@@ -1488,12 +1517,22 @@ describe('the apps’ own maps', () => {
         },
         'db:forumUser': {
           actions: {
-            x: { rule: { field: 'brand.uuid', operator: 'equals', path: '__actor.record.uuid' } },
+            x: {
+              rule: {
+                all: [
+                  { field: 'brand.uuid', operator: 'exists' },
+                  { field: 'actor:User.uuid', operator: 'exists' },
+                  { field: 'brand.uuid', operator: 'equals', path: 'actor:User.uuid' },
+                ],
+              },
+            },
           },
         },
       },
     };
-    expect(validateSchema(zealot, landing).errors.map((issue) => issue.code)).toEqual(['down']);
+    expect([...new Set(validateSchema(zealot, landing).errors.map((issue) => issue.code))]).toEqual(
+      ['down'],
+    );
   });
 
   test('Kingdom: a surface rule reads through its synthetic integrationResource relation', () => {

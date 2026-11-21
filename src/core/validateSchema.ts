@@ -143,7 +143,8 @@ const relIssues = (
     return rule.all.flatMap((child, i) =>
       relIssues(map, schema, at, child, `${path}.all[${i}]`, seen),
     );
-  if ('rule' in rule) return issuesForReadsOutsideLens(map, at, rule.rule, path, { actor: true });
+  if ('rule' in rule)
+    return issuesForReadsOutsideLens(map, at, rule.rule, path, { supplied: true });
   if ('arrayOperator' in rule) {
     if (under)
       return [

@@ -1,23 +1,19 @@
 import { describe, expect, test } from 'bun:test';
-import { type Bridge, Operator } from '@inixiative/json-rules';
-import type { ActionRule, Actor, PermixLike, RebacSchema } from '../index';
+import { type JoinedBridge, Operator } from '@inixiative/json-rules';
+import type { ActionRule, PermixLike, RebacSchema, Row } from '../index';
 import { createRebacCheck } from '../index';
-import { mapOf } from './schemaMaps';
+import { actorData, mapOf } from './schemaMaps';
 
-// stub permix: no direct grants (forces schema evaluation); optional superadmin + actor id.
-const stub = (
-  opts: { userId?: string | null; superadmin?: boolean; grant?: string } = {},
-): PermixLike => ({
+// stub permix: no direct grants (forces schema evaluation); optional superadmin.
+const stub = (opts: { superadmin?: boolean; grant?: string } = {}): PermixLike => ({
   check: (_resource, action) => action === opts.grant,
   isSuperadmin: () => opts.superadmin ?? false,
-  getActor: () => (opts.userId ? { model: 'User', record: { id: opts.userId } } : null),
 });
 
 // stub permix that grants specific resource:action to specific ids — for rbac-terminal bridge walks.
 const grantStub = (grants: Record<string, string[]>): PermixLike => ({
   check: (resource, action, id) => !!id && (grants[`${resource}:${action}`]?.includes(id) ?? false),
   isSuperadmin: () => false,
-  getActor: () => null,
 });
 
 const schema: RebacSchema = {
@@ -95,7 +91,6 @@ describe('rebac check', () => {
     check: (resource, action, id) =>
       resource === 'user' && id === userId && userActions.includes(action),
     isSuperadmin: () => false,
-    getActor: () => (userId ? { model: 'User', record: { id: userId } } : null),
   });
   const leave = (permix: PermixLike, userId: string) =>
     check(
@@ -202,7 +197,7 @@ describe('rebac check', () => {
     ).toBe(true);
   });
 
-  test('a stored row rule the core would refuse widens nothing and never throws', () => {
+  test('a stored row rule the core would refuse throws, and one it accepts widens', () => {
     const member = { role: 'member' };
     const at = (permissionRules: Record<string, unknown>) =>
       check(
@@ -211,10 +206,10 @@ describe('rebac check', () => {
         { resource: 'organization', record: { ...member, permissionRules } },
         'read',
       );
-    expect(at({ read: 'read' })).toBe(false);
-    expect(at({ read: { rule: { field: 'role', operator: Operator.notIn, value: ['x'] } } })).toBe(
-      false,
-    );
+    expect(() => at({ read: 'read' })).toThrow('beside the schema');
+    expect(() =>
+      at({ read: { rule: { field: 'role', operator: Operator.notIn, value: ['x'] } } }),
+    ).toThrow('beside the schema');
     expect(at({ read: { rule: true } })).toBe(true);
   });
 
@@ -226,7 +221,7 @@ describe('rebac check', () => {
 
 describe('rebac check — bridge (cross-map) rel walks', () => {
   // crm:Account (the "one") ↔ db:User (the "many"); User.accountId joins Account.id.
-  const bridges: Bridge[] = [
+  const bridges: JoinedBridge[] = [
     {
       endpoints: [
         { fieldMap: 'crm', model: 'Account', on: 'id' },
@@ -289,7 +284,7 @@ describe('rebac check — bridge (cross-map) rel walks', () => {
 
 describe('to-one constraint on bridge walks (adversarial: must not walk onto the "many" side)', () => {
   // crm:Account (the "one", endpoints[0]) ↔ db:User (the "many", endpoints[1]).
-  const bridges: Bridge[] = [
+  const bridges: JoinedBridge[] = [
     {
       endpoints: [
         { fieldMap: 'crm', model: 'Account', on: 'id' },
@@ -349,7 +344,7 @@ describe('bridge — complex traversals (multi-hop, mixed-path, composition)', (
   // db:User --(accountId→id)--> crm:Account --(subscriptionId→id)--> billing:Subscription.
   // Both hops are many→one (walkable). The intermediate Account must be supplied so its
   // subscriptionId scalar is available for the second hop.
-  const chainBridges: Bridge[] = [
+  const chainBridges: JoinedBridge[] = [
     {
       endpoints: [
         { fieldMap: 'crm', model: 'Account', on: 'id' },
@@ -406,7 +401,7 @@ describe('bridge — complex traversals (multi-hop, mixed-path, composition)', (
     expect(c(granted, s, subject, 'read')).toBe(false);
   });
 
-  const oneBridge: Bridge[] = [
+  const oneBridge: JoinedBridge[] = [
     {
       endpoints: [
         { fieldMap: 'crm', model: 'Account', on: 'id' },
@@ -519,7 +514,7 @@ describe('bridge — complex traversals (multi-hop, mixed-path, composition)', (
 
 describe('oneToOne bridge is walkable from both endpoints (symmetric)', () => {
   // db:User.profileId ↔ crm:Profile.id — to-one in both directions.
-  const bridges: Bridge[] = [
+  const bridges: JoinedBridge[] = [
     {
       endpoints: [
         { fieldMap: 'db', model: 'User', on: 'profileId' },
@@ -571,7 +566,7 @@ describe('a bridge on a non-id far key never matches an id-keyed grant by the jo
   // crm:Team (the "one", endpoints[0]) joins on a NON-id unique field `code`;
   // db:User (the "many", endpoints[1]) joins on `teamCode`. Walking db:User → crm:Team lands on a
   // far endpoint whose join key is `code`, NOT `id`.
-  const bridges: Bridge[] = [
+  const bridges: JoinedBridge[] = [
     {
       endpoints: [
         { fieldMap: 'crm', model: 'Team', on: 'code' },
@@ -616,7 +611,7 @@ describe('a bridge on a non-id far key never matches an id-keyed grant by the jo
 });
 
 describe('an absent far row denies the bridge walk', () => {
-  const bridges: Bridge[] = [
+  const bridges: JoinedBridge[] = [
     {
       endpoints: [
         { fieldMap: 'crm', model: 'Account', on: 'id' },
@@ -725,7 +720,7 @@ describe('dictionary is built lazily (adversarial: malformed data must not crash
       record: { id: 'u1', userId: 'me' },
       data: { 'crm:Account': [{ id: 'dup' }, { id: 'dup' }] },
     };
-    expect(c(stub({ userId: 'me' }), s, subject, 'leave')).toBe(true);
+    expect(c(stub(), s, subject, 'leave')).toBe(true);
   });
 });
 
@@ -803,24 +798,26 @@ describe('cycle detection', () => {
   });
 });
 
-describe('the actor is data: a { rule } reads it as __actor', () => {
+describe('the actor is data: a { rule } reads its row as actor:<Model>', () => {
   const check = createRebacCheck<string>(mapOf({}, loose));
-  const as = (actor: Actor | null): PermixLike => ({
-    check: () => false,
-    isSuperadmin: () => false,
-    getActor: () => actor,
-  });
-  const person: Actor = { model: 'User', record: { id: 'u1' } };
-  const token: Actor = { model: 'Token', record: { id: 't1', userId: 'u1' } };
+  type Acting = { model: string; record: Row };
+  const as: PermixLike = { check: () => false, isSuperadmin: () => false };
+  const person: Acting = { model: 'User', record: { id: 'u1' } };
+  const token: Acting = { model: 'Token', record: { id: 't1', userId: 'u1' } };
   const schemaOf = (read: ActionRule): RebacSchema => ({
     permissions: { doc: { actions: { read } } },
   });
-  const read = (rule: ActionRule, actor: Actor | null, record: Record<string, unknown> = {}) =>
-    check(as(actor), schemaOf(rule), { resource: 'doc', record }, 'read');
+  const read = (rule: ActionRule, actor: Acting | null, record: Record<string, unknown> = {}) =>
+    check(
+      as,
+      schemaOf(rule),
+      { resource: 'doc', record, data: actorData(actor?.model ?? null, actor?.record) },
+      'read',
+    );
 
   test("person-only is a rule on the actor's model", () => {
     const personOnly = {
-      rule: { field: '__actor.model', operator: Operator.equals, value: 'User' },
+      rule: { field: 'actor:User.id', operator: Operator.exists },
     };
     expect(read(personOnly, person)).toBe(true);
     expect(read(personOnly, token)).toBe(false);
@@ -829,23 +826,37 @@ describe('the actor is data: a { rule } reads it as __actor', () => {
 
   test("a rule compares the record against the actor's row", () => {
     const mine = {
-      rule: { field: 'ownerId', operator: Operator.equals, path: '__actor.record.userId' },
+      rule: {
+        all: [
+          { field: 'ownerId', operator: Operator.exists },
+          { field: 'actor:Token.userId', operator: Operator.exists },
+          { field: 'ownerId', operator: Operator.equals, path: 'actor:Token.userId' },
+        ],
+      },
     };
     expect(read(mine, token, { ownerId: 'u1' })).toBe(true);
     expect(read(mine, token, { ownerId: 'u2' })).toBe(false);
   });
 
-  test('with nobody acting, __actor is null: a rule comparing a set field to it does not pass', () => {
+  test('with nobody acting the actor is unknown: a rule comparing to it does not pass, even a null field', () => {
     const mine = {
-      rule: { field: 'ownerId', operator: Operator.equals, path: '__actor.record.id' },
+      rule: {
+        all: [
+          { field: 'ownerId', operator: Operator.exists },
+          { field: 'actor:User.id', operator: Operator.exists },
+          { field: 'ownerId', operator: Operator.equals, path: 'actor:User.id' },
+        ],
+      },
     };
     expect(read(mine, null, { ownerId: 'u1' })).toBe(false);
-    expect(read(mine, person, { ownerId: person.record.id })).toBe(true);
+    expect(read(mine, null, { ownerId: null })).toBe(false);
+    expect(read(mine, token, { ownerId: null })).toBe(false);
+    expect(read(mine, person, { ownerId: person.record?.id })).toBe(true);
   });
 
   test('a negated schema rule is refused on every check, not only in a grant', () => {
     const notMine = {
-      rule: { field: 'ownerId', operator: Operator.notEquals, path: '__actor.record.id' },
+      rule: { field: 'ownerId', operator: Operator.notEquals, path: 'actor:User.id' },
     };
     expect(() => read(notMine, person, { ownerId: 'u2' })).toThrow(
       'is not a well-formed positive rule',
@@ -853,9 +864,9 @@ describe('the actor is data: a { rule } reads it as __actor', () => {
   });
 
   test('a superadmin passes', () => {
-    const admin: PermixLike = { ...as(token), isSuperadmin: () => true };
+    const admin: PermixLike = { ...as, isSuperadmin: () => true };
     const personOnly = {
-      rule: { field: '__actor.model', operator: Operator.equals, value: 'User' },
+      rule: { field: 'actor:User.id', operator: Operator.exists },
     };
     expect(check(admin, schemaOf(personOnly), { resource: 'doc', record: {} }, 'read')).toBe(true);
   });
@@ -864,7 +875,7 @@ describe('the actor is data: a { rule } reads it as __actor', () => {
     const record = {
       id: 'd1',
       permissionRules: {
-        read: { rule: { field: '__actor.model', operator: Operator.equals, value: 'User' } },
+        read: { rule: { field: 'actor:User.id', operator: Operator.exists } },
       },
     };
     expect(read(false, person, record)).toBe(true);

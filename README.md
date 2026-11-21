@@ -6,7 +6,7 @@ One check, over your own data, that covers:
 
 - **RBAC:** roles as table grants. Tokens and integrations act for their owner, capped at a role or, with `full`, holding the owner's permissions whole.
 - **ReBAC:** relationship walks (`{ rel, action }`) over your schema's relations, polymorphic owners included.
-- **ABAC:** conditions on the record and on the actor, who is acting (`{ rule }`, `__actor`).
+- **ABAC:** conditions on the record and on the rows the call supplies, such as who is acting (`{ rule }`, `actor:<Model>`).
 - **RuBAC:** rules as data: every condition is a serializable [`@inixiative/json-rules`](https://github.com/inixiative/json-rules) rule, positive by design (`validateActionRule` refuses the rest), the same AST everywhere it appears.
 - **Delegation (entitlements):** attenuated grants a holder passes on (copied, narrowed, lowered, never widened), each re-checked live at every link of its chain and at every tenant boundary it crosses.
 
@@ -67,8 +67,8 @@ The nouns are below. The verbs, one per operation with the name that says the ac
 | **delegate** | a token or integration that acts from its owner's permissions: `full`, capped at a ceiling, entitlements, or a mix |
 | **full** | the owner's permissions, whole and live |
 | **ceiling** | the action a delegate's role maps to; the owner's grants are kept at it (`capAtRole`) |
-| **actor** | who is acting: a credential kind (`model`, e.g. `User`, `Token`) and its row, set once per request and read by rules as `__actor` |
-| **permix** | the installed form of the actor's permissions that `check` reads |
+| **supplied map** | a field map whose rows each check is given in its `data` (an app's `actor` map: who is acting), read by rules as `<prefix>:<Model>` |
+| **permix** | the installed form of a holder's permissions that `check` reads |
 | **pseudo record** | the would-be row a create or a grant is checked on; the rows built for it below the anchor, with keys and parents but no ids, are **stand-ins** |
 
 ## Permission algebra (`ActionRule`)
@@ -78,7 +78,7 @@ type ActionRule =
   | string                       // rbac: delegate to another action on the same resource
   | { rel: string; action: string }  // rebac: walk a relation, then check `action` on the target
   | { rel: string; arrayOperator: 'any'; condition: ActionRule } // rebac across a list: some item passes
-  | { rule: Condition }          // abac: a json-rules predicate over the record, the actor under `__actor`
+  | { rule: Condition }          // abac: a json-rules predicate over the record and its supplied rows (`actor:<Model>`)
   | { any: ActionRule[] }        // OR
   | { all: ActionRule[] }        // AND
   | boolean                      // terminal: `true` allows, `false` denies
@@ -249,11 +249,10 @@ crossed.
   never backtracks into the record it came from.
 - **One jump in the engine too.** An item's view holds no list, so a list arm met under an item
   finds nothing whatever the record holds, and a bridge hop under an item denies.
-- **A column an item does not carry is unknown.** Under an item the check reads with json-rules
-  `absent: 'unknown'`, whatever `absent` the check was built with. `leftAt equals null` passes on a
-  loaded row, which carries its null columns, and fails on an item that came back without the
-  column (a `select`, a projection). Without this a member who left, loaded without `leftAt`,
-  would count as present.
+- **A column an item does not carry fails.** A rule over a column the item came back without (a
+  `select`, a projection) never passes: a rule names the value that is there
+  (`status equals 'active'`), with `exists` beside any comparison with a path, and a null check is
+  refused.
 - **Why only `any`.** Every other array operator (`all`, `none`, `atMost`, `exactly`, `empty`,
   `notEmpty`, `atLeast`) holds on a list with no rows or counts rows, so it would pass on a record
   whose list was never loaded, or pass for nobody in particular. They are refused by name (code
@@ -309,7 +308,7 @@ const check = createRebacCheck(map);
 
 check(permix, schema, { resource: 'membership', record }, 'manage');
 // string → permix grant or schema delegation; { rel } walks `record.organization` (or a bridge —
-// see below); { rule } evals json-rules over the record (the actor under __actor); any/all compose. A data loop denies; a rule naming itself throws.
+// see below); { rule } evals json-rules over the record and its supplied rows (actor:<Model>); any/all compose. A data loop denies; a rule naming itself throws.
 ```
 
 **There is no `self` arm. Identity lives in the table.** The actor's table holds grants on its own
@@ -370,26 +369,76 @@ reported.
   `PathLimitError`; stacked diamonds double the count at each layer. A walk that finds few
   admissions costs what a denying `check` costs today.
 
-## The actor
+## Supplied maps: data the call gives (who is acting, for one)
 
-The actor is who is acting: what kind of credential (`model`) and its row (`record`). The app sets
-it once per request; a `{ rule }` reads it under the reserved key `__actor`, like any other data:
+The library has no notion of an actor. A map declares **supplied** field maps by prefix: models
+whose rows each check is given in its `data`, beside the joined bridges' far rows, keyed
+`<prefix>:<Model>` the same way. A `{ rule }` at any resource reads them as
+`<prefix>:<Model>.<column>`, over a json-rules supplied bridge from the row the rule is on. An app
+with no supplied maps reads none; an app with several reads them all alike.
 
 ```ts
-permix.setActor({ model: 'User', record: user });   // a person, acting directly
-permix.setActor({ model: 'Token', record: token }); // a token, with whatever owner relations you loaded
+// the app's own actor map: which kind is acting, and each kind's own columns
+const actor: FieldMap = {
+  models: {
+    Acting: { fields: { model: { kind: 'enum', type: 'ActingKind' } } },
+    User: { fields: { id: { kind: 'scalar', type: 'String' } } },
+  },
+  enums: { ActingKind: ['User', 'Token', 'Internal'] },
+};
+const map: SchemaMap = { resources, fieldMap: prismaMap, polymorphism, supplied: { actor } };
 
-// person-only
-{ rule: { field: '__actor.model', operator: Operator.equals, value: 'User' } }
-// the record against the actor's row
-{ rule: { field: 'ownerId', operator: Operator.equals, path: '__actor.record.userId' } }
+check(permix, schema, {
+  resource: 'db:Doc',
+  record: doc,
+  data: { 'actor:Acting': [{ model: 'User' }], 'actor:User': [user] },
+}, 'read');
 ```
 
-It is just a rule. With nobody acting, `__actor` is null and the rule runs as written; a rule that
-needs someone acting names who (`__actor.model equals 'User'` inside its `all`), since rules are
-positive. Beware a comparison against a field that may be null: with
-nobody acting, `ownerId equals __actor.record.id` holds when `ownerId` is null. A row's `permissionRules` read it the same way and still only widen. A superadmin skips
-the schema, so it skips these too.
+- **The engine fills them; a record never brings its own.** Before each `{ rule }` the check runs
+  json-rules' `recordWithBridgeData`: any `<prefix>:` key the record (or a far row) carries is
+  dropped, and each supplied model's one row from `data` is put on it. Nothing in `data` for a model
+  means it is not there, and every rule reading it fails.
+- **Every read of one needs `exists` beside it** (R-2026-11-21-07), as does the field of every
+  comparison with a path: `ruleFieldEqualsPath('ownerId', 'actor:User.id')` is
+  `all: [ownerId exists, actor:User.id exists, ownerId equals actor:User.id]`. A rule without it is a
+  schema error.
+- **Typed, at the root only.** A model a supplied map lacks, a column its model lacks, a read into
+  its relations and an enum value outside its enum are refused. A `where` reads the record alone,
+  so a supplied path there is refused, and `org.actor:User` is not a path.
+- **Stored rules too.** A row's `permissionRules` or an `additionalRules` entry that is not
+  positive, loops or reads outside the lens throws, as the schema's would.
+
+## Polymorphic rules: the fan-out
+
+The standard shape of a polymorphic check (R-2026-11-19-15): fan out over the kinds, each branch
+checking its own kind first, every rule positive, every kind checked to exist. A kind with no row
+(`default`, `Internal`) is named by its kind alone. `makeKindRules(map)` builds them, reading the
+kinds from the map: a resource's polymorphic axis (`map.polymorphism`), or a supplied model's enum
+field (`'actor:Acting'`, `'model'`). A kind the map does not have throws when the rule is built.
+
+```ts
+const kind = makeKindRules(map);
+
+// one branch per kind of a side, each checking its own kind first; a kind left out denies
+kind.ruleForEachKind('db:token', 'ownerModel', {
+  Organization: { rel: 'organization', action: 'manage' },
+  User: ruleFieldEqualsPath('userId', 'actor:User.id'),
+  default: true, // a kind with no row: its kind check is the whole branch
+});
+// the same action through each kind's own relation (the registry's foreign key)
+kind.ruleActionThroughEachKind('db:token', 'ownerModel', 'manage');
+// kind membership, on a resource's side and on a supplied model
+kind.ruleKindIsOneOf('db:token', 'ownerModel', ['Organization', 'Space']);
+kind.ruleKindIsOneOf('actor:Acting', 'model', ['Token', 'User']);
+// a fan-out over who is acting
+kind.ruleForEachKind('actor:Acting', 'model', { Internal: true, User: ruleFieldEqualsPath('ownerId', 'actor:User.id') });
+```
+
+A resource's side takes an optional path prefix (`'integration.'`) for a side on a related row.
+They return ordinary `ActionRule`s: validation, the walk and the builder see plain rules. The walk
+infers no kind check on a `{ rel }` hop; under the full owner chain a Space-owned row also carries
+its organization, and only an explicit branch says which kinds may walk it.
 
 ## Bridges (cross-source `rel` walks)
 
@@ -433,12 +482,11 @@ import { createPermissions } from '@inixiative/permissions';
 
 const permix = createPermissions<'read' | 'manage' | 'own'>();
 await permix.setup([{ resource: 'organization', id: 'o1', actions: { own: true } }]);
-permix.setActor({ model: 'User', record: { id: 'u1' } });
 permix.check('organization', 'own', 'o1'); // true
 ```
 
-Holds the actor's role-derived grants (keyed by `resource` / `resource:id`), its entitlements, a
-superadmin bypass, and the actor. App code populates it from roles and entitlements (hydration
+Holds the holder's role-derived grants (keyed by `resource` / `resource:id`), its entitlements and a
+superadmin bypass; who is acting comes in the check's `data`. App code populates it from roles and entitlements (hydration
 stays app-side); the check engine reads it back through the `PermixLike` slice.
 
 ### Entitlements
@@ -500,7 +548,7 @@ where `read` delegates up to `manage`. One applies when all three hold:
   same action. That is the only tenancy check and it is live: a space
   moved to another org stops reaching the grantor on the next request, no fetch. The record's
   schema guards run inside that walk, and a `{ rule }` met there still sees the
-  request's actor as `__actor`. A holder can never exceed its owner on the same record and action; owners nest
+  request's actor as `actor:<Model>`. A holder can never exceed its owner on the same record and action; owners nest
   (token ← membership ← org) because an owner's permissions carry its own entitlements.
 
 `setup` refuses an entitlement without an `owner`, a `where` without a `anchor`, an `anchor` on
@@ -619,12 +667,11 @@ missing list or mark. Annotations on models that are not resources are not read.
 `canGrantEntitlement` judges each placed record in two passes:
 
 1. **The writer's table, and what it holds outright above the granted record.** Its table (its
-   role), with no actor, takes each action on `placed`. An entitlement also counts here, as a
+   role), given no `data`, takes each action on `placed`. An entitlement also counts here, as a
    role on its record would, when all of these hold: it is marked `grantsBelow: true`; it has no
    `where`; and the walk meets it on a real row above the granted record (below). (A delegate's permissions capped at a ceiling, from `delegate`, is
-   permissions entries too.) It reads `placed` with json-rules `absent: 'unknown'`: a field it does not carry fails
-   every positive leaf, `equals null` included, so a writer whose authority reads a field the
-   `where` leaves open is refused. A rule that needs an actor (`__actor.model equals 'User'`, an id compared to `__actor.record`) never passes: who the writer is is not
+   permissions entries too.) A field `placed` does not carry fails every positive leaf, so a writer
+   whose authority reads a field the `where` leaves open is refused. A rule that needs an actor (`actor:User.id exists`, an id compared to `actor:User.id`) never passes: who the writer is is not
    authority that can be handed on. Rules are positive (`validateActionRule` refuses the rest),
    which is what makes a pass on `placed` hold for every record the `where` admits.
 2. **One held entitlement.** Failing that, the entry is one entitlement the writer holds, passed on
@@ -683,7 +730,7 @@ Permissions evaluates every rule with exact strings (json-rules `string.caseInse
 leaf that wants case-insensitivity says so itself, and such a leaf never narrows.
 
 An action's rule is ReBAC (walks to parents) plus ABAC (`{ rule }` conditions on the record,
-conditions on `__actor`, who acts). Granting checks both on the placed record, with no actor, so a
+conditions on `actor:<Model>`, who acts). Granting checks both on the placed record, with no actor, so a
 rule that needs an actor never grants; at read time the holder's check walks the writer's table on the real
 record with the request's actor. A holder of a granted action reaches no further than its writer
 would on that record.
@@ -698,7 +745,7 @@ assign: {
 }
 // An admin (manage) grants assign; its holder assigns member-role records, never owners.
 
-// token.create: { all: [{ rule: { field: '__actor.model', operator: 'equals', value: 'User' } }, 'operate'] }
+// token.create: { all: [{ rule: { field: 'actor:User.id', operator: 'exists' } }, 'operate'] }
 // No one grants token.create: the grant check has no actor, so the person-only rule never passes.
 ```
 
@@ -818,9 +865,9 @@ lists included) are always readable, so ABAC is untouched; bridges are their own
   got there. One `{ rel }` hop lands on any row the hydrator loads, a self-relation too
   (`{ rel: 'parent' }`); a longer one is one path in the lens. Under a list item the lens is the
   rest of the declared `down` paths at each landing.
-- **The actor.** In a `{ rule }`, `__actor` is a Json field of the row the rule is read on, so
-  `__actor.*` is not checked against the actor's model yet. A `where` reads the record alone, so
-  an `__actor` path there is refused.
+- **The actor.** In a `{ rule }`, `actor:<Model>` is each declared actor's own columns at the row
+  the rule is read on (see [The actor](#the-actor)). A `where` reads the record alone, so an
+  `actor:` path there is refused.
 
 **Where it runs.** A schema on first use: it throws, and the schema is frozen so it is judged once;
 the list arm's `condition` and the actions it follows are judged against the declared `down`
@@ -950,7 +997,7 @@ and declare in the map any computed value a rule reads.
   `resource.action`. `whyEntitlementWhereLeavesLens(map, resource, where)` is the lens check of one
   entitlement `where`, for an app that validates a row before saving it.
 - `lensesAtRow(map, resource)` returns the json-rules lenses a read is judged in at one row: `rule`
-  (with `__actor`) for a `{ rule }`, `lens` for a `where` or a path. `lensesAtListItem(map,
+  (with the actor, `actor:Acting` and `actor:<Model>`) for a `{ rule }`, `lens` for a `where` or a path. `lensesAtListItem(map,
   resource, field)` returns them at an item of a declared list (what its `down` paths load), or
   null when `field` is not a declared list. An editor authors rules in them, so it offers exactly
   what `validateSchema` accepts (rules-builder's permission builder does).

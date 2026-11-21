@@ -4,6 +4,12 @@ export type { PermissionsEngineGlobals } from './src/core/engineGlobals';
 export * from './src/core/entitlementProblem';
 export * from './src/core/grant';
 export {
+  type KindBranch,
+  type KindRules,
+  makeKindRules,
+  ruleFieldEqualsPath,
+} from './src/core/kindRules';
+export {
   type LensesAtRow,
   lensesAtListItem,
   lensesAtRow,

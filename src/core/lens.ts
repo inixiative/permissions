@@ -3,7 +3,9 @@ import {
   type Condition,
   type LensNarrowing,
   type LensPathResolution,
+  parseEndpointKey,
   pathSegments,
+  stitchFieldMaps,
   type ValidationIssue,
   validateRuleInLens,
   walkLensPath,
@@ -20,6 +22,7 @@ import {
   type SchemaMap,
   type SpelledRelationTree,
 } from './schemaMap';
+import { resourcesMapName, suppliedEndpointsAt, suppliedSetAt } from './supplied';
 
 /** Chains of at most `depth` relations; a row's lens (one kind per polymorphic model) is reported over `report`, refused over `refuse`. */
 export const relationLensLimits = { depth: 20, report: 1_000, refuse: 10_000 };
@@ -31,7 +34,7 @@ export type PositionUnderListItem = {
   prefix: readonly string[];
 };
 
-/** The lenses a read is judged in at one row: `rule` holds the actor (a `{ rule }`), `lens` does not (a `where`, a path). */
+/** The lenses a read is judged in at one row: `rule` holds the supplied maps (a `{ rule }`), `lens` does not (a `where`, a path). */
 export type LensesAtRow = {
   resource: string;
   lens: LensNarrowing | null;
@@ -39,26 +42,23 @@ export type LensesAtRow = {
   under?: PositionUnderListItem;
 };
 
-const actorAsJsonField = { kind: 'scalar', type: 'Json', isList: false } as const;
-
-// why: the actor is injected at the row a rule is read on, so only that model carries it
+// why: supplied rows are filled at the row a rule is read on, so only that model bridges to them, at its root
 const lensAnchoredAtModel = (
   map: SchemaMap,
   model: string,
   relations: SpelledRelationTree,
-  actor: boolean,
+  supplied: boolean,
 ): LensNarrowing => {
-  const entry = modelOf(map.fieldMap, model);
-  const fieldMap = actor
-    ? {
-        ...map.fieldMap,
-        models: {
-          ...map.fieldMap.models,
-          [model]: { ...entry, fields: { ...entry?.fields, __actor: actorAsJsonField } },
-        },
-      }
-    : map.fieldMap;
-  return { parent: { maps: { app: fieldMap }, mapName: 'app', model }, root: { relations } };
+  if (!supplied)
+    return {
+      parent: { maps: { [resourcesMapName]: map.fieldMap }, mapName: resourcesMapName, model },
+      root: { relations },
+    };
+  const far = Object.fromEntries(suppliedEndpointsAt(map, model).map((key) => [key, {}]));
+  return {
+    parent: { ...stitchFieldMaps(suppliedSetAt(map, model)), mapName: resourcesMapName, model },
+    root: { relations: { ...relations, ...far } },
+  };
 };
 
 // why: model defaults enter each model once (json-rules); spelling every chain in the root reaches siblings too
@@ -277,34 +277,40 @@ export const whyRelationPathCannotBeWalked = (
 };
 
 const codesForPathOutsideLens = new Set(['not_in_lens', 'scope_out_of_bounds']);
-// why: json-rules' fit check is reported by validateSchema; it never refuses a check
-const codesForOperatorNotFittingField = new Set(['operator_kind_mismatch']);
+// why: json-rules' fit checks (an operator, an enum value) are reported by validateSchema; they never refuse a check
+const codesForRuleNotFittingField = new Set(['operator_kind_mismatch', 'value_not_allowed']);
 
 /** A miss that refuses a read: out of the lens, a relation hop, or past a declaration; not an operator fit. */
 export const issueRefusesTheRead = (issue: ValidationIssue): boolean =>
-  !codesForOperatorNotFittingField.has(issue.code);
+  !codesForRuleNotFittingField.has(issue.code);
 
-/** Every path a condition reads at `at` outside the lens, and every operator that does not fit its field. */
+/** Every path a condition reads at `at` outside the lens, and every operator or enum value that does not fit its field. */
 export const issuesForReadsOutsideLens = (
   map: SchemaMap,
   at: LensesAtRow,
   condition: Condition,
   path: string,
-  { actor }: { actor: boolean },
+  { supplied }: { supplied: boolean },
 ): ValidationIssue[] => {
-  const lens = actor ? at.rule : at.lens;
+  const lens = supplied ? at.rule : at.lens;
   if (!lens) return [];
   return validateRuleInLens(condition, lens).errors.flatMap((issue) => {
-    if (codesForOperatorNotFittingField.has(issue.code))
+    if (codesForRuleNotFittingField.has(issue.code))
       return [{ path, code: issue.code, message: issue.message }];
     if (!codesForPathOutsideLens.has(issue.code)) return [];
     const resolution = walkLensPath(lens, issue.path);
-    if (pathSegments(issue.path)[0] === '__actor')
+    const head = pathSegments(issue.path)[0] ?? '';
+    const { mapName: prefix, modelName: model } = parseEndpointKey(head, '');
+    if (head.includes(':') && Object.hasOwn(map.supplied ?? {}, prefix))
       return [
         {
           path,
           code: 'lens',
-          message: `\`${issue.path}\`: a \`where\` reads the record alone; \`__actor\` is not on it`,
+          message: !supplied
+            ? `\`${issue.path}\`: a \`where\` reads the record alone; supplied rows are not on it`
+            : model in (map.supplied?.[prefix]?.models ?? {})
+              ? `\`${issue.path}\`: a rule reads a supplied model's own columns only`
+              : `\`${head}\` is not a model of the supplied map \`${prefix}\``,
         },
       ];
     return [{ path, ...whyPathLeavesLens(map, at, issue.path, resolution) }];
@@ -319,7 +325,7 @@ export const whyWhereLeavesLensAtRow = (
 ): string | null => {
   if (typeof where !== 'object' || where === null || !at.lens) return null;
   return freezeThenJudgeOnce(where, at.lens, () => {
-    const misses = issuesForReadsOutsideLens(map, at, where, '$', { actor: false }).filter(
+    const misses = issuesForReadsOutsideLens(map, at, where, '$', { supplied: false }).filter(
       issueRefusesTheRead,
     );
     return misses.length

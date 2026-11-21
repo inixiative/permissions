@@ -66,11 +66,4 @@ describe('createPermissions (permix wrapper)', () => {
     expect(p.check('organization', 'read', 'o1')).toBe(true);
     expect(p.check('organization', 'manage', 'o1')).toBe(true);
   });
-
-  test('actor round-trips: its model and its row', () => {
-    const p = createPermissions();
-    expect(p.getActor()).toBeNull();
-    p.setActor({ model: 'Token', record: { id: 't1', userId: 'u1' } });
-    expect(p.getActor()).toEqual({ model: 'Token', record: { id: 't1', userId: 'u1' } });
-  });
 });

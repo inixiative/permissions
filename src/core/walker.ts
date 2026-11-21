@@ -5,15 +5,7 @@ import { withExactStrings } from './exactStrings';
 import { answerOnce, freezeThenJudgeOnce } from './freezeThenJudgeOnce';
 import { idField } from './recordId';
 import { indexMap, type SchemaMap } from './schemaMap';
-import type {
-  ActionRule,
-  AdditionalRules,
-  CheckOptions,
-  PermixLike,
-  RebacSchema,
-  Row,
-  Subject,
-} from './types';
+import type { ActionRule, AdditionalRules, PermixLike, RebacSchema, Row, Subject } from './types';
 import { validateActionRule } from './validateActionRule';
 import {
   issuesForRuleReadsOutsideLens,
@@ -23,7 +15,7 @@ import {
 
 const refuse = (what: string) => {
   throw new Error(
-    `${what} is not a well-formed positive rule: negated rules are refused on every check (run validateSchema)`,
+    `${what} is not a well-formed positive rule: a rule names what the record carries, so negations and null checks are refused on every check (run validateSchema)`,
   );
 };
 
@@ -43,7 +35,6 @@ const assertSchema = (map: SchemaMap, schema: RebacSchema) =>
 
 export const createWalker = <R extends string, T>(
   map: SchemaMap<R>,
-  absent: CheckOptions['absent'] & {},
   algebra: Algebra<T>,
   ignoreWheres = false,
   additionalRules?: AdditionalRules,
@@ -91,9 +82,9 @@ export const createWalker = <R extends string, T>(
       evaluate(
         {
           map,
-          absent,
           schema,
           getDict,
+          ...(subject.data ? { data: subject.data } : {}),
           algebra,
           ignoreWheres,
           ...(additionalRules ? { additionalRules } : {}),

@@ -1,4 +1,4 @@
-import { type Absent, type Condition, check as checkRule } from '@inixiative/json-rules';
+import { type Condition, check as checkRule } from '@inixiative/json-rules';
 import {
   evaluate,
   identifyRowOncePerCheck,
@@ -12,8 +12,7 @@ import { reachableFrom } from './reachableFrom';
 import { anchorRowReachedFrom } from './schemaMap';
 import type { PermixLike, Row } from './types';
 
-const holds = (where: Condition, record: Row, absent: Absent): boolean =>
-  checkRule(where, record, { absent }) === true;
+const holds = (where: Condition, record: Row): boolean => checkRule(where, record) === true;
 
 /**
  * The entitlements that admit `action` on `record`: its path reaches the anchor, its `where` holds
@@ -30,7 +29,6 @@ export const entitled = <R extends string, T>(
 ): T => {
   const { above } = walk;
   if (above && !above.has(record)) return walk.algebra.none;
-  const actor = permix.getActor();
   const held = [...reachableFrom(walk.schema, resource, action)].flatMap(
     (implying) => permix.entitlements?.(resource, implying) ?? [],
   );
@@ -47,11 +45,11 @@ export const entitled = <R extends string, T>(
             ? grantsBelow === true && where === undefined
             : where === undefined ||
               (whyEntitlementWhereLeavesLens(walk.map, resource, where) === null &&
-                (walk.ignoreWheres || holds(where, record, walk.absent)))) &&
+                (walk.ignoreWheres || holds(where, record)))) &&
           anchorRowReachedFrom(walk.map, resource, record, anchor, true, walk.idField) !== undefined
             ? walk.algebra.through(
                 ref,
-                evaluate(walk, asOwner(owner, actor), resource, record, action, visited),
+                evaluate(walk, asOwner(owner), resource, record, action, visited),
               )
             : walk.algebra.none,
     ),

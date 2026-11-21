@@ -28,13 +28,16 @@ export type Polymorphism = Partial<Record<string, { axes: readonly PolymorphicAx
 
 /**
  * The schema the checks walk: `resources` names the `fieldMap` model behind each resource, the
- * `fieldMap` (an `@inixiative/field-map` map) lists each model's relations and foreign keys, and
- * `polymorphism` says which kind a relation makes a polymorphic record.
+ * `fieldMap` (an `@inixiative/field-map` map) lists each model's relations and foreign keys,
+ * `polymorphism` says which kind a relation makes a polymorphic record, and `supplied` the field maps
+ * whose rows each check is given in its `data` (who is acting, for one), by prefix: a `{ rule }` reads
+ * `<prefix>:<Model>.<column>`. Read once per map: lenses are built and cached per map object.
  */
 export type SchemaMap<R extends string = string> = {
   resources: Record<R, string>;
   fieldMap: FieldMap;
   polymorphism?: Polymorphism;
+  supplied?: Record<string, FieldMap>;
 };
 
 /** A to-one relation the hydrator follows: where it leads, its key, and on a polymorphic record the kinds it admits. */
@@ -412,6 +415,14 @@ export const identityKeyOfRow = (
   return keyFromResourceAndColumns(resource, asText);
 };
 
+/** `resource`'s polymorphic axis on `field`, from `map.polymorphism`. */
+export const axisOf = <R extends string>(
+  map: SchemaMap<R>,
+  resource: R,
+  field: string,
+): PolymorphicAxis | undefined =>
+  map.polymorphism?.[map.resources[resource]]?.axes.find((axis) => axis.field === field);
+
 /** Every to-one relation of `resource` the hydrator follows, by field name. */
 export const followedToOneRelationsOf = <R extends string>(
   map: SchemaMap<R>,
@@ -429,14 +440,13 @@ export const followedToOneRelationsOf = <R extends string>(
   return toOnes.get(resource) as [string, Relation<R>][];
 };
 
-const ownerRelationOf = <R extends string>(
+export const ownerRelationOf = <R extends string>(
   map: SchemaMap<R>,
   resource: R,
   field: string,
   value: string,
 ): string | undefined => {
-  const axis = map.polymorphism?.[map.resources[resource]]?.axes.find((a) => a.field === field);
-  const columns = [...(axis?.fkMap[value] ?? [])].sort().join(',');
+  const columns = [...(axisOf(map, resource, field)?.fkMap[value] ?? [])].sort().join(',');
   return followedToOneRelationsOf(map, resource).find(
     ([, relation]) => [...relation.from].sort().join(',') === columns,
   )?.[0];

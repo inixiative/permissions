@@ -45,7 +45,7 @@
       "permissionRules": {
         "read": {
           "all": [
-            { "rule": { "field": "flag", "operator": "equals", "value": null } },
+            { "rule": { "field": "flag", "operator": "equals", "value": "never" } },
             { "rel": "board", "action": "read" }
           ]
         }
