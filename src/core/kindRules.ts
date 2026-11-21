@@ -1,11 +1,7 @@
-import { fieldOf, own } from '@inixiative/field-map';
-import {
-  type Condition,
-  declaredEnumValues,
-  Operator,
-  parseEndpointKey,
-} from '@inixiative/json-rules';
+import { fieldOf } from '@inixiative/field-map';
+import { type Condition, declaredEnumValues, Operator } from '@inixiative/json-rules';
 import { axisOf, ownerRelationOf, type SchemaMap } from './schemaMap';
+import { suppliedModelAt } from './supplied';
 import type { ActionRule } from './types';
 
 /**
@@ -44,14 +40,12 @@ export const ruleFieldEqualsPath = (field: string, path: string): ActionRule => 
  * its enum fields (`'actor:Acting'`, `'model'`), whose values are its kinds.
  */
 export const makeKindRules = <R extends string>(map: SchemaMap<R>) => {
-  const suppliedMapOf = (side: string) =>
-    side.includes(':') ? own(map.supplied ?? {}, parseEndpointKey(side, '').mapName) : undefined;
   const kindsOf = (side: string, field: string): string[] => {
-    const suppliedMap = suppliedMapOf(side);
-    if (suppliedMap) {
-      const entry = fieldOf(suppliedMap, parseEndpointKey(side, '').modelName, field);
+    const supplied = suppliedModelAt(map, side);
+    if (supplied) {
+      const entry = fieldOf(supplied.fieldMap, supplied.modelName, field);
       const values =
-        entry?.kind === 'enum' ? declaredEnumValues(entry, suppliedMap.enums) : undefined;
+        entry?.kind === 'enum' ? declaredEnumValues(entry, supplied.fieldMap.enums) : undefined;
       if (!values) throw new Error(`\`${side}.${field}\` is not an enum field of a supplied model`);
       return [...values];
     }
@@ -67,7 +61,7 @@ export const makeKindRules = <R extends string>(map: SchemaMap<R>) => {
   };
   // A supplied side is read at its key; a resource's at `at`, the path from the row the rule is on.
   const read = (side: string, field: string, at: string) =>
-    suppliedMapOf(side) ? `${side}.${field}` : `${at}${field}`;
+    suppliedModelAt(map, side) ? `${side}.${field}` : `${at}${field}`;
 
   return {
     /** The side's kind is one of `kinds`. */

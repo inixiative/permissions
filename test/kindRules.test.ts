@@ -59,7 +59,7 @@ const map: SchemaMap = {
       ],
     },
   },
-  supplied: { actor: actorMap },
+  supplied: { maps: { actor: actorMap } },
 };
 const kind = makeKindRules(map);
 const check = createRebacCheck(map);

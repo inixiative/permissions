@@ -10,19 +10,29 @@ import {
   validateRuleInLens,
   walkLensPath,
 } from '@inixiative/json-rules';
-import { freezeThenJudgeOnce } from './freezeThenJudgeOnce';
+import { answerOnce, freezeThenJudgeOnce } from './freezeThenJudgeOnce';
 import {
   followedToOneRelationOrWhyNot,
   followedToOneRelationsOf,
   indexMap,
   type ListRelation,
   listOf,
+  type Relation,
   relationOf,
   resourceOf,
   type SchemaMap,
   type SpelledRelationTree,
 } from './schemaMap';
-import { resourcesMapName, suppliedEndpointsAt, suppliedSetAt } from './supplied';
+import {
+  followedToOnesOfSupplied,
+  resourcesMapName,
+  stitchedSuppliedSet,
+  suppliedListAt,
+  suppliedModelAt,
+  suppliedModelsAtRoot,
+  suppliedSetAt,
+} from './supplied';
+import type { ActionRule } from './types';
 
 /** Chains of at most `depth` relations; a row's lens (one kind per polymorphic model) is reported over `report`, refused over `refuse`. */
 export const relationLensLimits = { depth: 20, report: 1_000, refuse: 10_000 };
@@ -54,17 +64,39 @@ const lensAnchoredAtModel = (
       parent: { maps: { [resourcesMapName]: map.fieldMap }, mapName: resourcesMapName, model },
       root: { relations },
     };
-  const far = Object.fromEntries(suppliedEndpointsAt(map, model).map((key) => [key, {}]));
+  const far = Object.fromEntries(
+    suppliedModelsAtRoot(map).map((key) => [key, { relations: suppliedChainsFrom(map, key) }]),
+  );
   return {
     parent: { ...stitchFieldMaps(suppliedSetAt(map, model)), mapName: resourcesMapName, model },
     root: { relations: { ...relations, ...far } },
   };
 };
 
+const suppliedTrees = new WeakMap<SchemaMap, Map<string, SpelledRelationTree>>();
+
+// The chains a supplied row leads on through, spelled once per map and key as a resource's are.
+const suppliedChainsFrom = (map: SchemaMap, key: string): SpelledRelationTree =>
+  answerOnce(
+    suppliedTrees,
+    map,
+    key,
+    () => spellEveryFollowedRelationChain(key, (at) => followedToOnesOfSupplied(map, at)).tree,
+  );
+
+/** The rule lens on an item of a supplied list (`actor:Device`): its own columns and the chains it leads on through. */
+export const ruleLensAtSuppliedModel = (map: SchemaMap, key: string): LensNarrowing => {
+  const { mapName, modelName } = parseEndpointKey(key, '');
+  return {
+    parent: { ...stitchedSuppliedSet(map), mapName, model: modelName },
+    root: { relations: suppliedChainsFrom(map, key) },
+  };
+};
+
 // why: model defaults enter each model once (json-rules); spelling every chain in the root reaches siblings too
 const spellEveryFollowedRelationChain = (
-  map: SchemaMap,
   resource: string,
+  followed: (at: string) => [string, { resource: string; kinds?: Relation['kinds'] }][],
 ): { tree: SpelledRelationTree; size: number } => {
   const spellBelow = (
     at: string,
@@ -74,7 +106,7 @@ const spellEveryFollowedRelationChain = (
     const tree: SpelledRelationTree = {};
     const always: number[] = [];
     const byKind = new Map<string, number>();
-    for (const [name, relation] of followedToOneRelationsOf(map, at)) {
+    for (const [name, relation] of followed(at)) {
       if (passed.includes(relation.resource)) continue;
       const where = [...path, name].join('.');
       if (path.length >= relationLensLimits.depth)
@@ -126,7 +158,9 @@ const lensesAndSizeOfResource = (map: SchemaMap, resource: string) => {
   const model = map.resources[resource];
   if (!model) return null;
   const lenses = lensesBuiltOnceAt(map, resource, model, () => {
-    const { tree, size } = spellEveryFollowedRelationChain(map, resource);
+    const { tree, size } = spellEveryFollowedRelationChain(resource, (at) =>
+      followedToOneRelationsOf(map, at),
+    );
     lensSizes.set(resource, size);
     return tree;
   });
@@ -300,21 +334,92 @@ export const issuesForReadsOutsideLens = (
     if (!codesForPathOutsideLens.has(issue.code)) return [];
     const resolution = walkLensPath(lens, issue.path);
     const head = pathSegments(issue.path)[0] ?? '';
-    const { mapName: prefix, modelName: model } = parseEndpointKey(head, '');
-    if (head.includes(':') && Object.hasOwn(map.supplied ?? {}, prefix))
+    const { mapName: prefix } = parseEndpointKey(head, '');
+    if (head.includes(':') && Object.hasOwn(stitchedSuppliedSet(map).maps, prefix))
       return [
         {
           path,
           code: 'lens',
           message: !supplied
             ? `\`${issue.path}\`: a \`where\` reads the record alone; supplied rows are not on it`
-            : model in (map.supplied?.[prefix]?.models ?? {})
-              ? `\`${issue.path}\`: a rule reads a supplied model's own columns only`
-              : `\`${head}\` is not a model of the supplied map \`${prefix}\``,
+            : whyPathLeavesSuppliedRows(map, issue.path),
         },
       ];
     return [{ path, ...whyPathLeavesLens(map, at, issue.path, resolution) }];
   });
+};
+
+// Why a rule's read of a supplied row (`actor:User.devices.risk`) leaves the rule lens.
+const whyPathLeavesSuppliedRows = (map: SchemaMap, read: string): string => {
+  const [head = '', ...rest] = pathSegments(read);
+  if (!suppliedModelAt(map, head))
+    return `\`${head}\` is not a model of the supplied map \`${parseEndpointKey(head, '').mapName}\``;
+  if (!suppliedModelsAtRoot(map).includes(head))
+    return `\`${head}\` is found by key through a joined bridge: read it through the row it joins from`;
+  let key = head;
+  const passed = [head];
+  for (const [index, segment] of rest.entries()) {
+    const list = suppliedListAt(map, key, segment);
+    const walked = [head, ...rest.slice(0, index + 1)].join('.');
+    if (list)
+      return `\`${walked}\` is a list: cross it with { rel: '${walked}', arrayOperator: 'any', condition }`;
+    const next = followedToOnesOfSupplied(map, key).find(([name]) => name === segment)?.[1];
+    if (!next) break;
+    if (passed.includes(next.resource))
+      return `\`${walked}\` reaches \`${next.resource}\` a second time: a chain passes a model once`;
+    passed.push(next.resource);
+    key = next.resource;
+  }
+  return `\`${read}\` is not a column, relation or to-one bridge of the supplied rows`;
+};
+
+// The model of the items a supplied list holds (`actor:User.devices` → `actor:Device`), or why the path names none.
+const suppliedListItemAt = (map: SchemaMap, rel: string): { item: string } | { why: string } => {
+  const [head = '', ...rest] = pathSegments(rel);
+  const last = rest.at(-1);
+  if (!suppliedModelAt(map, head) || !suppliedModelsAtRoot(map).includes(head) || !last)
+    return { why: whyPathLeavesSuppliedRows(map, rel) };
+  let key = head;
+  for (const segment of rest.slice(0, -1)) {
+    const next = followedToOnesOfSupplied(map, key).find(([name]) => name === segment)?.[1];
+    if (!next) return { why: whyPathLeavesSuppliedRows(map, rel) };
+    key = next.resource;
+  }
+  const item = suppliedListAt(map, key, last);
+  return item ? { item } : { why: `\`${rel}\` is not a list of the supplied rows` };
+};
+
+/** What is wrong with a list arm over a supplied list: its path, and a condition that is not rules (an item has no actions) or reads outside the item's lens. */
+export const issuesOfSuppliedListArm = (
+  map: SchemaMap,
+  rel: string,
+  condition: ActionRule,
+  path: string,
+): ValidationIssue[] => {
+  const found = suppliedListItemAt(map, rel);
+  if ('why' in found) return [{ path, code: 'lens', message: found.why }];
+  const lens = ruleLensAtSuppliedModel(map, found.item);
+  const issuesOf = (rule: ActionRule, at: string): ValidationIssue[] => {
+    if (typeof rule === 'boolean') return [];
+    if (rule !== null && typeof rule === 'object') {
+      if ('rule' in rule)
+        return validateRuleInLens(rule.rule, lens).errors.map((issue) => ({
+          path: at,
+          code: issue.code,
+          message: issue.message,
+        }));
+      if ('any' in rule) return rule.any.flatMap((child, i) => issuesOf(child, `${at}.any[${i}]`));
+      if ('all' in rule) return rule.all.flatMap((child, i) => issuesOf(child, `${at}.all[${i}]`));
+    }
+    return [
+      {
+        path: at,
+        code: 'actionRule',
+        message: `an item of \`${rel}\` is a supplied row with no actions: its condition holds rules, any and all`,
+      },
+    ];
+  };
+  return issuesOf(condition, `${path}.condition`);
 };
 
 /** Why an entitlement `where` read at `at` leaves the lens, or null. */

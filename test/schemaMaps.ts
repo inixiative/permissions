@@ -104,6 +104,6 @@ export const mapOf = (
         ),
       },
     },
-    supplied: { actor: actorMap },
+    supplied: { maps: { actor: actorMap } },
   };
 };

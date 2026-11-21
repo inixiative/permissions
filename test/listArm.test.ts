@@ -54,7 +54,7 @@ const resources = {
 const mapOver = (over: typeof models): SchemaMap => ({
   resources,
   fieldMap: { models: over },
-  supplied: { actor: actorMap },
+  supplied: { maps: { actor: actorMap } },
 });
 const map = mapOver(models);
 

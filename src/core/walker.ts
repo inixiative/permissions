@@ -1,10 +1,11 @@
-import { type BridgeDictionary, indexBridges } from '@inixiative/json-rules';
+import { type BridgeDictionary, indexBridges, type JoinedBridge } from '@inixiative/json-rules';
 import type { Algebra } from './algebra';
 import { evaluate, startOneCheck } from './evaluate';
 import { withExactStrings } from './exactStrings';
 import { answerOnce, freezeThenJudgeOnce } from './freezeThenJudgeOnce';
 import { idField } from './recordId';
 import { indexMap, type SchemaMap } from './schemaMap';
+import { joinedBridgesOfSupplied } from './supplied';
 import type { ActionRule, AdditionalRules, PermixLike, RebacSchema, Row, Subject } from './types';
 import { validateActionRule } from './validateActionRule';
 import {
@@ -65,25 +66,30 @@ export const createWalker = <R extends string, T>(
         return true;
       });
     const record = subject.record;
-    // Built lazily on the first bridge hop: a check that never crosses a bridge must not pay for —
-    // or be crashed by (indexBridges throws on malformed `data`) — a dictionary it never reads.
-    let built = false;
-    let dict: BridgeDictionary | undefined;
-    const getDict = (): BridgeDictionary | undefined => {
-      if (!built) {
-        built = true;
-        dict = schema.bridges?.length
-          ? indexBridges({ maps: {}, bridges: schema.bridges }, subject.data ?? {})
-          : undefined;
-      }
-      return dict;
+    // Each built lazily, once per check: a check that never crosses a bridge must not pay for, or
+    // be crashed by (indexBridges throws on malformed `data`), a dictionary it never reads.
+    const dictionaryOnceOver = (bridges: JoinedBridge[]) => {
+      let built = false;
+      let dict: BridgeDictionary | undefined;
+      return (): BridgeDictionary | undefined => {
+        if (!built) {
+          built = true;
+          dict = bridges.length
+            ? indexBridges({ maps: {}, bridges }, subject.data ?? {})
+            : undefined;
+        }
+        return dict;
+      };
     };
+    const getDict = dictionaryOnceOver(schema.bridges ?? []);
+    const suppliedDictionary = dictionaryOnceOver(joinedBridgesOfSupplied(map));
     return withExactStrings(() =>
       evaluate(
         {
           map,
           schema,
           getDict,
+          suppliedDictionary,
           ...(subject.data ? { data: subject.data } : {}),
           algebra,
           ignoreWheres,

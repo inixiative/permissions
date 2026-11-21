@@ -37,8 +37,10 @@ const map: SchemaMap = {
     enums: { Status: ['draft', 'live'] },
   },
   supplied: {
-    actor: actorMap,
-    device: { models: { Posture: { fields: { managed: stringColumn, risk: stringColumn } } } },
+    maps: {
+      actor: actorMap,
+      device: { models: { Posture: { fields: { managed: stringColumn, risk: stringColumn } } } },
+    },
   },
 };
 const check = createRebacCheck(map);
@@ -97,9 +99,9 @@ describe('supplied maps: rows the call gives, read by every rule as <prefix>:<Mo
     expect(issues(throughOrg).length).toBeGreaterThan(0);
   });
 
-  test("a rule reads a supplied model's own columns, and only the models its map has", () => {
+  test('a rule reads only what the supplied maps have', () => {
     expect(issues(ruleFieldEqualsPath('ownerId', 'actor:User.nope')).join('\n')).toMatch(
-      /own columns only/,
+      /not a column, relation or to-one bridge of the supplied rows/,
     );
     expect(issues(ruleFieldEqualsPath('ownerId', 'actor:Usr.id')).join('\n')).toMatch(
       /not a model of the supplied map `actor`/,
@@ -132,9 +134,174 @@ describe('supplied maps: rows the call gives, read by every rule as <prefix>:<Mo
   });
 
   test('a supplied map may not take the name of the map of resources', () => {
-    const clash = createRebacCheck({ ...map, supplied: { app: actorMap } });
+    const clash = createRebacCheck({ ...map, supplied: { maps: { app: actorMap } } });
     expect(() => clash(nobody, schemaOf(mine), { resource: 'doc', record: {} }, 'read')).toThrow(
       /a supplied map is named `app`/,
+    );
+  });
+});
+
+// The actor's own relations, and bridges on from it: a security tool's devices joined by the
+// actor's id (a list), its posture of the request (one row), and each device's findings (a list).
+const chained: SchemaMap = {
+  ...map,
+  supplied: {
+    maps: {
+      actor: {
+        models: {
+          User: {
+            fields: {
+              id: stringColumn,
+              orgId: stringColumn,
+              org: {
+                kind: 'object',
+                type: 'Org',
+                isList: false,
+                fromFields: ['orgId'],
+                toFields: ['id'],
+              },
+              groups: { kind: 'object', type: 'Group', isList: true },
+            },
+          },
+          Org: { fields: { id: stringColumn, plan: stringColumn } },
+          Group: { fields: { id: stringColumn, name: stringColumn } },
+        },
+      },
+      sec: {
+        models: {
+          Device: { fields: { serial: stringColumn, userId: stringColumn, risk: stringColumn } },
+          Finding: { fields: { serial: stringColumn, severity: stringColumn } },
+          Posture: { fields: { managed: stringColumn } },
+        },
+      },
+    },
+    bridges: [
+      {
+        endpoints: [
+          { fieldMap: 'actor', model: 'User', on: 'id' },
+          { fieldMap: 'sec', model: 'Device', on: 'userId' },
+        ],
+        cardinality: 'oneToMany',
+      },
+      {
+        endpoints: [
+          { fieldMap: 'sec', model: 'Device', on: 'serial' },
+          { fieldMap: 'sec', model: 'Finding', on: 'serial' },
+        ],
+        cardinality: 'oneToMany',
+      },
+    ],
+  },
+};
+const chainedCheck = createRebacCheck(chained);
+const readChained = (rule: ActionRule, record: Row, data: Record<string, Row[]>) =>
+  chainedCheck(nobody, schemaOf(rule), { resource: 'doc', record, data }, 'read');
+const chainedIssues = (rule: ActionRule) =>
+  validateSchema(chained, schemaOf(rule)).errors.map((issue) => issue.message);
+const value = (field: string, operator: Operator, v: string): ActionRule => ({
+  rule: { field, operator, value: v },
+});
+const data: Record<string, Row[]> = {
+  'actor:User': [
+    { id: 'u1', orgId: 'o1', org: { id: 'o1', plan: 'pro' }, groups: [{ id: 'g1', name: 'ops' }] },
+  ],
+  'sec:Posture': [{ managed: 'yes' }],
+  'sec:Device': [
+    { serial: 'd1', userId: 'u1', risk: 'low' },
+    { serial: 'd2', userId: 'u2', risk: 'high' },
+  ],
+  'sec:Finding': [
+    { serial: 'd1', severity: 'minor' },
+    { serial: 'd2', severity: 'critical' },
+  ],
+};
+
+describe('supplied maps with relations and bridges of their own', () => {
+  test("a rule reads on along a supplied row's relations", () => {
+    const pro = value('actor:User.org.plan', Operator.equals, 'pro');
+    expect(chainedIssues(pro)).toEqual([]);
+    expect(readChained(pro, {}, data)).toBe(true);
+    expect(readChained(pro, {}, { ...data, 'actor:User': [{ id: 'u1' }] })).toBe(false);
+  });
+
+  test('a model found by key through a joined bridge is not given at the root', () => {
+    expect(chainedIssues(value('sec:Device.risk', Operator.equals, 'low')).join('\n')).toMatch(
+      /found by key through a joined bridge/,
+    );
+    expect(chainedIssues(value('sec:Posture.managed', Operator.equals, 'yes'))).toEqual([]);
+  });
+
+  test("a list on a supplied row, its own or a joined bridge's, is crossed with the list arm", () => {
+    expect(
+      chainedIssues(value('actor:User.sec:Device.risk', Operator.equals, 'low')).join('\n'),
+    ).toMatch(/`actor:User.sec:Device` is a list: cross it with \{ rel: 'actor:User.sec:Device'/);
+    const lowRiskDevice: ActionRule = {
+      rel: 'actor:User.sec:Device',
+      arrayOperator: 'any',
+      condition: value('risk', Operator.equals, 'low'),
+    };
+    expect(chainedIssues(lowRiskDevice)).toEqual([]);
+    expect(readChained(lowRiskDevice, {}, data)).toBe(true);
+    const highRiskDevice: ActionRule = {
+      ...lowRiskDevice,
+      condition: value('risk', Operator.equals, 'high'),
+    };
+    expect(readChained(highRiskDevice, {}, data)).toBe(false);
+    const inOps: ActionRule = {
+      rel: 'actor:User.groups',
+      arrayOperator: 'any',
+      condition: value('name', Operator.equals, 'ops'),
+    };
+    expect(chainedIssues(inOps)).toEqual([]);
+    expect(readChained(inOps, {}, data)).toBe(true);
+  });
+
+  test("an item's condition holds rules only, read in the item's own lens", () => {
+    const acts: ActionRule = { rel: 'actor:User.groups', arrayOperator: 'any', condition: 'read' };
+    expect(chainedIssues(acts).join('\n')).toMatch(/a supplied row with no actions/);
+    const outside: ActionRule = {
+      rel: 'actor:User.groups',
+      arrayOperator: 'any',
+      condition: value('plan', Operator.equals, 'pro'),
+    };
+    expect(chainedIssues(outside).length).toBeGreaterThan(0);
+  });
+
+  test('a record, or a supplied row, never brings rows of its own under a bridge key', () => {
+    const forged = { 'actor:User': { id: 'u1', org: { id: 'o1', plan: 'pro' } } };
+    expect(readChained(value('actor:User.org.plan', Operator.equals, 'pro'), forged, {})).toBe(
+      false,
+    );
+    const smuggled = {
+      ...data,
+      'actor:User': [{ id: 'u9', 'sec:Device': [{ serial: 'x', risk: 'low' }] }],
+    };
+    const lowRiskDevice: ActionRule = {
+      rel: 'actor:User.sec:Device',
+      arrayOperator: 'any',
+      condition: value('risk', Operator.equals, 'low'),
+    };
+    expect(readChained(lowRiskDevice, {}, smuggled)).toBe(false);
+  });
+
+  test('a supplied bridge into the map of resources has no endpoint, so no chain leads back', () => {
+    const back = createRebacCheck({
+      ...chained,
+      supplied: {
+        maps: chained.supplied?.maps ?? {},
+        bridges: [
+          {
+            endpoints: [
+              { fieldMap: 'actor', model: 'User', on: 'id' },
+              { fieldMap: 'app', model: 'Doc', on: 'ownerId' },
+            ],
+            cardinality: 'oneToMany',
+          },
+        ],
+      },
+    });
+    expect(() => back(nobody, schemaOf(mine), { resource: 'doc', record: {} }, 'read')).toThrow(
+      /endpoint 'app:Doc' not found/,
     );
   });
 });

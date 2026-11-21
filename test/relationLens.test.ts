@@ -148,7 +148,7 @@ const map: SchemaMap = {
     signet: 'Signet',
   },
   fieldMap,
-  supplied: { actor: actorMap },
+  supplied: { maps: { actor: actorMap } },
 };
 
 const db: Record<string, Record<string, Row>> = {
@@ -1469,7 +1469,7 @@ describe('the apps’ own maps', () => {
       'db:chatMessage': 'ChatMessage',
     },
     fieldMap: { models: loadModels('zealot') },
-    supplied: { actor: actorMap },
+    supplied: { maps: { actor: actorMap } },
   };
   const participantReads = (field: string): RebacSchema => ({
     permissions: {

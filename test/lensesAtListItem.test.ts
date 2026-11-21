@@ -13,7 +13,7 @@ import { actorMap } from './schemaMaps';
 
 const map: SchemaMap = {
   resources: { org: 'Org', member: 'Member', user: 'User' },
-  supplied: { actor: actorMap },
+  supplied: { maps: { actor: actorMap } },
   fieldMap: {
     models: {
       Org: {

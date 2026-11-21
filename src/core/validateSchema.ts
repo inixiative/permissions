@@ -5,6 +5,7 @@ import {
   countRelationsOneRowHydrates,
   issueRefusesTheRead,
   issuesForReadsOutsideLens,
+  issuesOfSuppliedListArm,
   type LensesAtRow,
   lensesAtListItem,
   lensesAtRow,
@@ -12,6 +13,7 @@ import {
   whyRelationPathCannotBeWalked,
 } from './lens';
 import { listsOf, relationOf, type SchemaMap } from './schemaMap';
+import { suppliedModelAt } from './supplied';
 import type { ActionRule, RebacSchema } from './types';
 import { validateActionRule } from './validateActionRule';
 
@@ -154,6 +156,8 @@ const relIssues = (
           message: `\`${resource}.${rule.rel}\` is a second list under an item of \`${under.list}\`: one list per walk`,
         },
       ];
+    if (suppliedModelAt(map, rule.rel.split('.')[0] ?? ''))
+      return issuesOfSuppliedListArm(map, rule.rel, rule.condition, path);
     const item = lensesAtListItem(map, resource, rule.rel);
     if (!item)
       return [

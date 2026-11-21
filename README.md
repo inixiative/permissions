@@ -371,11 +371,12 @@ reported.
 
 ## Supplied maps: data the call gives (who is acting, for one)
 
-The library has no notion of an actor. A map declares **supplied** field maps by prefix: models
-whose rows each check is given in its `data`, beside the joined bridges' far rows, keyed
-`<prefix>:<Model>` the same way. A `{ rule }` at any resource reads them as
-`<prefix>:<Model>.<column>`, over a json-rules supplied bridge from the row the rule is on. An app
-with no supplied maps reads none; an app with several reads them all alike.
+The library has no notion of an actor. A map declares **supplied** maps: a json-rules field-map set
+(`{ maps, bridges }`), each map by prefix, whose rows each check is given in its `data`, keyed
+`<prefix>:<Model>` as the joined bridges' far rows are. A `{ rule }` at any resource reads them as
+`<prefix>:<Model>.<column>`, and on along their relations and to-one bridges
+(`actor:User.org.plan`, `actor:User.sec:Posture.managed`). An app with no supplied maps reads none;
+an app with several reads them all alike.
 
 ```ts
 // the app's own actor map: which kind is acting, and each kind's own columns
@@ -386,26 +387,43 @@ const actor: FieldMap = {
   },
   enums: { ActingKind: ['User', 'Token', 'Internal'] },
 };
-const map: SchemaMap = { resources, fieldMap: prismaMap, polymorphism, supplied: { actor } };
+// a security tool's devices, joined to the actor by its id
+const sec: FieldMap = { models: { Device: { fields: { userId: str, risk: str } } } };
+const supplied: FieldMapSet = {
+  maps: { actor, sec },
+  bridges: [{
+    endpoints: [{ fieldMap: 'actor', model: 'User', on: 'id' }, { fieldMap: 'sec', model: 'Device', on: 'userId' }],
+    cardinality: 'oneToMany',
+  }],
+};
+const map: SchemaMap = { resources, fieldMap: prismaMap, polymorphism, supplied };
 
 check(permix, schema, {
   resource: 'db:Doc',
   record: doc,
-  data: { 'actor:Acting': [{ model: 'User' }], 'actor:User': [user] },
+  data: { 'actor:Acting': [{ model: 'User' }], 'actor:User': [user], 'sec:Device': devices },
 }, 'read');
 ```
 
+- **The call gives one row of each model at the root; the rest are found by key.** Every supplied
+  model is given one row, read from every row a rule is on, except the far end of a joined bridge
+  (`sec:Device`), whose rows `data` holds and the bridge finds by key.
 - **The engine fills them; a record never brings its own.** Before each `{ rule }` the check runs
-  json-rules' `recordWithBridgeData`: any `<prefix>:` key the record (or a far row) carries is
-  dropped, and each supplied model's one row from `data` is put on it. Nothing in `data` for a model
-  means it is not there, and every rule reading it fails.
-- **Every read of one needs `exists` beside it** (R-2026-11-21-07), as does the field of every
-  comparison with a path: `ruleFieldEqualsPath('ownerId', 'actor:User.id')` is
-  `all: [ownerId exists, actor:User.id exists, ownerId equals actor:User.id]`. A rule without it is a
-  schema error.
-- **Typed, at the root only.** A model a supplied map lacks, a column its model lacks, a read into
-  its relations and an enum value outside its enum are refused. A `where` reads the record alone,
-  so a supplied path there is refused, and `org.actor:User` is not a path.
+  json-rules' `recordWithBridgeData`, with the joined rows indexed once per check: any key a row
+  carries naming a supplied model is dropped, on the record and every row reached from it, and the
+  rows from `data` are put on. Nothing in `data` for a model means it is not there, and a rule
+  reading it fails. A supplied bridge has its endpoints among the supplied maps: one into the map of
+  resources has no endpoint and throws, so no chain leads back to a record.
+- **A list on a supplied row is crossed with the list arm**: `{ rel: 'actor:User.sec:Device',
+  arrayOperator: 'any', condition }`, its own list relations too (`actor:User.groups`). An item is a
+  supplied row with no actions, so its condition holds `{ rule }`s in `any` and `all`, read in the
+  item's own lens.
+- **A match needs `exists` on its field** (R-2026-11-21-07), since two missing values match:
+  `ruleFieldEqualsPath('ownerId', 'actor:User.id')` is `all: [ownerId exists, ownerId equals
+  actor:User.id]`. A comparison with a literal needs none.
+- **Typed.** A model a supplied map lacks, a read off the end of its relations and bridges, a model
+  reached twice on one chain and an enum value outside its enum are refused. A `where` reads the
+  record alone, so a supplied path there is refused, and `org.actor:User` is not a path.
 - **Stored rules too.** A row's `permissionRules` or an `additionalRules` entry that is not
   positive, loops or reads outside the lens throws, as the schema's would.
 

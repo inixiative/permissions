@@ -11,6 +11,7 @@ import {
 import {
   type Condition,
   check as checkRule,
+  type FieldMapSet,
   type LensNarrowing,
   type ModelNarrowing,
 } from '@inixiative/json-rules';
@@ -30,14 +31,16 @@ export type Polymorphism = Partial<Record<string, { axes: readonly PolymorphicAx
  * The schema the checks walk: `resources` names the `fieldMap` model behind each resource, the
  * `fieldMap` (an `@inixiative/field-map` map) lists each model's relations and foreign keys,
  * `polymorphism` says which kind a relation makes a polymorphic record, and `supplied` the field maps
- * whose rows each check is given in its `data` (who is acting, for one), by prefix: a `{ rule }` reads
- * `<prefix>:<Model>.<column>`. Read once per map: lenses are built and cached per map object.
+ * whose rows each check is given in its `data` (who is acting, for one), by prefix, with the bridges
+ * between them: a `{ rule }` reads `<prefix>:<Model>.<column>` and on along their relations and
+ * to-one bridges (`actor:User.sec:Device.risk`). Read once per map: lenses are built and cached per
+ * map object.
  */
 export type SchemaMap<R extends string = string> = {
   resources: Record<R, string>;
   fieldMap: FieldMap;
   polymorphism?: Polymorphism;
-  supplied?: Record<string, FieldMap>;
+  supplied?: FieldMapSet;
 };
 
 /** A to-one relation the hydrator follows: where it leads, its key, and on a polymorphic record the kinds it admits. */

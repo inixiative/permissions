@@ -11,13 +11,20 @@ support maps, and you put a map. If you have actors, you have actors", the engin
 sent in the call, and "write an existence check for everything that needs to exist". So the actor
 is an app's map, not a library concept.
 
-- **`SchemaMap.supplied`**: field maps by prefix whose rows each check is given in `subject.data`,
-  keyed `<prefix>:<Model>` beside the joined bridges' far rows. A `{ rule }` reads them as
-  `<prefix>:<Model>.<column>`. Template's `actor` map (`Acting.model`, each kind's columns) is one;
-  an app may declare several, or none.
+- **`SchemaMap.supplied`**: a json-rules `FieldMapSet` (`{ maps, bridges }`), maps by prefix, whose
+  rows each check is given in `subject.data`, keyed `<prefix>:<Model>` beside the joined bridges' far
+  rows. A `{ rule }` reads them as `<prefix>:<Model>.<column>` and on along their relations and
+  to-one bridges, every chain spelled as a resource's are (no model twice, depth 20). Each model
+  is given one row, but the far end of a joined bridge, found by key. Template's `actor` map
+  (`Acting.model`, each kind's columns) is one; an app may declare several, or none. Aron 11-21:
+  "any sort of part of the map can have bridges to other parts of the map, and they can be
+  supplied maps"; "things that are not part of specific bridges need to be supplied, or bridges with
+  joins".
+- **A list on a supplied row is crossed with the list arm** (`{ rel: 'actor:User.sec:Device',
+  arrayOperator: 'any', condition }`), its condition holding rules only; a supplied bridge into the
+  map of resources has no endpoint and throws. The joined rows are indexed once per check.
 - **The engine fills them** with json-rules 4.4's `recordWithBridgeData` before each `{ rule }`:
-  any `<prefix>:` key a record or far row carries is dropped, and each supplied model's one row is
-  put on. `permix.setActor` / `getActor`, `PermixLike.getActor` and the `Actor` type are gone.
+  any key naming a supplied model is dropped from every row, and the rows from `data` are put on. `permix.setActor` / `getActor`, `PermixLike.getActor` and the `Actor` type are gone.
 - **A match needs `exists` on its field** (json-rules 4.4's positive gate): a field compared with a
   path or bind (`ownerId` with `actor:User.id`), since two missing values match. A comparison with
   a literal needs none; a missing supplied row fails it on its own. `ruleFieldEqualsPath(field,
