@@ -33,9 +33,6 @@ const assertSchema = (map: SchemaMap, schema: RebacSchema) =>
     return true;
   });
 
-// why: a value a record does not carry (an actor that is not acting) is unknown, never null
-const absent = 'unknown';
-
 export const createWalker = <R extends string, T>(
   map: SchemaMap<R>,
   algebra: Algebra<T>,
@@ -85,7 +82,6 @@ export const createWalker = <R extends string, T>(
       evaluate(
         {
           map,
-          absent,
           schema,
           getDict,
           ...(subject.data ? { data: subject.data } : {}),

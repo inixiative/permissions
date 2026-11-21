@@ -3,6 +3,7 @@ import {
   type Condition,
   type LensNarrowing,
   type LensPathResolution,
+  parseEndpointKey,
   pathSegments,
   stitchFieldMaps,
   type ValidationIssue,
@@ -299,8 +300,8 @@ export const issuesForReadsOutsideLens = (
     if (!codesForPathOutsideLens.has(issue.code)) return [];
     const resolution = walkLensPath(lens, issue.path);
     const head = pathSegments(issue.path)[0] ?? '';
-    const [prefix, model] = head.split(':');
-    if (model !== undefined && Object.hasOwn(map.supplied ?? {}, prefix))
+    const { mapName: prefix, modelName: model } = parseEndpointKey(head, '');
+    if (head.includes(':') && Object.hasOwn(map.supplied ?? {}, prefix))
       return [
         {
           path,

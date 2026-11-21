@@ -1,6 +1,11 @@
 import { fieldOf, own } from '@inixiative/field-map';
-import { type Condition, Operator } from '@inixiative/json-rules';
-import { ownerRelationOf, type SchemaMap } from './schemaMap';
+import {
+  type Condition,
+  declaredEnumValues,
+  Operator,
+  parseEndpointKey,
+} from '@inixiative/json-rules';
+import { axisOf, ownerRelationOf, type SchemaMap } from './schemaMap';
 import type { ActionRule } from './types';
 
 /**
@@ -44,21 +49,18 @@ export const ruleFieldEqualsPath = (field: string, path: string): ActionRule => 
  * its enum fields (`'actor:Acting'`, `'model'`), whose values are its kinds.
  */
 export const makeKindRules = <R extends string>(map: SchemaMap<R>) => {
+  const suppliedMapOf = (side: string) =>
+    side.includes(':') ? own(map.supplied ?? {}, parseEndpointKey(side, '').mapName) : undefined;
   const kindsOf = (side: string, field: string): string[] => {
-    const [prefix, model] = side.split(':');
-    const suppliedMap = model === undefined ? undefined : map.supplied?.[prefix];
+    const suppliedMap = suppliedMapOf(side);
     if (suppliedMap) {
-      const entry = fieldOf(suppliedMap, model, field);
+      const entry = fieldOf(suppliedMap, parseEndpointKey(side, '').modelName, field);
       const values =
-        entry?.kind === 'enum'
-          ? (entry.values ?? own(suppliedMap.enums ?? {}, entry.type))
-          : undefined;
+        entry?.kind === 'enum' ? declaredEnumValues(entry, suppliedMap.enums) : undefined;
       if (!values) throw new Error(`\`${side}.${field}\` is not an enum field of a supplied model`);
       return [...values];
     }
-    const axis = map.polymorphism?.[map.resources[side as R]]?.axes.find(
-      (candidate) => candidate.field === field,
-    );
+    const axis = axisOf(map, side as R, field);
     if (!axis)
       throw new Error(`\`${side}\` has no polymorphic axis \`${field}\` in map.polymorphism`);
     return Object.keys(axis.fkMap);
@@ -70,7 +72,7 @@ export const makeKindRules = <R extends string>(map: SchemaMap<R>) => {
   };
   // A supplied side is read at its key; a resource's at `at`, the path from the row the rule is on.
   const read = (side: string, field: string, at: string) =>
-    side.includes(':') && map.supplied?.[side.split(':')[0]] ? `${side}.${field}` : `${at}${field}`;
+    suppliedMapOf(side) ? `${side}.${field}` : `${at}${field}`;
 
   return {
     /** The side's kind is one of `kinds`. */

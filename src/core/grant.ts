@@ -28,8 +28,8 @@ const narrows = (held: Entitlement, entry: EntitlementEntry) => {
 };
 
 /**
- * Build the grant check (README, Granting one). First pass: the writer's table, with no actor,
- * takes every action `entry` names on `placed` (absent fields unknown), counting an entitlement
+ * Build the grant check (README, Granting one). First pass: the writer's table, given no `data`,
+ * takes every action `entry` names on `placed`, counting an entitlement
  * only on a row above the granted record (`rowsAbove`), marked `grantsBelow`, without a `where`.
  * Failing that, the entry narrows one entitlement the writer holds, and its granter still takes
  * each action on `placed` in a walk that counts every `where` as holding.

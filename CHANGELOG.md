@@ -31,8 +31,9 @@ is an app's map, not a library concept.
 - **Typed, at the root.** A model or column a supplied map lacks, a read into its relations, a
   supplied path in a `where`, `org.actor:User`, an enum value outside its enum, and every `__actor.*`
   are refused.
-- **A check reads a value the record does not carry as unknown** (json-rules `absent: 'unknown'`,
-  always; the `absent` option is gone).
+- **The `absent` option is gone.** Under the positive gate, with `exists` beside every comparison
+  that needs a value, a missing value and a null one give the same answer, so the setting changed
+  nothing (the 11-21 review checked every operator); the check uses json-rules' default.
 - **`RebacSchema.bridges` is `JoinedBridge[]`** (json-rules 4.3): a supplied bridge is never a
   `{ rel }` hop.
 - Peer `@inixiative/json-rules` ^4.4.0.

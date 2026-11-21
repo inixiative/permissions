@@ -249,10 +249,10 @@ crossed.
   never backtracks into the record it came from.
 - **One jump in the engine too.** An item's view holds no list, so a list arm met under an item
   finds nothing whatever the record holds, and a bridge hop under an item denies.
-- **A column an item does not carry is unknown.** The check always reads with json-rules
-  `absent: 'unknown'`, under an item as everywhere: a rule over a column the item came back
-  without (a `select`, a projection) fails, never passes. That is why a rule names the value that
-  is there (`status equals 'active'`), never a null check, which is refused.
+- **A column an item does not carry fails.** A rule over a column the item came back without (a
+  `select`, a projection) never passes: a rule names the value that is there
+  (`status equals 'active'`), with `exists` beside any comparison with a path, and a null check is
+  refused.
 - **Why only `any`.** Every other array operator (`all`, `none`, `atMost`, `exactly`, `empty`,
   `notEmpty`, `atLeast`) holds on a list with no rows or counts rows, so it would pass on a record
   whose list was never loaded, or pass for nobody in particular. They are refused by name (code
@@ -667,12 +667,11 @@ missing list or mark. Annotations on models that are not resources are not read.
 `canGrantEntitlement` judges each placed record in two passes:
 
 1. **The writer's table, and what it holds outright above the granted record.** Its table (its
-   role), with no actor, takes each action on `placed`. An entitlement also counts here, as a
+   role), given no `data`, takes each action on `placed`. An entitlement also counts here, as a
    role on its record would, when all of these hold: it is marked `grantsBelow: true`; it has no
    `where`; and the walk meets it on a real row above the granted record (below). (A delegate's permissions capped at a ceiling, from `delegate`, is
-   permissions entries too.) It reads `placed` with json-rules `absent: 'unknown'`: a field it does not carry fails
-   every positive leaf, `equals null` included, so a writer whose authority reads a field the
-   `where` leaves open is refused. A rule that needs an actor (`actor:User.id exists`, an id compared to `actor:User.id`) never passes: who the writer is is not
+   permissions entries too.) A field `placed` does not carry fails every positive leaf, so a writer
+   whose authority reads a field the `where` leaves open is refused. A rule that needs an actor (`actor:User.id exists`, an id compared to `actor:User.id`) never passes: who the writer is is not
    authority that can be handed on. Rules are positive (`validateActionRule` refuses the rest),
    which is what makes a pass on `placed` hold for every record the `where` admits.
 2. **One held entitlement.** Failing that, the entry is one entitlement the writer holds, passed on

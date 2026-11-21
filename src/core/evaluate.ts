@@ -1,4 +1,4 @@
-import { type Absent, type BridgeDictionary, check as checkRule } from '@inixiative/json-rules';
+import { type BridgeDictionary, check as checkRule } from '@inixiative/json-rules';
 import { isNil, isPlainObject } from 'lodash-es';
 import type { Algebra } from './algebra';
 import { bridgeHop, lookupFar } from './bridgeHop';
@@ -17,7 +17,6 @@ import { issuesForRuleReadsOutsideLens } from './validateSchema';
 // what it finds combines (a boolean for `check`, every admission for `paths`).
 export type Walk<R extends string, T = boolean> = {
   map: SchemaMap<R>;
-  absent: Absent;
   schema: RebacSchema<R>;
   getDict: () => BridgeDictionary | undefined;
   /** The check's `data`: every bridge's rows, the supplied models' read by each `{ rule }`. */
@@ -282,7 +281,6 @@ const walkRule = <R extends string, T>(
     if (!list || !Array.isArray(items)) return algebra.none;
     const under: Walk<R, T> = {
       ...walk,
-      absent: 'unknown',
       under: { list: `${resource}.${rule.rel}`, listRelation: list, prefix: [] },
       hops: (walk.hops ?? 0) + 1,
       ...(walk.above ? { above: noRows } : {}),
@@ -325,9 +323,7 @@ const walkRule = <R extends string, T>(
 
   if ('rule' in rule) {
     const model = walk.map.resources[resource];
-    return checkRule(rule.rule, recordWithSuppliedData(walk.map, model, record, walk.data), {
-      absent: walk.absent,
-    }) === true
+    return checkRule(rule.rule, recordWithSuppliedData(walk.map, model, record, walk.data)) === true
       ? algebra.unit
       : algebra.none;
   }

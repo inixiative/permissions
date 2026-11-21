@@ -17,10 +17,9 @@ export type RebacCheck<R extends string = string> = (
  * a path's polymorphic kinds come from `map.polymorphism`. Cross-source `rel` hops are resolved by the engine from
  * `schema.bridges`: the join-key scalar on the record looks the far row up in a `BridgeDictionary`
  * the engine builds from `subject.data`; a far row absent there denies the walk. `string` delegates
- * (rbac via permix or schema), `{ rule }` is an ABAC predicate over the record and the actor (read
- * as `actor:<Model>.<column>`), `any`/`all` compose. A value the record does not carry (an actor
- * that is not acting) is unknown, never null (json-rules `absent: 'unknown'`, always). A loop through a relation denies; a rule naming
- * itself on one record throws.
+ * (rbac via permix or schema), `{ rule }` is an ABAC predicate over the record and the supplied rows
+ * `subject.data` gives (`actor:<Model>.<column>`), `any`/`all` compose. A loop through a relation
+ * denies; a rule naming itself on one record throws.
  */
 export const createRebacCheck = <R extends string = string>(
   map: SchemaMap<R>,

@@ -415,6 +415,14 @@ export const identityKeyOfRow = (
   return keyFromResourceAndColumns(resource, asText);
 };
 
+/** `resource`'s polymorphic axis on `field`, from `map.polymorphism`. */
+export const axisOf = <R extends string>(
+  map: SchemaMap<R>,
+  resource: R,
+  field: string,
+): PolymorphicAxis | undefined =>
+  map.polymorphism?.[map.resources[resource]]?.axes.find((axis) => axis.field === field);
+
 /** Every to-one relation of `resource` the hydrator follows, by field name. */
 export const followedToOneRelationsOf = <R extends string>(
   map: SchemaMap<R>,
@@ -438,8 +446,7 @@ export const ownerRelationOf = <R extends string>(
   field: string,
   value: string,
 ): string | undefined => {
-  const axis = map.polymorphism?.[map.resources[resource]]?.axes.find((a) => a.field === field);
-  const columns = [...(axis?.fkMap[value] ?? [])].sort().join(',');
+  const columns = [...(axisOf(map, resource, field)?.fkMap[value] ?? [])].sort().join(',');
   return followedToOneRelationsOf(map, resource).find(
     ([, relation]) => [...relation.from].sort().join(',') === columns,
   )?.[0];
