@@ -40,7 +40,7 @@ const schema: RebacSchema = {
         own: { rel: 'organization', action: 'own' },
         manage: { any: ['own', { rel: 'organization', action: 'manage' }] },
         read: { any: ['manage', { rel: 'organization', action: 'read' }] },
-        rename: { all: [{ rule: eq('label', null) }, 'read'] },
+        rename: { all: [{ rule: eq('label', 'draft') }, 'read'] },
         archive: { all: [{ rule: eq('label', 'draft') }, 'manage'] },
       },
     },
@@ -129,7 +129,7 @@ const wheres: Record<Resource, Condition[]> = {
   'db:organization': [eq('id', 'o1')],
   'db:space': [
     eq('label', 'draft'),
-    eq('label', null),
+    eq('label', 'final'),
     eq('id', 's1'),
     eq('organization.id', 'o1'),
   ],

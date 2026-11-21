@@ -5,6 +5,7 @@ import {
   countRelationsOneRowHydrates,
   issueRefusesTheRead,
   issuesForReadsOutsideLens,
+  issuesOfSuppliedListArm,
   type LensesAtRow,
   lensesAtListItem,
   lensesAtRow,
@@ -12,6 +13,7 @@ import {
   whyRelationPathCannotBeWalked,
 } from './lens';
 import { listsOf, relationOf, type SchemaMap } from './schemaMap';
+import { suppliedModelAt } from './supplied';
 import type { ActionRule, RebacSchema } from './types';
 import { validateActionRule } from './validateActionRule';
 
@@ -143,7 +145,8 @@ const relIssues = (
     return rule.all.flatMap((child, i) =>
       relIssues(map, schema, at, child, `${path}.all[${i}]`, seen),
     );
-  if ('rule' in rule) return issuesForReadsOutsideLens(map, at, rule.rule, path, { actor: true });
+  if ('rule' in rule)
+    return issuesForReadsOutsideLens(map, at, rule.rule, path, { supplied: true });
   if ('arrayOperator' in rule) {
     if (under)
       return [
@@ -153,6 +156,8 @@ const relIssues = (
           message: `\`${resource}.${rule.rel}\` is a second list under an item of \`${under.list}\`: one list per walk`,
         },
       ];
+    if (suppliedModelAt(map, rule.rel.split('.')[0] ?? ''))
+      return issuesOfSuppliedListArm(map, rule.rel, rule.condition, path);
     const item = lensesAtListItem(map, resource, rule.rel);
     if (!item)
       return [

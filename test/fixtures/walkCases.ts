@@ -13,7 +13,7 @@ import {
   type Row,
   type SchemaMap,
 } from '../../index';
-import { mapOf } from '../schemaMaps';
+import { actorData, mapOf } from '../schemaMaps';
 
 // A walk case in the form a differential fuzzer of two builds writes: resources, row objects and
 // tables of grants and entitlements, each by index; one row may be several objects. Each resource has
@@ -160,7 +160,6 @@ export const outcomesOfWalkCase = async (walkCase: WalkCase) => {
   const tables: Permix[] = walkCase.tables.map(() => createPermissions());
   for (const [t, table] of walkCase.tables.entries()) {
     const permix = tables[t] as Permix;
-    if (table.actor) permix.setActor({ model: table.actor, record: { id: `actor${t}` } });
     if (table.superadmin) permix.setSuperadmin(true);
     if (table.grants.length)
       await permix.setup(
@@ -187,14 +186,12 @@ export const outcomesOfWalkCase = async (walkCase: WalkCase) => {
   const subject = {
     resource: resourceName(walkCase.objects[walkCase.query.object]?.res ?? 0),
     record,
+    data: actorData(walkCase.tables[0]?.actor ?? null, { id: 'actor0' }),
   };
   const action = structuredClone(walkCase.query.action);
   const placed = rows[walkCase.grant.placed] ?? record;
   return {
     check: outcome(() => createRebacCheck(map)(holder, schema, subject, action)),
-    checkUnknown: outcome(() =>
-      createRebacCheck(map, { absent: 'unknown' })(holder, schema, subject, action),
-    ),
     paths: outcome(() => createRebacPaths(map, { limit: 2 })(holder, schema, subject, action)),
     grant: outcome(() =>
       createCanGrantEntitlement(map)(

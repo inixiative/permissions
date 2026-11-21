@@ -1,4 +1,4 @@
-import { type Absent, type BridgeDictionary, check as checkRule } from '@inixiative/json-rules';
+import { type BridgeDictionary, check as checkRule, pathSegments } from '@inixiative/json-rules';
 import { isNil, isPlainObject } from 'lodash-es';
 import type { Algebra } from './algebra';
 import { bridgeHop, lookupFar } from './bridgeHop';
@@ -8,6 +8,7 @@ import { permixId, rowId } from './identity';
 import type { PositionUnderListItem } from './lens';
 import { recordId } from './recordId';
 import { identityKeyOfRow, listOf, relationOf, type SchemaMap } from './schemaMap';
+import { recordWithSuppliedData, suppliedModelAt } from './supplied';
 import type { ActionRule, AdditionalRules, PermixLike, RebacSchema, Row } from './types';
 import { validateActionRule } from './validateActionRule';
 import { issuesForRuleReadsOutsideLens } from './validateSchema';
@@ -16,9 +17,12 @@ import { issuesForRuleReadsOutsideLens } from './validateSchema';
 // what it finds combines (a boolean for `check`, every admission for `paths`).
 export type Walk<R extends string, T = boolean> = {
   map: SchemaMap<R>;
-  absent: Absent;
   schema: RebacSchema<R>;
   getDict: () => BridgeDictionary | undefined;
+  /** The supplied maps' joined bridges' rows, indexed once per check. */
+  suppliedDictionary: () => BridgeDictionary | undefined;
+  /** The check's `data`: every bridge's rows, the supplied models' read by each `{ rule }`. */
+  data?: Record<string, Row[]>;
   algebra: Algebra<T>;
   /** The app's extra rule sets for a record, ORed in beside its own `permissionRules`. */
   additionalRules?: AdditionalRules;
@@ -222,14 +226,24 @@ const walkActionRules = <R extends string, T>(
   const additionalRules = (walk.additionalRules?.(resource, record) ?? []).filter(
     (rules): rules is Record<string, ActionRule> => isPlainObject(rules),
   );
-  const holds = (rule: ActionRule) =>
-    validateActionRule(rule, {
-      schema: walk.schema,
-      resource,
-      action: actionOrRule,
-      rowRules,
-      additionalRules,
-    }).ok && issuesForRuleReadsOutsideLens(walk.map, walk.schema, resource, rule).length === 0;
+  // why: a stored or additional rule is judged as the schema's is: one that is not positive, loops or reads outside the lens throws
+  const holds = (rule: ActionRule) => {
+    const [problem] = [
+      ...validateActionRule(rule, {
+        schema: walk.schema,
+        resource,
+        action: actionOrRule,
+        rowRules,
+        additionalRules,
+      }).errors,
+      ...issuesForRuleReadsOutsideLens(walk.map, walk.schema, resource, rule),
+    ];
+    if (problem)
+      throw new Error(
+        `a rule for \`${resource}.${actionOrRule}\` beside the schema's is refused: \`${problem.path}\`: ${problem.message}`,
+      );
+    return true;
+  };
   const node = `${resource}\u0000${actionOrRule}`;
   const rowRule = rowRules?.[actionOrRule];
   const rowRuleHolds =
@@ -252,6 +266,16 @@ const walkActionRules = <R extends string, T>(
   ]);
 };
 
+// An item of a supplied list has no actions: only its rules, in any and all, hold on it.
+const holdsOnSuppliedRow = (rule: ActionRule, row: Row): boolean => {
+  if (typeof rule === 'boolean') return rule;
+  if (rule === null || typeof rule !== 'object') return false;
+  if ('rule' in rule) return checkRule(rule.rule, row) === true;
+  if ('any' in rule) return rule.any.some((child) => holdsOnSuppliedRow(child, row));
+  if ('all' in rule) return rule.all.every((child) => holdsOnSuppliedRow(child, row));
+  return false;
+};
+
 const walkRule = <R extends string, T>(
   walk: Walk<R, T>,
   permix: PermixLike,
@@ -264,12 +288,28 @@ const walkRule = <R extends string, T>(
   if ('arrayOperator' in rule) {
     // why: under an item only the declared down tree exists; a second list is never crossed
     if (walk.under) return algebra.none;
+    if (suppliedModelAt(walk.map, pathSegments(rule.rel)[0] ?? '')) {
+      const filled = recordWithSuppliedData(
+        walk.map,
+        walk.map.resources[resource],
+        record,
+        walk.data,
+        walk.suppliedDictionary(),
+      );
+      const items = pathSegments(rule.rel).reduce<unknown>(
+        (row, segment) => (isPlainObject(row) ? (row as Row)[segment] : undefined),
+        filled,
+      );
+      return Array.isArray(items) &&
+        items.some((item) => isPlainObject(item) && holdsOnSuppliedRow(rule.condition, item as Row))
+        ? algebra.unit
+        : algebra.none;
+    }
     const list = listOf(walk.map, resource, rule.rel);
     const items = record[rule.rel];
     if (!list || !Array.isArray(items)) return algebra.none;
     const under: Walk<R, T> = {
       ...walk,
-      absent: 'unknown',
       under: { list: `${resource}.${rule.rel}`, listRelation: list, prefix: [] },
       hops: (walk.hops ?? 0) + 1,
       ...(walk.above ? { above: noRows } : {}),
@@ -311,13 +351,15 @@ const walkRule = <R extends string, T>(
   }
 
   if ('rule' in rule) {
-    return checkRule(
-      rule.rule,
-      { ...record, __actor: permix.getActor() },
-      { absent: walk.absent },
-    ) === true
-      ? algebra.unit
-      : algebra.none;
+    const model = walk.map.resources[resource];
+    const filled = recordWithSuppliedData(
+      walk.map,
+      model,
+      record,
+      walk.data,
+      walk.suppliedDictionary(),
+    );
+    return checkRule(rule.rule, filled) === true ? algebra.unit : algebra.none;
   }
   if ('any' in rule) {
     return algebra.any(

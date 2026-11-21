@@ -34,7 +34,6 @@ const counting = (permix: PermixLike) => {
       return permix.check(resource, action, id, data);
     },
     isSuperadmin: () => permix.isSuperadmin?.() ?? false,
-    getActor: () => permix.getActor(),
     entitlements: (resource, action) => permix.entitlements?.(resource, action) ?? [],
   };
   const total = () => [...calls.values()].reduce((sum, n) => sum + n, 0);
@@ -287,7 +286,7 @@ describe('walk modes', () => {
             ],
           },
         },
-        1: { flagIsNull: { rule: { field: 'flag', operator: Operator.equals, value: null } } },
+        1: { flagIsNull: { rule: { field: 'flag', operator: Operator.equals, value: 'on' } } },
       },
       objects: [
         { res: 0, id: 'o1', links: { primarySpace: 1 }, lists: { spaces: [1] } },
@@ -297,8 +296,8 @@ describe('walk modes', () => {
       query: { object: 0, action: 'q' },
       grant: { ent: { resource: 0, path: [], anchorId: 'o1', actions: ['q'] }, placed: 0 },
     };
-    const { check, checkUnknown } = await outcomesOfWalkCase(underAndOutside);
-    expect({ check, checkUnknown }).toEqual({ check: false, checkUnknown: false });
+    const { check } = await outcomesOfWalkCase(underAndOutside);
+    expect(check).toBe(false);
   });
 
   test('under a list item, one row reached at two lens positions is walked at each', async () => {
@@ -477,20 +476,18 @@ describe('two objects of one row', () => {
   });
 });
 
-const FOOTPRINT_CASE = { check: false, checkUnknown: false, paths: [], grant: false };
+const FOOTPRINT_CASE = { check: false, paths: [], grant: false };
 
 // Cases in the fuzzer's form (test/fixtures/walkCases), each with what every check answers.
 describe('fuzzed walk cases', () => {
   const expected: Record<string, Awaited<ReturnType<typeof outcomesOfWalkCase>>> = {
     'plain-repeat-met-while-start-on-path': {
       check: false,
-      checkUnknown: false,
       paths: [],
       grant: false,
     },
     'under-mode-path-through-loop': {
       check: true,
-      checkUnknown: true,
       paths: ['accountRead'],
       grant: false,
     },
@@ -498,7 +495,6 @@ describe('fuzzed walk cases', () => {
     'reused-child-in-parent-footprint': FOOTPRINT_CASE,
     'finished-sibling-in-visited': {
       check: true,
-      checkUnknown: true,
       paths: ['holder1>owner0', 'holder1>owner0>third2>holder1>owner0'],
       grant: false,
     },

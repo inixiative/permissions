@@ -11,7 +11,7 @@ import {
   type RebacSchema,
   type Row,
 } from '../index';
-import { mapOf } from './schemaMaps';
+import { actorData, mapOf } from './schemaMaps';
 
 // An entitlement: an action, on a model, FROM an anchor on the record's chain, with an optional
 // `where` over the record. The owner (who granted it) is bound once per setup call, from the row.
@@ -24,7 +24,7 @@ const is = (field: string, value: string): Condition => ({
   value,
 });
 
-const inPerson: Condition = { field: '__actor.model', operator: Operator.equals, value: 'User' };
+const inPerson: Condition = { field: 'actor:User.id', operator: Operator.exists };
 
 const schema: RebacSchema = {
   permissions: {
@@ -271,7 +271,6 @@ describe('entitlements: an action on a model from an anchor, owner on the row', 
 
   test('8. a schema guard survives: the owner’s walk runs it on the record', async () => {
     const holder = createPermissions();
-    holder.setActor({ model: 'User', record: { id: 'u1', email: 'me@example.com' } });
     await entitle(
       holder,
       [
@@ -418,9 +417,7 @@ describe('entitlements: an action on a model from an anchor, owner on the row', 
   test('16. the actor is always the request’s actor, inside the owner’s walk too', async () => {
     // The owner is the person u1, acting in person; its table would pass the in-person arm on its own.
     const owner = await table(own('db:user', 'u1'));
-    owner.setActor({ model: 'User', record: { id: 'u1' } });
     const holder = createPermissions();
-    holder.setActor({ model: 'Token', record: { id: 't1' } });
     await entitle(
       holder,
       [{ resource: 'db:user', anchor: at('db:user', 'u1'), actions: { 'token.create': true } }],
@@ -428,9 +425,15 @@ describe('entitlements: an action on a model from an anchor, owner on the row', 
     );
     // token.create = all[in person, own]: the token has no `own`, so it needs the owner's walk, and
     // inside that walk the in-person arm must still see the token, not the owner.
-    expect(check(holder, schema, { resource: 'db:user', record: u1 }, 'token.create')).toBe(false);
-    holder.setActor({ model: 'User', record: { id: 'u1' } });
-    expect(check(holder, schema, { resource: 'db:user', record: u1 }, 'token.create')).toBe(true);
+    const as = (model: string, record: Row) =>
+      check(
+        holder,
+        schema,
+        { resource: 'db:user', record: u1, data: actorData(model, record) },
+        'token.create',
+      );
+    expect(as('Token', { id: 't1' })).toBe(false);
+    expect(as('User', { id: 'u1' })).toBe(true);
   });
 
   test('16b. the owner is checked on the record, not on the anchor', async () => {
@@ -467,7 +470,6 @@ describe('entitlements: an action on a model from an anchor, owner on the row', 
       await o1Table(),
     );
     const t1 = createPermissions();
-    t1.setActor({ model: 'Token', record: { id: 't1', email: 'token@example.com' } });
     await entitle(
       t1,
       [
@@ -487,7 +489,6 @@ describe('entitlements: an action on a model from an anchor, owner on the row', 
 
   test('16d. `where` sees the record at the entitlement’s node, not the subject', async () => {
     const holder = createPermissions();
-    holder.setActor({ model: 'User', record: { id: 'u1', email: 'me@example.com' } });
     await entitle(
       holder,
       [{ resource: 'db:space', anchor: AT_S1, actions: { manage: true }, where: is('name', 'x') }],
@@ -520,6 +521,8 @@ describe('entitlements: an action on a model from an anchor, owner on the row', 
               // a parent's column, read through the hydrated relation
               { field: 'space.organization.id', operator: Operator.equals, value: 'o1' },
               // the record's own column against a parent's column: `path` starts at the same record
+              { field: 'provider', operator: Operator.exists },
+              { field: 'space.defaultProvider', operator: Operator.exists },
               { field: 'provider', operator: Operator.equals, path: 'space.defaultProvider' },
             ],
           },

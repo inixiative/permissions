@@ -1,4 +1,4 @@
-import type { Actor, PermixLike, Row } from './types';
+import type { PermixLike, Row } from './types';
 
 // A process-unique number per object, for a row with no key (`identityKeyOfRow`) and for a table.
 const identity = (): ((value: object) => number) => {
@@ -16,18 +16,16 @@ const identity = (): ((value: object) => number) => {
 const nodeId = identity();
 const tableId = identity();
 
-// An entitlement's owner walk runs on a slice of the owner's table (its grants, the request's
-// actor). The slice is a fresh object per walk, so for cycle detection it resolves back to the
+// An entitlement's owner walk runs on a slice of the owner's table (its grants). The slice is a fresh object per walk, so for cycle detection it resolves back to the
 // table it was cut from: the same table re-entering the same node and action is a loop.
 const origin = new WeakMap<PermixLike, PermixLike>();
 export const permixId = (permix: PermixLike): number => tableId(origin.get(permix) ?? permix);
 
-export const asOwner = (owner: PermixLike, actor: Actor | null): PermixLike => {
+export const asOwner = (owner: PermixLike): PermixLike => {
   const slice: PermixLike = {
     check: (resource, action, id, data) => owner.check(resource, action, id, data),
     isSuperadmin: () => owner.isSuperadmin?.() ?? false,
     entitlements: (resource, action) => owner.entitlements?.(resource, action) ?? [],
-    getActor: () => actor,
   };
   origin.set(slice, origin.get(owner) ?? owner);
   return slice;

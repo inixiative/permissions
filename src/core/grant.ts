@@ -28,8 +28,8 @@ const narrows = (held: Entitlement, entry: EntitlementEntry) => {
 };
 
 /**
- * Build the grant check (README, Granting one). First pass: the writer's table, with no actor,
- * takes every action `entry` names on `placed` (absent fields unknown), counting an entitlement
+ * Build the grant check (README, Granting one). First pass: the writer's table, given no `data`,
+ * takes every action `entry` names on `placed`, counting an entitlement
  * only on a row above the granted record (`rowsAbove`), marked `grantsBelow`, without a `where`.
  * Failing that, the entry narrows one entitlement the writer holds, and its granter still takes
  * each action on `placed` in a walk that counts every `where` as holding.
@@ -38,8 +38,8 @@ export const createCanGrantEntitlement = <R extends string = string>(
   map: SchemaMap<R>,
   { additionalRules }: Pick<CheckOptions, 'additionalRules'> = {},
 ): CanGrantEntitlement<R> => {
-  const check = createWalker(map, 'unknown', booleanAlgebra, false, additionalRules);
-  const backs = createWalker(map, 'unknown', booleanAlgebra, true, additionalRules);
+  const check = createWalker(map, booleanAlgebra, false, additionalRules);
+  const backs = createWalker(map, booleanAlgebra, true, additionalRules);
 
   return (permix, schema, entry, placed) => {
     if (
@@ -51,7 +51,7 @@ export const createCanGrantEntitlement = <R extends string = string>(
     const actions = Object.entries(entry.actions)
       .filter(([, held]) => held === true)
       .map(([action]) => action);
-    const table = asOwner(permix, null);
+    const table = asOwner(permix);
     const above = rowsAbove(map, entry, placed);
     const subject = { resource, record: placed };
     if (actions.every((action) => check(table, schema, subject, action, above))) return true;
@@ -65,7 +65,7 @@ export const createCanGrantEntitlement = <R extends string = string>(
     return candidates.some((held) => {
       const lowers = (up: ReadonlySet<string>) =>
         [...up].some((action) => held.actions[action] === true);
-      const owner = asOwner(held.owner, null);
+      const owner = asOwner(held.owner);
       const backed = (action: string) => backs(owner, schema, { resource, record: placed }, action);
       return (
         narrows(held, entry) &&

@@ -1,4 +1,53 @@
-## Unreleased — `load` brings the lists a resource declares; `loadMany` is gone
+## 0.26.0 — supplied maps (who is acting is data the call gives); `load` brings declared lists; `additionalRules`
+
+### Supplied maps: the library supports maps, not actors
+
+Breaking, with no compatibility path (no users).
+
+Why: a `{ rule }` read who is acting as untyped Json under `__actor`, so a typo or a field of the
+wrong kind of actor passed and read null. Aron 2026-11-19 asked for an `actor:` prefix over a
+json-rules bridge with no join; on 11-21 (R-2026-11-21-07): "The permissions library should just
+support maps, and you put a map. If you have actors, you have actors", the engine bridges the data
+sent in the call, and "write an existence check for everything that needs to exist". So the actor
+is an app's map, not a library concept.
+
+- **`SchemaMap.supplied`**: a json-rules `FieldMapSet` (`{ maps, bridges }`), maps by prefix, whose
+  rows each check is given in `subject.data`, keyed `<prefix>:<Model>` beside the joined bridges' far
+  rows. A `{ rule }` reads them as `<prefix>:<Model>.<column>` and on along their relations and
+  to-one bridges, every chain spelled as a resource's are (no model twice, depth 20). Each model
+  is given one row, but the far end of a joined bridge, found by key. Template's `actor` map
+  (`Acting.model`, each kind's columns) is one; an app may declare several, or none. Aron 11-21:
+  "any sort of part of the map can have bridges to other parts of the map, and they can be
+  supplied maps"; "things that are not part of specific bridges need to be supplied, or bridges with
+  joins".
+- **A list on a supplied row is crossed with the list arm** (`{ rel: 'actor:User.sec:Device',
+  arrayOperator: 'any', condition }`), its condition holding rules only; a supplied bridge into the
+  map of resources has no endpoint and throws. The joined rows are indexed once per check.
+- **The engine fills them** with json-rules 4.4's `recordWithBridgeData` before each `{ rule }`:
+  any key naming a supplied model is dropped from every row, and the rows from `data` are put on. `permix.setActor` / `getActor`, `PermixLike.getActor` and the `Actor` type are gone.
+- **A match needs `exists` on its field** (json-rules 4.4's positive gate): a field compared with a
+  path or bind (`ownerId` with `actor:User.id`), since two missing values match. A comparison with
+  a literal needs none; a missing supplied row fails it on its own. `ruleFieldEqualsPath(field,
+  path)` writes the match.
+- **`makeKindRules(map)`**: the standard polymorphic rules (R-2026-11-19-15), kinds read from the map
+  (a resource's polymorphic axis, or a supplied model's enum field): `ruleForEachKind`,
+  `ruleKindIsOneOf`, `ruleActionThroughEachKind`, every kind checked by its literal value. A kind the
+  map does not have throws when the rule is built.
+- **A stored or additional rule the gate refuses throws** (a row's `permissionRules`, an
+  `additionalRules` entry), as the schema's does; before, it was dropped without a word.
+- **The positive gate refuses a null check** (json-rules 4.3, R-2026-11-19-16). Name the value
+  that is there.
+- **Typed, at the root.** A model or column a supplied map lacks, a read into its relations, a
+  supplied path in a `where`, `org.actor:User`, an enum value outside its enum, and every `__actor.*`
+  are refused.
+- **The `absent` option is gone.** Under the positive gate, with `exists` beside every match, a
+  missing value and a null one give the same answer, so the setting changed
+  nothing (the 11-21 review checked every operator); the check uses json-rules' default.
+- **`RebacSchema.bridges` is `JoinedBridge[]`** (json-rules 4.3): a supplied bridge is never a
+  `{ rel }` hop.
+- Peer `@inixiative/json-rules` ^4.4.0.
+
+### `load` brings the lists a resource declares; `loadMany` is gone
 
 **Breaking.** `createHydrator({ map, load })`: `loadMany` is removed, and `load` takes a third
 argument, `down`: what the resource being loaded declares with `/// @permissions(down: [...])`,
@@ -33,7 +82,7 @@ field name, each item holding the row on every declared path. The hydrator knows
   declares a list; template, Kingdom and Tribe declare none and their two-parameter `load` is
   unaffected.
 
-## 0.26.0 — an app can hand the check more rules for a record
+### An app can hand the check more rules for a record
 
 - **`additionalRules`** on `createRebacCheck`, `createRebacPaths` and `createCanGrantEntitlement`: a
   function from a resource and a record to more rule sets (`action → ActionRule`). `check` ORs each

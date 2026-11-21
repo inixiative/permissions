@@ -9,9 +9,11 @@ import {
   relationHopsFrom,
   type SchemaMap,
 } from '../index';
+import { actorMap } from './schemaMaps';
 
 const map: SchemaMap = {
   resources: { org: 'Org', member: 'Member', user: 'User' },
+  supplied: { maps: { actor: actorMap } },
   fieldMap: {
     models: {
       Org: {
@@ -66,8 +68,9 @@ const reads = (lens: ReturnType<typeof lensesAtRow>['rule'], field: string) =>
 describe('lensesAtRow / lensesAtListItem', () => {
   test("a row's rule lens carries the actor, its lens does not", () => {
     const at = lensesAtRow(map, 'member');
-    expect(reads(at.rule, '__actor.id')).toBe(true);
-    expect(reads(at.lens, '__actor.id')).toBe(false);
+    expect(reads(at.rule, 'actor:User.id')).toBe(true);
+    expect(reads(at.rule, '__actor.id')).toBe(false);
+    expect(reads(at.lens, 'actor:User.id')).toBe(false);
     expect(reads(at.lens, 'user.email')).toBe(true);
   });
 

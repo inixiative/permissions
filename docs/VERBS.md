@@ -13,10 +13,10 @@ what.
 
 | Verb | Name | What it does |
 | --- | --- | --- |
-| check | `createRebacCheck` | Build the check for a schema map: may this actor's permissions take this action on this record. |
+| check | `createRebacCheck` | Build the check for a schema map: may these permissions take this action on this record. |
 | check | `createRebacPaths` | Build the same walk returning every path that admits the action, for attribution; throws `PathLimitError` past its limit. |
 | check a grant | `createCanGrantEntitlement` | Build the grant check: may this writer hand out this entitlement on this placed record. |
-| install | `createPermissions` | Create a permix: the installed form of one actor's grants and entitlements that a check reads. |
+| install | `createPermissions` | Create a permix: the installed form of one holder's grants and entitlements that a check reads. |
 | install | `installPermissions`, `permixOf` | Install a `Permissions` value (groups of entries, each backed by its owner) into a permix; build the permix of one group. |
 | delegate | `delegate` | The entries a token or integration acts from: its owner's in full, capped at a ceiling, or its own entitlements. |
 | cap | `capAtRole` | Keep a delegate's entries at the action its role maps to. |
@@ -29,7 +29,9 @@ what.
 | validate | `validateSchema`, `schemaRuleIssues` | Every issue in a schema against its map (shape, cycles, reads outside the lens, undefined actions); the shape issues alone, without the map. |
 | validate | `entitlementProblem`, `wellFormedEntitlements` | Why one entitlement entry is malformed, or null; the well-formed entries of a list. |
 | validate | `whyEntitlementWhereLeavesLens` | Why an entitlement's `where` reads something the lens does not load, or null, for an app that validates a row before saving it. |
-| lens | `lensesAtRow`, `lensesAtListItem` | The json-rules lenses a read is judged in at one row (`lens` for a `where` or a path, `rule` with the actor for a `{ rule }`); at an item of a declared list, or null for a list that is not declared. For an editor that authors rules in the lens they are judged in. |
+| fan out | `makeKindRules` | The standard polymorphic rules for one map, kinds read from the map (a resource's polymorphic axis, or a supplied model's enum field): `ruleForEachKind` (one branch per kind, each checking its own kind first), `ruleKindIsOneOf`, `ruleActionThroughEachKind` (the same action through each kind's own relation). Every kind check holds an `exists`. Throws for a kind the map does not have. |
+| match | `ruleFieldEqualsPath` | A field equals what a path reads, the field checked to exist first, since two missing values match. |
+| lens | `lensesAtRow`, `lensesAtListItem` | The json-rules lenses a read is judged in at one row (`lens` for a `where` or a path, `rule` with the supplied maps for a `{ rule }`); at an item of a declared list, or null for a list that is not declared. For an editor that authors rules in the lens they are judged in. |
 | offer | `relationHopsFrom`, `declaredListsOf` | The segments a `{ rel }` may take next from a row (to-one relations and bridges whose walk `validateSchema` accepts), each with the resource it lands on; the declared lists a list arm may cross. |
 | validate | `issuesForRuleReadsOutsideLens` | Every read of one well-formed action rule at a resource outside the lens, for a rule not in the schema (a transition's permission side, a draft). |
 | compare | `coversEntitlement`, `withoutRedundantEntitlements` | Whether one entitlement covers another; a list without the entries another one covers. |
@@ -64,7 +66,7 @@ words its refusals:
 | Name | What it does |
 | --- | --- |
 | `spellEveryFollowedRelationChain` | From a resource, spell under `root.relations` every chain of relations hydration follows, never entering the same model twice on one chain; throws past `relationLensLimits`. |
-| `lensAnchoredAtModel` | The json-rules lens for one model with a spelled relation tree; the rule form also carries the actor. |
+| `lensAnchoredAtModel` | The json-rules lens for one model with a spelled relation tree; the rule form also carries the supplied maps. |
 | `lensesAtRow` | The lenses a read is judged in at one row: the resource's, or under a list item what remains of the list's declared `down` paths. |
 | `lensesBuiltOnceAt` | The lens and the rule lens at one key (a resource, or a landing under an item), built once per map. |
 | `countRelationsOneRowHydrates` | The relations one row of a resource hydrates, one kind of each false-polymorphic model counted. |

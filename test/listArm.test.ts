@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import type { AnnoValue, FieldMap } from '@inixiative/field-map';
-import { type Bridge, engineGlobals } from '@inixiative/json-rules';
+import { engineGlobals, type JoinedBridge } from '@inixiative/json-rules';
 import {
   type ActionRule,
   capAtRole,
@@ -13,6 +13,7 @@ import {
   type EntitlementEntry,
   PathLimitError,
   type PermissionEntry,
+  type PermixLike,
   placeEntitlement,
   type RebacSchema,
   type ResourcePermission,
@@ -26,12 +27,20 @@ import { identityKeyOfRow } from '../src/core/schemaMap';
 import { hydrationLimits } from '../src/helpers/hydration/hydrate';
 import { createHydratorReadingEachRowThroughLoad } from './createHydratorReadingEachRowThroughLoad';
 import { annotate, loadModels } from './fixtures/load';
-import { stringColumn } from './schemaMaps';
+import { actorData, actorMap, stringColumn } from './schemaMaps';
 
 // Zealot's conversation slice (schemas/zealot.prisma), as field-map reads it. The list field reads
 //   /// @permissions(down: [forumUser.fanUser.user, forumUser.brandUser.user])
 //   participants ConversationParticipant[]
-const models = loadModels('zealot');
+const loaded = loadModels('zealot');
+// Positive rules name what is there (R-2026-11-19-16): "has not left" is a status, not `leftAt equals null`.
+const models: typeof loaded = {
+  ...loaded,
+  ConversationParticipant: {
+    ...loaded.ConversationParticipant,
+    fields: { ...loaded.ConversationParticipant.fields, status: stringColumn },
+  },
+};
 const resources = {
   'db:user': 'User',
   'db:brands': 'Brands',
@@ -42,11 +51,15 @@ const resources = {
   'db:conversationParticipant': 'ConversationParticipant',
   'db:chatMessage': 'ChatMessage',
 };
-const mapOver = (over: typeof models): SchemaMap => ({ resources, fieldMap: { models: over } });
+const mapOver = (over: typeof models): SchemaMap => ({
+  resources,
+  fieldMap: { models: over },
+  supplied: { maps: { actor: actorMap } },
+});
 const map = mapOver(models);
 
 const actorIsUser = {
-  rule: { field: '__actor.model', operator: 'equals', value: 'User' },
+  rule: { field: 'actor:User.uuid', operator: 'exists' },
 } as const satisfies ActionRule;
 
 // BEFORE (zealot origin/main, packages/permissions/src/rebac/conversation.ts): a json-rules array
@@ -57,8 +70,18 @@ const actorIsParticipant = {
     arrayOperator: 'any',
     condition: {
       any: [
-        { field: 'forumUser.fanUser.userUuid', operator: 'equals', path: '__actor.record.uuid' },
-        { field: 'forumUser.brandUser.userUuid', operator: 'equals', path: '__actor.record.uuid' },
+        {
+          all: [
+            { field: 'actor:User.uuid', operator: 'exists' },
+            { field: 'forumUser.fanUser.userUuid', operator: 'equals', path: 'actor:User.uuid' },
+          ],
+        },
+        {
+          all: [
+            { field: 'actor:User.uuid', operator: 'exists' },
+            { field: 'forumUser.brandUser.userUuid', operator: 'equals', path: 'actor:User.uuid' },
+          ],
+        },
       ],
     },
   },
@@ -71,7 +94,7 @@ const isParticipant = {
   arrayOperator: 'any',
   condition: {
     all: [
-      { rule: { field: 'leftAt', operator: 'equals', value: null } },
+      { rule: { field: 'status', operator: 'equals', value: 'active' } },
       {
         any: [
           { rel: 'forumUser.fanUser', action: 'isSelf' },
@@ -159,12 +182,12 @@ const store = (): Store => ({
     { uuid: 'c-ghost', brandUuid: 'b1', createdByUuid: 'fu-rex' },
   ],
   'db:conversationParticipant': [
-    { uuid: 'p-fay', conversationUuid: 'c1', forumUserUuid: 'fu-fay', leftAt: null },
-    { uuid: 'p-rex', conversationUuid: 'c1', forumUserUuid: 'fu-rex', leftAt: null },
-    { uuid: 'p-lee', conversationUuid: 'c1', forumUserUuid: 'fu-lee', leftAt: '2026-11-01' },
-    { uuid: 'p-d1', conversationUuid: 'c-dual', forumUserUuid: 'fu-dual-fan', leftAt: null },
-    { uuid: 'p-d2', conversationUuid: 'c-dual', forumUserUuid: 'fu-dual-rep', leftAt: null },
-    { uuid: 'p-ghost', conversationUuid: 'c-ghost', forumUserUuid: 'fu-ghost', leftAt: null },
+    { uuid: 'p-fay', conversationUuid: 'c1', forumUserUuid: 'fu-fay', status: 'active' },
+    { uuid: 'p-rex', conversationUuid: 'c1', forumUserUuid: 'fu-rex', status: 'active' },
+    { uuid: 'p-lee', conversationUuid: 'c1', forumUserUuid: 'fu-lee', status: 'left' },
+    { uuid: 'p-d1', conversationUuid: 'c-dual', forumUserUuid: 'fu-dual-fan', status: 'active' },
+    { uuid: 'p-d2', conversationUuid: 'c-dual', forumUserUuid: 'fu-dual-rep', status: 'active' },
+    { uuid: 'p-ghost', conversationUuid: 'c-ghost', forumUserUuid: 'fu-ghost', status: 'active' },
   ],
   'db:chatMessage': [{ uuid: 'm1', conversationUuid: 'c1' }],
 });
@@ -188,6 +211,18 @@ const hydratorOver = (data: Store, over: SchemaMap = map, loads: string[] = []) 
 const conversation = async (uuid: string, data: Store = store()) =>
   hydratorOver(data)('db:conversation', data['db:conversation']?.find(matches({ uuid })) as Row);
 
+// Who a `person` permix stands for: a check is told it through the subject's `data`.
+const actedBy = new WeakMap<object, string>();
+const acting = <Subject extends { data?: Record<string, Row[]> }, Rest extends unknown[], Out>(
+  ask: (permix: PermixLike, schema: RebacSchema, subject: Subject, ...rest: Rest) => Out,
+) => {
+  return (permix: PermixLike, schema: RebacSchema, subject: Subject, ...rest: Rest): Out => {
+    const uuid = actedBy.get(permix);
+    const data = uuid === undefined ? {} : actorData('User', { uuid });
+    return ask(permix, schema, { ...subject, data: { ...data, ...subject.data } }, ...rest);
+  };
+};
+
 type Role = 'manage' | 'advocate';
 const person = async (uuid: string, brand?: Role) => {
   const permix = createPermissions();
@@ -195,12 +230,12 @@ const person = async (uuid: string, brand?: Role) => {
     { resource: 'db:user', id: uuid, actions: { own: true } },
     ...(brand ? [{ resource: 'db:brands', id: 'b1', actions: { [brand]: true } }] : []),
   ]);
-  permix.setActor({ model: 'User', record: { uuid } });
+  actedBy.set(permix, uuid);
   return permix;
 };
 
-const check = createRebacCheck(map);
-const paths = createRebacPaths(map);
+const check = acting(createRebacCheck(map));
+const paths = acting(createRebacPaths(map));
 const canGrant = createCanGrantEntitlement(map);
 const on = (record: Row, resource = 'db:conversation') => ({ resource, record });
 
@@ -230,7 +265,7 @@ describe('Zealot’s conversation rule on the list arm', () => {
     expect(check(otto, schema, on(c1), 'chatRead')).toBe(false);
   });
 
-  test('a participant who left does not: the condition on the item reads `leftAt`', async () => {
+  test('a participant who left does not: the condition on the item reads `status`', async () => {
     const c1 = await conversation('c1');
     expect(check(await person('u-lee', 'advocate'), schema, on(c1), 'chat')).toBe(false);
   });
@@ -293,7 +328,7 @@ describe('the grantor side: an entitlement asks whether its grantor is a partici
     expect(check(hal, schema, on(await conversation('c1')), 'chat')).toBe(true);
     expect(paths(hal, schema, on(await conversation('c1')), 'chat')).toEqual([[['chat-c1']]]);
     const left = store();
-    (left['db:conversationParticipant']?.[0] as Row).leftAt = '2026-11-14';
+    (left['db:conversationParticipant']?.[0] as Row).status = 'left';
     expect(check(hal, schema, on(await conversation('c1', left)), 'chat')).toBe(false);
   });
 
@@ -340,7 +375,7 @@ describe('the grant check', () => {
   });
 
   test('a `where` cannot pin a list onto the stand-in', async () => {
-    const forged = [{ leftAt: null, forumUser: { fanUser: { user: { uuid: 'u-fay' } } } }];
+    const forged = [{ status: 'active', forumUser: { fanUser: { user: { uuid: 'u-fay' } } } }];
     const entry = {
       ...underBrand,
       where: { field: 'participants', operator: 'equals', value: forged },
@@ -359,7 +394,7 @@ describe('the grant check', () => {
     const [standIn] = placeEntitlement(map, underBrand, { uuid: 'b1' }) as Row[];
     expect(canGrant(hal, schema, underBrand, standIn as Row)).toBe(false);
     const left = store();
-    (left['db:conversationParticipant']?.[0] as Row).leftAt = '2026-11-14';
+    (left['db:conversationParticipant']?.[0] as Row).status = 'left';
     expect(canGrant(hal, schema, selfAnchored, await conversation('c1', left))).toBe(false);
   });
 
@@ -441,7 +476,7 @@ describe('capping, paths and cycles', () => {
     );
     const record = await conversation('c-dual');
     expect(paths(hal, schema, on(record), 'isParticipant')).toEqual([[['fan']], [['rep']]]);
-    const one = createRebacPaths(map, { limit: 1 });
+    const one = acting(createRebacPaths(map, { limit: 1 }));
     expect(() => one(hal, schema, on(record), 'isParticipant')).toThrow(PathLimitError);
   });
 
@@ -636,7 +671,7 @@ describe('createHydrator: one jump down', () => {
       uuid: 'p-fay',
       conversationUuid: 'c1',
       forumUserUuid: 'fu-fay',
-      leftAt: null,
+      status: 'active',
       forumUser: {
         uuid: 'fu-fay',
         fanUserUuid: 'f-fay',
@@ -649,7 +684,7 @@ describe('createHydrator: one jump down', () => {
 
   test('the list is set by the hydrator: a list the caller supplied is replaced', async () => {
     const loads: string[] = [];
-    const forged = [{ leftAt: null, forumUser: { fanUser: { user: { uuid: 'u-otto' } } } }];
+    const forged = [{ status: 'active', forumUser: { fanUser: { user: { uuid: 'u-otto' } } } }];
     const hydrate = hydratorOver(store(), map, loads);
     const created = await hydrate('db:conversation', { brandUuid: 'b1', participants: forged });
     expect(created.participants).toEqual([]);
@@ -681,7 +716,7 @@ describe('createHydrator: one jump down', () => {
 // The adversarial review's reproductions (A-1 to A-6), each asserting the fixed behaviour.
 describe('what a record may carry into a check', () => {
   const forged = [
-    { leftAt: null, forumUser: { fanUser: { uuid: 'f-otto', user: { uuid: 'u-otto' } } } },
+    { status: 'active', forumUser: { fanUser: { uuid: 'f-otto', user: { uuid: 'u-otto' } } } },
   ];
   const inConversation = async (record: Row) =>
     check(
@@ -732,40 +767,42 @@ describe('what a record may carry into a check', () => {
 
   test('a field an item does not carry is unknown: it never passes `equals null`', async () => {
     const lee = await person('u-lee');
-    // a left member whose row came back without `leftAt` (a select, a projection)
+    // a member whose row came back without `status` (a select, a projection)
     const member = { forumUser: { fanUser: { uuid: 'f-lee', user: { uuid: 'u-lee' } } } };
     expect(check(lee, schema, on({ uuid: 'c1', participants: [member] }), 'isParticipant')).toBe(
       false,
     );
-    const present = { uuid: 'c1', participants: [{ ...member, leftAt: null }] };
+    const present = { uuid: 'c1', participants: [{ ...member, status: 'active' }] };
     expect(check(lee, schema, on(present), 'isParticipant')).toBe(true);
   });
 
-  test('a read under an item of a path nothing loaded is refused inline and widens nothing in a row rule', async () => {
+  test('a read under an item of a path nothing loaded is refused inline and throws in a row rule', async () => {
     const otto = await person('u-otto');
     const c1 = await conversation('c1');
     const reads: ActionRule = {
       rel: 'participants',
       arrayOperator: 'any',
-      condition: { rule: { field: 'forumUser.brand.deletedAt', operator: 'equals', value: null } },
+      condition: { rule: { field: 'forumUser.brand.deletedAt', operator: 'exists' } },
     };
     expect(() => check(otto, schema, on(c1), reads)).toThrow(
       /loads no `forumUser.brand` under an item/,
     );
     const rowRule = { ...c1, permissionRules: { isParticipant: reads } };
-    expect(check(otto, schema, on(rowRule), 'isParticipant')).toBe(false);
-    // off an item the same read keeps the check's own `absent`
+    expect(() => check(otto, schema, on(rowRule), 'isParticipant')).toThrow(
+      /beside the schema's is refused.*loads no `forumUser.brand` under an item/,
+    );
+    // off an item the same read is unknown too: a check never reads a missing value as null
     const offItem: ActionRule = {
-      rule: { field: 'brand.deletedAt', operator: 'equals', value: null },
+      rule: { field: 'brand.deletedAt', operator: 'exists' },
     };
-    expect(check(otto, schema, on(c1), offItem)).toBe(true);
+    expect(check(otto, schema, on(c1), offItem)).toBe(false);
   });
 
   test('the same read written in the schema is refused on first use', async () => {
     const reads: ActionRule = {
       rel: 'participants',
       arrayOperator: 'any',
-      condition: { rule: { field: 'forumUser.brand.deletedAt', operator: 'equals', value: null } },
+      condition: { rule: { field: 'forumUser.brand.deletedAt', operator: 'exists' } },
     };
     const undeclared = schemaWith(reads);
     expect(validateSchema(map, undeclared).ok).toBe(false);
@@ -833,7 +870,7 @@ describe('one list per walk', () => {
 
   test('the engine does not cross a second list, though the data is there', async () => {
     const fay = await person('u-fay');
-    const ask = createRebacCheck(twoLists);
+    const ask = acting(createRebacCheck(twoLists));
     const nested: ActionRule = { rel: 'bs', arrayOperator: 'any', condition: inner };
     const delegated: ActionRule = { rel: 'bs', arrayOperator: 'any', condition: 'inner' };
     // the one list crossed from its own row passes: the data and the rule are sound
@@ -843,7 +880,9 @@ describe('one list per walk', () => {
         /second list under an item/,
       );
       const rowRule = { ...record, permissionRules: { in: second } };
-      expect(ask(fay, rules({ in: null }), { resource: 'a', record: rowRule }, 'in')).toBe(false);
+      expect(() => ask(fay, rules({ in: null }), { resource: 'a', record: rowRule }, 'in')).toThrow(
+        /beside the schema's is refused.*second list under an item/,
+      );
     }
     for (const second of [nested, delegated]) {
       const schemaWithSecond = rules({ in: second });
@@ -913,7 +952,7 @@ describe('one list per walk', () => {
     const withSender = mapOver(copy);
     const claimed = {
       participants: [
-        { leftAt: null, forumUser: { fanUser: { uuid: 'f-otto', user: { uuid: 'u-otto' } } } },
+        { status: 'active', forumUser: { fanUser: { uuid: 'f-otto', user: { uuid: 'u-otto' } } } },
       ],
     };
     const entry = (where: EntitlementEntry['where']): EntitlementEntry => ({
@@ -942,7 +981,7 @@ describe('one list per walk', () => {
     expect(pins('uuid', ['m1'])).not.toHaveProperty('uuid');
     expect(pins('uuid', { in: 'm1' })).not.toHaveProperty('uuid');
     expect(pins('uuid', 'm1')).toHaveProperty('uuid', 'm1');
-    expect(pins('conversationUuid', null)).toHaveProperty('conversationUuid', null);
+    expect(pins('conversationUuid', 'c1')).toHaveProperty('conversationUuid', 'c1');
   });
 });
 
@@ -957,7 +996,7 @@ describe('the declaration carries what the rule walks', () => {
     arrayOperator: 'any',
     condition: {
       all: [
-        { rule: { field: 'leftAt', operator: 'equals', value: null } },
+        { rule: { field: 'status', operator: 'equals', value: 'active' } },
         {
           any: [
             { rel: 'forumUser.fanUser', action },
@@ -988,7 +1027,7 @@ describe('the declaration carries what the rule walks', () => {
       '`db:conversation.participants` loads no `forumUser.fanUser.user` under an item: name it in `/// @permissions(down: [...])`',
       '`db:conversation.participants` loads no `forumUser.brandUser.user` under an item: name it in `/// @permissions(down: [...])`',
     ]);
-    const ask = createRebacCheck(twoSegments);
+    const ask = acting(createRebacCheck(twoSegments));
     const c1 = await c1Over(twoSegments);
     const fay = await fayWith('operate');
     expect(() => ask(fay, rules, on(c1), 'isParticipant')).toThrow(
@@ -1017,7 +1056,7 @@ describe('the declaration carries what the rule walks', () => {
     expect(loads.filter((line) => line.startsWith('load db:user'))).toEqual([
       'load db:user {"uuid":"u-rex"}',
     ]);
-    const ask = createRebacCheck(twoSegments);
+    const ask = acting(createRebacCheck(twoSegments));
     expect(ask(await fayWith('self'), tableOnly, on(c1), 'isParticipant')).toBe(true);
     expect(ask(await person('u-fay'), tableOnly, on(c1), 'isParticipant')).toBe(false);
     expect(ask(await person('u-otto'), tableOnly, on(c1), 'isParticipant')).toBe(false);
@@ -1049,8 +1088,8 @@ describe('validation edges under an item', () => {
     expect(errors[0]?.message).toMatch(/leads to `Note`, which is not a resource in the map/);
   });
 
-  test('a bridge under an item is refused by validateSchema and inline, and widens nothing in a row rule', async () => {
-    const bridges: Bridge[] = [
+  test('a bridge under an item is refused by validateSchema and inline, and throws in a row rule', async () => {
+    const bridges: JoinedBridge[] = [
       {
         endpoints: [
           { fieldMap: 'crm', model: 'Account', on: 'id' },
@@ -1085,7 +1124,9 @@ describe('validation edges under an item', () => {
       ...subject,
       record: { ...record, permissionRules: { isParticipant: viaBridge } },
     };
-    expect(check(otto, bridged({}), rowRule, 'isParticipant')).toBe(false);
+    expect(() => check(otto, bridged({}), rowRule, 'isParticipant')).toThrow(
+      /beside the schema's is refused.*stays on the declared relations/,
+    );
     // control: off an item the same hop reaches the far row
     const item = { resource: 'db:conversationParticipant', record: record.participants[0] as Row };
     const hop: ActionRule = { rel: 'crm:Account', action: 'open' };
@@ -1093,7 +1134,7 @@ describe('validation edges under an item', () => {
   });
 
   test("a bridge in an item's own row rule is not crossed under the list arm", async () => {
-    const bridges: Bridge[] = [
+    const bridges: JoinedBridge[] = [
       {
         endpoints: [
           { fieldMap: 'crm', model: 'Account', on: 'id' },
@@ -1177,7 +1218,7 @@ describe('what the hydrator does not follow, no check reads', () => {
     });
     expect(hydrated.pinnedIn).toEqual({ id: 'c1' });
     expect(hydrated.attachments).toEqual([{ id: 'a1' }]);
-    const ask = createRebacCheck(lib);
+    const ask = acting(createRebacCheck(lib));
     const rules: RebacSchema = {
       permissions: {
         'db:message': { actions: { read: null } },
@@ -1195,7 +1236,9 @@ describe('what the hydrator does not follow, no check reads', () => {
       ask(otto, rules, { resource: 'db:message', record: hydrated }, reads('pinnedIn.id')),
     ).toThrow(/keeps its foreign key on `Conversation`/);
     const rowRule = { ...hydrated, permissionRules: { read: reads('pinnedIn.id') } };
-    expect(ask(otto, rules, { resource: 'db:message', record: rowRule }, 'read')).toBe(false);
+    expect(() => ask(otto, rules, { resource: 'db:message', record: rowRule }, 'read')).toThrow(
+      /beside the schema's is refused.*keeps its foreign key on `Conversation`/,
+    );
   });
 });
 
@@ -1375,7 +1418,7 @@ describe('load brings the lists a resource declares', () => {
       {
         uuid: 'p-forged',
         conversationUuid: 'c1',
-        leftAt: null,
+        status: 'active',
         forumUser: {
           uuid: 'fu-x',
           fanUser: { uuid: 'f-otto', userUuid: 'u-otto', user: { uuid: 'u-otto' } },

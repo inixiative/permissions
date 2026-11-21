@@ -14,8 +14,20 @@ const hasOnly = (node: Record<string, unknown>, keys: string[]): boolean =>
 const arrayOperators: readonly unknown[] = Object.values(ArrayOperator);
 
 const listIssues = (node: Record<string, unknown>, path: string): ValidationIssue[] => {
-  if (typeof node.rel !== 'string' || node.rel === '' || node.rel.includes('.'))
-    return [{ path, code: 'actionRule', message: '`rel` names one list relation, no dots' }];
+  const fromSuppliedRow = typeof node.rel === 'string' && node.rel.split('.')[0]?.includes(':');
+  if (
+    typeof node.rel !== 'string' ||
+    node.rel === '' ||
+    (node.rel.includes('.') && !fromSuppliedRow)
+  )
+    return [
+      {
+        path,
+        code: 'actionRule',
+        message:
+          '`rel` names one list relation, or a list on a supplied row (`actor:User.devices`)',
+      },
+    ];
   if (node.arrayOperator !== ArrayOperator.any)
     return arrayOperators.includes(node.arrayOperator)
       ? [

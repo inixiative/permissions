@@ -1,4 +1,4 @@
-import type { Absent, Bridge, Condition, Row } from '@inixiative/json-rules';
+import type { Condition, JoinedBridge, Row } from '@inixiative/json-rules';
 
 export type { Row };
 
@@ -9,11 +9,8 @@ export type RelationCheck = { rel: string; action: string }; // walk a relation,
  * `any` is the only operator, since every other one holds on a list with no rows.
  */
 export type ListCheck = { rel: string; arrayOperator: 'any'; condition: ActionRule };
-/** ABAC (json-rules) over the record, with who is acting under the reserved key `__actor`. */
+/** ABAC (json-rules) over the record, and the supplied rows the check's `data` gives (`actor:User.id`). */
 export type RuleCheck = { rule: Condition };
-
-/** Who is acting: what kind of credential (`model`) and its row (`record`). A `{ rule }` reads it as `__actor`. */
-export type Actor = { model: string; record: Row };
 
 /** The serializable permission algebra: rebac (`rel`) + abac (`rule`) + rbac (`string` delegation). */
 export type ActionRule =
@@ -31,20 +28,20 @@ export type ResourcePermission = { actions: Record<string, ActionRule> };
 
 /**
  * The permission schema. `permissions` maps a (map-qualified) resource — e.g. `db:User` — to its
- * actions; `bridges` are the cross-source edges (json-rules `Bridge`s) a `rel` walk may traverse.
+ * actions; `bridges` are the cross-source edges (json-rules joined bridges) a `rel` walk may traverse.
  * Generic over the resource key: defaults to `string`, or pass a narrow union (e.g. a map-qualified
  * AccessorName) and the schema, `subject.resource`, and resolver all enforce it.
  */
 export type RebacSchema<R extends string = string> = {
-  bridges?: Bridge[];
+  bridges?: JoinedBridge[];
   permissions: Partial<Record<R, ResourcePermission>>;
 };
 
 /**
- * What the check evaluates against: the `record`, its (map-qualified) `resource`, and `data` —
- * supplemental hydrated rows per `map:model`, the same shape json-rules' `indexBridges`
- * takes. The check builds the bridge dictionary from `data` itself; `data` is only consulted when a
- * `rel` walk crosses a bridge and a downstream action reads the far record's fields.
+ * What the check evaluates against: the `record`, its (map-qualified) `resource`, and `data` — the
+ * rows of every bridge per `map:Model`, the shape json-rules' `indexBridges` takes: a joined bridge's
+ * far rows, which a `rel` walk across it finds by key, and each supplied model's one row (`actor:User`),
+ * which every `{ rule }` on the walk reads. The engine fills them; a record never brings its own.
  */
 export type Subject<R extends string = string> = {
   resource: R;
@@ -69,7 +66,6 @@ export type AdditionalRules = (
 ) => readonly (Record<string, ActionRule> | null | undefined)[];
 
 export type CheckOptions = {
-  absent?: Absent;
   additionalRules?: AdditionalRules;
 };
 
@@ -93,6 +89,5 @@ export type Entitlement = {
 export type PermixLike = {
   check: (resource: string, action: string, id?: string, data?: unknown) => boolean;
   isSuperadmin?: () => boolean;
-  getActor: () => Actor | null;
   entitlements?: (resource: string, action: string) => Entitlement[];
 };
