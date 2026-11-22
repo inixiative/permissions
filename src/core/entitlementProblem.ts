@@ -1,5 +1,6 @@
 import { validateRule } from '@inixiative/json-rules';
 import type { EntitlementEntry } from './permix';
+import { idField } from './recordId';
 import type { Anchor } from './types';
 
 const isAnchor = (value: unknown): value is Anchor =>
@@ -36,7 +37,7 @@ export const entitlementProblem = (entry: EntitlementEntry): string | null => {
   if (entry.where === null)
     return '`where: null` is not a rule: omit `where` for none, or write the rule';
   if (entry.where !== undefined) {
-    const result = validateRule(entry.where, { positive: true });
+    const result = validateRule(entry.where, { positive: true, rowKey: idField() });
     if (!result.ok)
       return `invalid entitlement \`where\`: ${result.errors.map((issue) => `${issue.path}: ${issue.message}`).join('; ')}`;
   }

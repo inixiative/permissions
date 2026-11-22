@@ -813,12 +813,12 @@ describe('refused: an entitlement met below the anchor, on a placed record', () 
     expect(await grants(writer, spacesOfO1, o1)).toBe(true);
   });
 
-  test('held at integration i7 itself; the entry pins id = i7 onto the placed record', async () => {
+  test('held at integration i7 itself; the entry names id = i7, and the placed record still carries no key', async () => {
     const manageI7 = below(
       entry('db:integration', { resource: 'db:integration', id: 'i7' }, ['manage']),
     );
     const pinned = integrationsOfS1(['manage'], eq('id', 'i7'));
-    expect(placeEntitlement(map, pinned, s1)?.[0]?.id).toBe('i7');
+    expect(placeEntitlement(map, pinned, s1)?.[0]).not.toHaveProperty('id');
     expect(await grants(holding([manageI7]), pinned, s1)).toBe(false);
   });
 
