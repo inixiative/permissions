@@ -251,8 +251,8 @@ crossed.
   finds nothing whatever the record holds, and a bridge hop under an item denies.
 - **A column an item does not carry fails.** A rule over a column the item came back without (a
   `select`, a projection) never passes: a rule names the value that is there
-  (`status equals 'active'`), with `exists` beside any comparison with a path, and a null check is
-  refused.
+  (`status equals 'active'`), with `exists` beside any comparison with a path, and a null check
+  needs the item's key to exist beside it (`all: [id exists, leftAt equals null]`).
 - **Why only `any`.** Every other array operator (`all`, `none`, `atMost`, `exactly`, `empty`,
   `notEmpty`, `atLeast`) holds on a list with no rows or counts rows, so it would pass on a record
   whose list was never loaded, or pass for nobody in particular. They are refused by name (code
@@ -427,6 +427,36 @@ check(permix, schema, {
 - **Stored rules too.** A row's `permissionRules` or an `additionalRules` entry that is not
   positive, loops or reads outside the lens throws, as the schema's would.
 
+## A null check: the row is there, and the column is empty
+
+A null check also holds where the value is missing: a record that came back without the column, a
+relation that is not loaded, a supplied row the call did not give. So `equals null` (and `in` with
+null) is accepted only beside an `exists` on the key of the row it reads, in the same `{ rule }`
+(Aron, 2026-11-22: "`row exists and key is null` is another valid check"); a bare one is refused.
+The key is the engine's id field (`permissions.idField`).
+
+```ts
+// a token with no role
+{ rule: { all: [{ field: 'id', operator: 'exists' }, { field: 'role', operator: 'equals', value: null }] } }
+// through a relation: the organization is loaded, and not deleted
+{ rule: { all: [{ field: 'org.id', operator: 'exists' }, { field: 'org.deletedAt', operator: 'equals', value: null }] } }
+// on a supplied row: a token is acting, and it has no parent
+{ rule: { all: [{ field: 'actor:Token.id', operator: 'exists' }, { field: 'actor:Token.parentId', operator: 'equals', value: null }] } }
+```
+
+The same gate judges the schema's rules, a row's `permissionRules`, `additionalRules` and an
+entitlement's `where`. Another column of the row does not stand in for its key: a grant's stand-in
+record carries foreign keys and never its own key (`placeEntitlement` leaves it off, whatever the
+`where` pins and even where a foreign key is the key), so a rule resting on an empty column cannot
+be granted over many records. Give the column an explicit value when that grant is needed.
+
+What the key proves is that the row is there, not that it came back whole. A check reads a
+hydrated record, which carries every column and every to-one relation its lens shows; a caller that
+hands in a row without a column, or names a to-one relation where its foreign key is meant
+(`organization equals null` on a record whose organization was not loaded), still reads that as
+null. Check the foreign key (`organizationId`), and never a key inside a JSON column, which has no
+row of its own.
+
 ## Polymorphic rules: the fan-out
 
 The standard shape of a polymorphic check (R-2026-11-19-15): fan out over the kinds, each branch
@@ -558,7 +588,7 @@ where `read` delegates up to `manage`. One applies when all three hold:
   the holder (its own id, its user) is written in as a literal when the grant is made. A `where`
   is positive (json-rules `validateRule(where, { positive: true })`): no negation, `isEmpty`,
   `notExists`, `if`/`then`/`else`, array or aggregate rule, so it never passes on what is not
-  loaded; "no value" is `equals null`. `where: false` is a `where` that fails, not its absence;
+  loaded; "no value" is `equals null` beside an `exists` on the row's key (below). `where: false` is a `where` that fails, not its absence;
   `where: null` is refused at setup.
 - **The grantor is still in control.** The owner's permissions, walked from this very record through
   the normal schema, allow the action being asked, not the one held: a `manage` entitlement
@@ -628,7 +658,8 @@ from a path, and anything nested narrow nothing: dropping a record loosens the g
 kind, which every real record of that kind shares, may drop it. The writer must pass on every
 record left. The root's exact `equals` leaves (`equals null` pins `null`) fill the rest: scalar
 values only, on fields that are not relations or lists, so a `where` never puts a row or a list
-on the placed record. A pin on a relation admitted no hydrated record at read, so nothing real
+on the placed record, and never the record's own key: a stand-in is not a row that is there, so a
+rule that asks its key to exist (a null check, above) fails on it. A pin on a relation admitted no hydrated record at read, so nothing real
 is lost there; a pin on a Json column or a scalar list was a live row (`equals` is deep) and is
 now refused at grant time, so state such a condition on a scalar field. A field two root leaves state with different values is left unknown, since no record holds
 both and the order of conjuncts must not decide a grant. The path
@@ -690,7 +721,9 @@ missing list or mark. Annotations on models that are not resources are not read.
    `where`; and the walk meets it on a real row above the granted record (below). (A delegate's permissions capped at a ceiling, from `delegate`, is
    permissions entries too.) A field `placed` does not carry fails every positive leaf, so a writer
    whose authority reads a field the `where` leaves open is refused. A rule that needs an actor (`actor:User.id exists`, an id compared to `actor:User.id`) never passes: who the writer is is not
-   authority that can be handed on. Rules are positive (`validateActionRule` refuses the rest),
+   authority that can be handed on. A null check never passes either: a stand-in carries the keys
+   on its path, never its own `id`, so a writer whose authority rests on an empty column grants it
+   on the one record it anchors at, not over many. Rules are positive (`validateActionRule` refuses the rest),
    which is what makes a pass on `placed` hold for every record the `where` admits.
 2. **One held entitlement.** Failing that, the entry is one entitlement the writer holds, passed on
    whole: the same `resource` and anchor (resource, id, path); each granted action one it holds or

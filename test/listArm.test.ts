@@ -980,7 +980,7 @@ describe('one list per walk', () => {
       )[0];
     expect(pins('uuid', ['m1'])).not.toHaveProperty('uuid');
     expect(pins('uuid', { in: 'm1' })).not.toHaveProperty('uuid');
-    expect(pins('uuid', 'm1')).toHaveProperty('uuid', 'm1');
+    expect(pins('uuid', 'm1')).not.toHaveProperty('uuid');
     expect(pins('conversationUuid', 'c1')).toHaveProperty('conversationUuid', 'c1');
   });
 });

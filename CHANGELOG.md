@@ -1,3 +1,23 @@
+## 0.27.0 — a null check beside its row's key
+
+Why: 0.26.0 refused every null check, so a schema could not say "a token with no role" or "a
+participant who has not left", and apps began testing that in code beside the schema. Aron,
+2026-11-22: "If you can't check your roles in the permissions system natively, we've done something
+terribly wrong", then "`row exists and key is null` is another valid check." A bare null check
+stays refused because it holds on a missing value: a grant's stand-in record, a relation that is not
+loaded, a supplied row the call did not give (each a test in `test/nullCheckBesideRowKey.test.ts`).
+
+- **`equals null` and `in` with null are accepted beside an `exists` on the key of the row they
+  read**, in the same `{ rule }`: `id` for a column of the record, `org.id` for `org.deletedAt`,
+  `actor:Token.id` for a supplied row, the item's key in a list arm's condition. The key is
+  `permissions.idField`. One gate (json-rules 4.6 `validateRule(rule, { positive, rowKey })`) for
+  the schema's rules, a row's `permissionRules`, `additionalRules` and an entitlement's `where`.
+- **It never grants over many records.** `placeEntitlement` leaves the record's own key off every
+  stand-in (a `where` that pinned `id`, or a foreign key that is the key, put one there), so the
+  grant check denies an action whose rule rests on an empty column unless the entry anchors at the
+  record itself.
+- Requires `@inixiative/json-rules` ^4.6.0.
+
 ## 0.26.0 — supplied maps (who is acting is data the call gives); `load` brings declared lists; `additionalRules`
 
 ### Supplied maps: the library supports maps, not actors

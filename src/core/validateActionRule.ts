@@ -6,6 +6,7 @@ import {
 } from '@inixiative/json-rules';
 import { isPlainObject } from 'lodash-es';
 import { allDelegates, delegationReach } from './reachableFrom';
+import { idField } from './recordId';
 import type { RebacSchema } from './types';
 
 const hasOnly = (node: Record<string, unknown>, keys: string[]): boolean =>
@@ -54,7 +55,7 @@ const issues = (rule: unknown, path: string): ValidationIssue[] => {
   if ('arrayOperator' in node && hasOnly(node, ['rel', 'arrayOperator', 'condition']))
     return listIssues(node, path);
   if ('rule' in node && hasOnly(node, ['rule']))
-    return validateRule(node.rule, { positive: true }).errors.map((issue) => ({
+    return validateRule(node.rule, { positive: true, rowKey: idField() }).errors.map((issue) => ({
       ...issue,
       path: `${path}.rule${issue.path.slice(1)}`,
     }));
