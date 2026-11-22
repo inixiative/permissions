@@ -15,6 +15,7 @@ import {
   type LensNarrowing,
   type ModelNarrowing,
 } from '@inixiative/json-rules';
+import { omit } from 'lodash-es';
 import { entitlementProblem } from './entitlementProblem';
 import { withExactStrings } from './exactStrings';
 import type { EntitlementEntry } from './permix';
@@ -585,7 +586,8 @@ export const placeUnder = <R extends string>(
  * The pseudo records a grant is checked on: `placeUnder` from the hydrated `anchor` along the entry's
  * path, less the kinds of its first step a root leaf of the `where` (the `where` itself, or a leaf
  * of its top `all`) on the kind field fails, each given the root's exact `equals` values (the path
- * wins over a pinned foreign key). A self anchor is the anchor row itself. Null when the entry
+ * wins over a pinned foreign key), and never its own key: a stand-in is not a row that is there, so
+ * a rule that asks its key to exist fails on it. A self anchor is the anchor row itself. Null when the entry
  * is malformed (the rules `setup` applies), the anchor is not the entry's, or the path reaches
  * nothing; the writer must pass on every record.
  */
@@ -604,7 +606,7 @@ export const placeEntitlement = <R extends string>(
     entry.anchor.resource as R,
     anchor,
     entry.where,
-  ).map((record) => ({ ...pins, ...record }));
+  ).map((record) => omit({ ...pins, ...record }, idField()));
   return placed.length ? placed : null;
 };
 
