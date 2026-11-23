@@ -9,7 +9,7 @@ import {
   type PermixLike,
   placeEntitlement,
   type Row,
-  type SchemaMapWithoutPermissions,
+  type SchemaMap,
   validateSchema,
   whyEntitlementWhereLeavesLens,
 } from '../index';
@@ -19,7 +19,8 @@ import {
   relationLensLimits,
   whyWhereLeavesLensAtRow,
 } from '../src/core/lens';
-import { identityKeyOfRow, listOf } from '../src/core/schemaMap';
+import { listOf } from '../src/core/relations';
+import { identityKeyOfRow } from '../src/core/rowKeys';
 import { hydrationLimits } from '../src/helpers/hydration/hydrate';
 import { createHydratorReadingEachRowThroughLoad } from './createHydratorReadingEachRowThroughLoad';
 import { loadModels } from './fixtures/load';
@@ -140,7 +141,8 @@ const fieldMap: FieldMap = {
     },
   },
 };
-const map: SchemaMapWithoutPermissions = {
+const map: SchemaMap = {
+  permissions: {},
   maps: { db: fieldMap },
   supplied: { actor: actorMap },
 };
@@ -670,7 +672,8 @@ describe('the root, item paths, unknown resources and wheres on an item', () => 
 
   test('under a list item a declared path is loaded as written, never linked to a row met higher', async () => {
     const col = column('String');
-    const people: SchemaMapWithoutPermissions = {
+    const people: SchemaMap = {
+      permissions: {},
       maps: {
         db: {
           models: {
@@ -870,7 +873,8 @@ describe('the starting record: a row is known by resource and id', () => {
 
   test('a self-referential key: the stored row once, holding itself', async () => {
     const col = column('String');
-    const nodes: SchemaMapWithoutPermissions = {
+    const nodes: SchemaMap = {
+      permissions: {},
       maps: {
         db: {
           models: {
@@ -907,6 +911,7 @@ describe('the starting record: a row is known by resource and id', () => {
   test('a row with a composite key is known by it: the stored copy of a self-parent root is the root', async () => {
     const col = column('String');
     const nodes = {
+      permissions: {},
       maps: {
         db: {
           models: {
@@ -930,7 +935,7 @@ describe('the starting record: a row is known by resource and id', () => {
           },
         },
       },
-    } satisfies SchemaMapWithoutPermissions;
+    } satisfies SchemaMap;
     const stored = { org: 'o', key: 'k', name: 'Una', parentOrg: 'o', parentKey: 'k' };
     const load = createHydrator({ map: nodes, load: async () => stored });
     const forged = await load('db:Node', { ...stored, name: 'EVIL' });
@@ -999,7 +1004,8 @@ describe('the limits throw; nothing is cut', () => {
   test('the lens refuses a map whose rows would hydrate past the budget, naming the resource and where', () => {
     const col = column('String');
     const names = Array.from({ length: 9 }, (_, i) => `M${i}`);
-    const dense: SchemaMapWithoutPermissions = {
+    const dense: SchemaMap = {
+      permissions: {},
       maps: {
         db: {
           models: Object.fromEntries(
@@ -1029,7 +1035,8 @@ describe('the limits throw; nothing is cut', () => {
   test('a chain longer than the depth cap throws, naming where', () => {
     const col = column('String');
     const length = relationLensLimits.depth + 2;
-    const chain: SchemaMapWithoutPermissions = {
+    const chain: SchemaMap = {
+      permissions: {},
       maps: {
         db: {
           models: Object.fromEntries(
@@ -1054,7 +1061,8 @@ describe('the limits throw; nothing is cut', () => {
 
   test('a hydration past its load budget throws', async () => {
     const col = column('String');
-    const nodes: SchemaMapWithoutPermissions = {
+    const nodes: SchemaMap = {
+      permissions: {},
       maps: {
         db: {
           models: {
@@ -1167,7 +1175,8 @@ describe('the actor and the size of a lens', () => {
       ]);
     const names = (prefix: string, count: number) =>
       Array.from({ length: count }, (_, i) => `${prefix}${i}`);
-    const wide: SchemaMapWithoutPermissions = {
+    const wide: SchemaMap = {
+      permissions: {},
       maps: {
         db: {
           models: {
@@ -1189,7 +1198,8 @@ describe('the actor and the size of a lens', () => {
     const col = column('String');
     const leaves = Array.from({ length: 300 }, (_, i) => `L${i}`);
     const kinds = ['K0', 'K1', 'K2', 'K3'];
-    const poly: SchemaMapWithoutPermissions = {
+    const poly: SchemaMap = {
+      permissions: {},
       maps: {
         db: {
           models: {
@@ -1302,7 +1312,8 @@ describe('under a list item only the declared paths exist', () => {
 
 describe('one down boundary: an item holds only its declared tree', () => {
   const col = column('String');
-  const items: SchemaMapWithoutPermissions = {
+  const items: SchemaMap = {
+    permissions: {},
     maps: {
       db: {
         models: {
@@ -1440,7 +1451,8 @@ describe('one down boundary: an item holds only its declared tree', () => {
 describe('a row’s key', () => {
   test('the engine id field wins over the model’s isId column, as the app loads by it', () => {
     const col = column('String');
-    const keyed: SchemaMapWithoutPermissions = {
+    const keyed: SchemaMap = {
+      permissions: {},
       maps: {
         db: {
           models: {
@@ -1463,6 +1475,7 @@ describe('a row’s key', () => {
   test('composite values never collide across a NUL', () => {
     const col = column('String');
     const pair = {
+      permissions: {},
       maps: {
         db: {
           models: {
@@ -1470,7 +1483,7 @@ describe('a row’s key', () => {
           },
         },
       },
-    } satisfies SchemaMapWithoutPermissions;
+    } satisfies SchemaMap;
     expect(identityKeyOfRow(pair, 'db:Pair', { a: 'x\u0000', b: 'y' })).not.toBe(
       identityKeyOfRow(pair, 'db:Pair', { a: 'x', b: '\u0000y' }),
     );
@@ -1478,7 +1491,8 @@ describe('a row’s key', () => {
 });
 
 describe('the apps’ own maps', () => {
-  const zealot: SchemaMapWithoutPermissions = {
+  const zealot: SchemaMap = {
+    permissions: {},
     maps: { db: { models: loadModels('zealot') } },
     supplied: { actor: actorMap },
   };
@@ -1547,7 +1561,8 @@ describe('the apps’ own maps', () => {
   });
 
   test('Kingdom: a surface rule reads through its synthetic integrationResource relation', () => {
-    const kingdom: SchemaMapWithoutPermissions = {
+    const kingdom: SchemaMap = {
+      permissions: {},
       maps: { db: { models: loadModels('kingdom') } },
     };
     const schema: Rules = {

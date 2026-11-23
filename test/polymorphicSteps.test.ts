@@ -6,7 +6,7 @@ import {
   type EntitlementEntry,
   type PermissionEntry,
   placeEntitlement,
-  type SchemaMapWithoutPermissions,
+  type SchemaMap,
 } from '../index';
 import {
   canGrantWithRules,
@@ -49,7 +49,8 @@ const fieldMap: FieldMap = {
     },
   },
 };
-const map: SchemaMapWithoutPermissions = {
+const map: SchemaMap = {
+  permissions: {},
   maps: { db: fieldMap },
   polymorphism: {
     db: {

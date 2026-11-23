@@ -8,8 +8,8 @@ import {
 } from './evaluate';
 import { asOwner, permixId } from './identity';
 import { whyEntitlementWhereLeavesLens } from './lens';
+import { anchorRowReachedFrom } from './placement';
 import { reachableFrom } from './reachableFrom';
-import { anchorRowReachedFrom } from './schemaMap';
 import type { PermixLike, Row } from './types';
 
 const holds = (where: Condition, record: Row): boolean => checkRule(where, record) === true;

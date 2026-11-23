@@ -8,7 +8,7 @@ import {
   type EntitlementEntry,
   placeEntitlement,
   type Row,
-  type SchemaMapWithoutPermissions,
+  type SchemaMap,
   validateSchema,
 } from '../index';
 import { createHydratorReadingEachRowThroughLoad } from './createHydratorReadingEachRowThroughLoad';
@@ -18,7 +18,8 @@ import { canGrantWithRules, checkWithRules, mapWith, type Rules, stringColumn } 
 // Kingdom's surface → integrationResource → integration slice (schemas/kingdom.prisma), read by
 // field-map. `IntegrationResource.kind` and `.enabled` read `/// @permissions(place: true)`.
 const models = loadModels('kingdom');
-const mapOver = (over: typeof models): SchemaMapWithoutPermissions => ({
+const mapOver = (over: typeof models): SchemaMap => ({
+  permissions: {},
   maps: { db: { models: over } },
 });
 const marked = mapOver(models);
@@ -112,14 +113,9 @@ const everyChannel: EntitlementEntry = {
   },
   actions: { '*': true },
 };
-const placedOn = (map: SchemaMapWithoutPermissions, entry: EntitlementEntry, anchor: Row = i1) =>
+const placedOn = (map: SchemaMap, entry: EntitlementEntry, anchor: Row = i1) =>
   placeEntitlement(map, entry, anchor) as Row[];
-const granted = async (
-  map: SchemaMapWithoutPermissions,
-  rules: Rules,
-  entry: EntitlementEntry,
-  anchor = i1,
-) => {
+const granted = async (map: SchemaMap, rules: Rules, entry: EntitlementEntry, anchor = i1) => {
   const writer = await orgOwner();
   const canGrant = canGrantWithRules(map);
   return placedOn(map, entry, anchor).every((record) => canGrant(writer, rules, entry, record));
@@ -184,7 +180,7 @@ describe('Kingdom’s wide row: every channel of integration i1', () => {
 
 describe('what fills a stand-in, and what never does', () => {
   const withWhere = (where: Condition): EntitlementEntry => ({ ...everyChannel, where });
-  const standIn = (map: SchemaMapWithoutPermissions, where: Condition, anchor: Row = i1) =>
+  const standIn = (map: SchemaMap, where: Condition, anchor: Row = i1) =>
     (placedOn(map, withWhere(where), anchor)[0] as Row).integrationResource as Row;
 
   test('only a root conjunct: a leaf inside `any` is not true of every admitted record', () => {
@@ -314,7 +310,8 @@ describe('a polymorphic stand-in: the mark joins it, the path still sets its kin
   const scalar = stringColumn;
   const toOne = (type: string, fromFields: string[], toFields: string[]) =>
     ({ kind: 'object', type, isList: false, fromFields, toFields }) as const;
-  const map: SchemaMapWithoutPermissions = {
+  const map: SchemaMap = {
+    permissions: {},
     maps: {
       db: {
         models: {

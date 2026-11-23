@@ -7,7 +7,7 @@ import {
   type PermissionEntry,
   type Permix,
   type Row,
-  type SchemaMapWithoutPermissions,
+  type SchemaMap,
 } from '../../index';
 import {
   actorData,
@@ -64,7 +64,7 @@ export type WalkCase = {
 const resourceNameIn = (walkCase: WalkCase) => (index: number) =>
   walkCase.names?.[index] ?? `db:r${index}`;
 
-const mapOfCase = (walkCase: WalkCase): SchemaMapWithoutPermissions => {
+const mapOfCase = (walkCase: WalkCase): SchemaMap => {
   const resourceName = resourceNameIn(walkCase);
   const names = walkCase.resources.map((_, i) => resourceName(i));
   const byResource = <V>(of: (resource: WalkCase['resources'][number]) => [string, V][]) =>

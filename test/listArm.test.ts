@@ -16,11 +16,11 @@ import {
   type ResourcePermission,
   type Row,
   reachableFrom,
-  type SchemaMapWithoutPermissions,
+  type SchemaMap,
   validateActionRule,
   validateSchema,
 } from '../index';
-import { identityKeyOfRow } from '../src/core/schemaMap';
+import { identityKeyOfRow } from '../src/core/rowKeys';
 import { hydrationLimits } from '../src/helpers/hydration/hydrate';
 import { createHydratorReadingEachRowThroughLoad } from './createHydratorReadingEachRowThroughLoad';
 import { annotate, loadModels } from './fixtures/load';
@@ -47,7 +47,8 @@ const models: typeof loaded = {
     fields: { ...loaded.ConversationParticipant.fields, status: stringColumn },
   },
 };
-const mapOver = (over: typeof models): SchemaMapWithoutPermissions => ({
+const mapOver = (over: typeof models): SchemaMap => ({
+  permissions: {},
   maps: { db: { models: over } },
   supplied: { actor: actorMap },
 });
@@ -190,7 +191,7 @@ const store = (): Store => ({
 const matches = (where: Row) => (row: Row) =>
   Object.entries(where).every(([key, value]) => row[key] === value);
 
-const hydratorOver = (data: Store, over: SchemaMapWithoutPermissions = map, loads: string[] = []) =>
+const hydratorOver = (data: Store, over: SchemaMap = map, loads: string[] = []) =>
   createHydratorReadingEachRowThroughLoad({
     map: over,
     load: async (resource, where) => {
@@ -441,12 +442,12 @@ describe('entitlements met on an item', () => {
 
 describe('capping, paths and cycles', () => {
   test('the list arm is not pure delegation: nothing is reached or kept through it', () => {
-    expect([...reachableFrom(schema, 'db:Conversation', 'chat')]).toEqual(['chat']);
-    expect([...reachableFrom(schema, 'db:Conversation', 'isParticipant')]).toEqual([
+    expect([...reachableFrom(mapWith(map, schema), 'db:Conversation', 'chat')]).toEqual(['chat']);
+    expect([...reachableFrom(mapWith(map, schema), 'db:Conversation', 'isParticipant')]).toEqual([
       'isParticipant',
     ]);
     const entry: PermissionEntry = { resource: 'db:Conversation', actions: { manage: true } };
-    expect(capAtRole(schema, entry, 'isParticipant')).toBeNull();
+    expect(capAtRole(mapWith(map, schema), entry, 'isParticipant')).toBeNull();
   });
 
   test('two items admitting the same way are one path', async () => {
@@ -534,7 +535,7 @@ describe('validateActionRule: the arm’s shape', () => {
 });
 
 describe('validateSchema: what a list arm may cross and read', () => {
-  const codes = (over: SchemaMapWithoutPermissions, rules: Rules) =>
+  const codes = (over: SchemaMap, rules: Rules) =>
     validateSchema(mapWith(over, rules)).errors.map((issue) => `${issue.path} ${issue.code}`);
   const withConversation = (actions: Record<string, ActionRule>): Rules => ({
     permissions: {
@@ -697,7 +698,7 @@ describe('createHydrator: one jump down', () => {
 
   test('a list on a model reached under an item is not followed', async () => {
     const copy = annotate(models, 'Conversation', 'participants', { down: ['forumUser'] });
-    const withBack: SchemaMapWithoutPermissions = mapOver(copy);
+    const withBack: SchemaMap = mapOver(copy);
     const data = store();
     const loads: string[] = [];
     await hydratorOver(
@@ -828,7 +829,8 @@ describe('one list per walk', () => {
     fromFields: [key],
     toFields: ['uuid'],
   });
-  const twoLists: SchemaMapWithoutPermissions = {
+  const twoLists: SchemaMap = {
+    permissions: {},
     maps: {
       db: {
         models: {
@@ -1015,7 +1017,7 @@ describe('the declaration carries what the rule walks', () => {
     await fay.setup([{ resource: 'db:FanUsers', id: 'f-fay', actions: { [action]: true } }]);
     return fay;
   };
-  const c1Over = (over: SchemaMapWithoutPermissions, loads: string[] = []) => {
+  const c1Over = (over: SchemaMap, loads: string[] = []) => {
     const data = store();
     return hydratorOver(data, over, loads)('db:Conversation', data['db:Conversation']?.[0] as Row);
   };
@@ -1215,7 +1217,8 @@ describe('what the hydrator does not follow, no check reads', () => {
         Conversation: { fields: { id: { kind: 'scalar', type: 'String', isId: true } } },
       },
     };
-    const lib: SchemaMapWithoutPermissions = {
+    const lib: SchemaMap = {
+      permissions: {},
       maps: { db: fieldMap },
     };
     const hydrate = createHydrator({ map: lib, load: async () => null });
@@ -1535,7 +1538,7 @@ describe('a resource that declares two lists on different columns', () => {
         },
       },
     },
-  } as unknown as SchemaMapWithoutPermissions;
+  } as unknown as SchemaMap;
   const stored: Row = {
     id: 'p1',
     code: null,
@@ -1568,7 +1571,7 @@ describe('a resource that declares two lists on different columns', () => {
     delete withoutTargetColumns.maps.db.models.Kid?.fields.parent?.toFields;
     const asked: Row[] = [];
     const hydrate = createHydrator({
-      map: withoutTargetColumns as unknown as SchemaMapWithoutPermissions,
+      map: withoutTargetColumns as unknown as SchemaMap,
       load: async (_resource, where) => {
         asked.push(where);
         return { ...stored, id: 'someone-else' };
@@ -1634,7 +1637,7 @@ describe('the record’s own row and a to-one that reaches it are one read', () 
         },
       },
     },
-  } as unknown as SchemaMapWithoutPermissions;
+  } as unknown as SchemaMap;
 
   test('the row is read once, by its id as the record holds it, when its own to-one leads back to it', async () => {
     const asked: Row[] = [];
@@ -1687,7 +1690,7 @@ describe('a row’s identity: read with the value as held, keyed as text', () =>
         },
       },
     },
-  } as unknown as SchemaMapWithoutPermissions;
+  } as unknown as SchemaMap;
   const readsOf = async (record: Row): Promise<Row[]> => {
     const asked: Row[] = [];
     await createHydrator({

@@ -45,7 +45,7 @@ const reached = new WeakMap<object, Map<string, ReadonlySet<string>>>();
 
 // why: the rules are frozen on first use, so what an action is implied by never changes
 export const reachableFrom = (
-  { permissions }: Pick<SchemaMap, 'permissions'>,
+  { permissions }: SchemaMap,
   resource: string,
   action: string,
 ): ReadonlySet<string> => {

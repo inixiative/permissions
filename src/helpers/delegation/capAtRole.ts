@@ -9,7 +9,7 @@ import type { SchemaMap } from '../../core/schemaMap';
  * as plain `true`. Null when nothing is kept. A conditional action is not held.
  */
 export const capAtRole = <Action extends string = string>(
-  map: Pick<SchemaMap, 'permissions'>,
+  map: SchemaMap,
   entry: PermissionEntry<NoInfer<Action>>,
   ceiling: string,
 ): PermissionEntry<Action> | null => {

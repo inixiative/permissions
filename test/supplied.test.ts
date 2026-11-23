@@ -5,7 +5,7 @@ import {
   type PermixLike,
   type Row,
   ruleFieldEqualsPath,
-  type SchemaMapWithoutPermissions,
+  type SchemaMap,
   validateSchema,
 } from '../index';
 import {
@@ -18,7 +18,8 @@ import {
 } from './schemaMaps';
 
 // Two supplied maps: who is acting, and the request's device posture from a security tool.
-const map: SchemaMapWithoutPermissions = {
+const map: SchemaMap = {
+  permissions: {},
   maps: {
     db: {
       models: {
@@ -140,7 +141,7 @@ describe('supplied maps: rows the call gives, read by every rule as <prefix>:<Mo
 
 // The actor's own relations, and bridges on from it: a security tool's devices joined by the
 // actor's id (a list), its posture of the request (one row), and each device's findings (a list).
-const chained: SchemaMapWithoutPermissions = {
+const chained: SchemaMap = {
   ...map,
   supplied: {
     actor: {

@@ -13,7 +13,7 @@ import {
   permixOf,
   placeEntitlement,
   type Row,
-  type SchemaMapWithoutPermissions,
+  type SchemaMap,
   wellFormedEntitlements,
   withoutRedundantEntitlements,
 } from '../index';
@@ -67,7 +67,8 @@ describe('the member case: operate on M, anchored at M, no where, backed by the 
     all: [ownedBy(model), { rel, action }],
   });
   const standard = { own: null, manage: 'own', operate: 'manage', read: 'operate' };
-  const schema: Rules = {
+  const schema: SchemaMap = {
+    maps: {},
     permissions: {
       'db:user': { actions: standard },
       'db:organization': { actions: standard },
@@ -322,7 +323,8 @@ describe('the member case: operate on M, anchored at M, no where, backed by the 
 
 // ───────────────────────── organization → space → integration ─────────────────────────
 
-const schema: Rules = {
+const schema: SchemaMap = {
+  maps: {},
   permissions: {
     'db:organization': {
       actions: {
@@ -859,7 +861,7 @@ describe('what counts as above: rows the anchor holds under a to-one relation th
     const db = owning.maps.db as FieldMap;
     const profile = fieldOf(db, 'space', 'profile');
     if (profile?.kind !== 'object') throw new Error('db:space.profile is a relation');
-    const inverse: SchemaMapWithoutPermissions = {
+    const inverse: SchemaMap = {
       ...owning,
       maps: {
         db: {
@@ -883,7 +885,7 @@ describe('what counts as above: rows the anchor holds under a to-one relation th
       { entries: [manageP1], owner: [{ entries: [grant('db:profile', 'p1', ['manage'])] }] },
     ]);
     const byRole = await permixOf([{ entries: [grant('db:profile', 'p1', ['manage'])] }]);
-    const on = (lib: SchemaMapWithoutPermissions, permix: Permix) => {
+    const on = (lib: SchemaMap, permix: Permix) => {
       const check = canGrantWithRules(lib);
       const placed = placeEntitlement(lib, row, space);
       return placed?.every((record) => check(permix, profiled, row, record)) === true;
@@ -938,7 +940,8 @@ describe('what counts as above: rows the anchor holds under a to-one relation th
       fromFields: [from],
       toFields: ['id'],
     });
-    const lib: SchemaMapWithoutPermissions = {
+    const lib: SchemaMap = {
+      permissions: {},
       maps: {
         db: {
           models: {

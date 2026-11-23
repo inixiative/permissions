@@ -42,10 +42,12 @@ what.
 | Verb | Owner | Rule (`test/verbs.test.ts`) |
 | --- | --- | --- |
 | read a model or a field of the schema map | `@inixiative/field-map` (`modelOf`, `fieldOf`; kind tests `hasColumn`, `isScalarField`) | No `.models[...]` or `.fields[...]` index read in `src`: every read is own-property, through field-map's readers. |
-| name a model across maps | json-rules `endpointKey` / `parseEndpointKey` / `relationTargetOf` (`map:Model`); `src/core/schemaMap.ts` (`mapAndModelNamed`, `isSuppliedMap`, `fieldMapOfResource`, `modelOfResource`, `fieldOfResource`, `modelsNamedIn`, `whyNameIsNoModel`) | No `${map}:${model}` built by hand in `src`; whether a name holds a map, and whether a map is supplied, are each decided in `schemaMap.ts` alone; no renaming table between a resource and its model. |
-| say which bridges a rule reads and which a `rel` crosses | `src/core/supplied.ts` (`bridgesBetweenSuppliedMaps`, `bridgesWalkedFromRecords`, `bridgeProblems`) | `.bridges` read nowhere else in `src`, but for the walker freezing it with the rules. |
-| decide which relations hydration follows | `src/core/schemaMap.ts` (`followedToOneRelationOrWhyNot`, `followedToOneRelationsOf`, `listOf`) | No `.fromFields` read elsewhere: an owning key is classified once. |
-| read a `@permissions(...)` annotation | `src/core/schemaMap.ts` (`permissionsAnnotation`) | No `annotations.permissions` read elsewhere. |
+| name a model across maps | json-rules `endpointKey` / `parseEndpointKey` / `relationTargetOf` (`map:Model`); `src/core/resourceNames.ts` (`mapAndModelNamed`, `isSuppliedMap`, `fieldMapOfResource`, `modelOfResource`, `fieldOfResource`, `modelsNamedIn`, `whyNameIsNoModel`, `axisOf`) | No `${map}:${model}` built by hand in `src`; no renaming table between a resource and its model. |
+| say which bridges a rule reads and which a `rel` crosses | `src/core/supplied.ts` (`bridgesBetweenSuppliedMaps`, `bridgesWalkedFromRecords`); what is wrong with them, `src/core/validateSchemaMap.ts` (`problemsOfBridges`) | `.bridges` read nowhere else in `src`, but for the walker freezing it with the rules. |
+| say what is wrong with the map's own shape | `src/core/validateSchemaMap.ts` (`problemsOfMapNames`, `problemsOfBridges`, `problemsOfSchemaMap`), in the words of `src/core/errors.ts` | The index and the check throw the first problem; `validateSchema` reports them all. |
+| find a rule that delegates back to its own action | `src/core/issuesOfDelegationBackToOwnAction.ts` | — (used by `validateActionRule` and `validateSchema`, over `delegationReach`) |
+| decide which relations hydration follows | `src/core/relations.ts` (`followedToOneRelationOrWhyNot`, `followedToOneRelationsOf`, `listOf`) | No `.fromFields` read elsewhere: an owning key is classified once. |
+| read a `@permissions(...)` annotation | `src/core/relations.ts` (`permissionsAnnotation`) | No `annotations.permissions` read elsewhere. |
 | build a json-rules lens and judge a path against it | `src/core/lens.ts` | `validateRuleInLens` and `walkLensPath` are called nowhere else. |
 | spell a relation tree | `src/core/lens.ts` (`spellEveryFollowedRelationChain`) | json-rules' model defaults enter each model once; every route is spelled under `root` here, as json-rules' docs say to. |
 | freeze, then judge once | `src/core/freezeThenJudgeOnce.ts` | `Object.freeze` nowhere else: a schema, an inline rule and a `where` are frozen by the one function that memoises their judgement. |
@@ -54,9 +56,9 @@ what.
 | hop to a related row | `src/core/evaluate.ts` (`{ rel }` and the list arm), `src/core/bridgeHop.ts` (a bridge) | — |
 | remember a node's answer for one check | `src/core/evaluate.ts` (`walkAction`; `isNodeOnPath` is the counted test for a node on the path, `entitled`'s owner test included; a remembered answer's footprint is read against `visited` uncounted; the per-check state is `WhatOneCheckRemembers`) | — (a node reached after a hop: kept when no test in its walk found a node on the path, reused while no answer in its footprint is on the path; nothing outlives the check) |
 | consult an entitlement | `src/core/entitled.ts` (`entitled`) | — |
-| walk an anchor path on a record | `src/core/schemaMap.ts` (`rowsAlongAnchorPath`; `anchorRowReachedFrom`, whether it reaches the anchor) | — (used by `entitled`, `rowsAbove` and placement) |
+| walk an anchor path on a record | `src/core/placement.ts` (`rowsAlongAnchorPath`; `anchorRowReachedFrom`, whether it reaches the anchor) | — (used by `entitled`, `rowsAbove` and placement) |
 | walk the delegation graph | `src/core/reachableFrom.ts` (`delegationReach`) | — (used by `reachableFrom` and `validateActionRule`'s cycle test) |
-| identify a row | `src/core/schemaMap.ts` (`identityColumnsOfRow`, `identityKeyOfRow`, `keyFromResourceAndColumns`), `src/core/recordId.ts` (`recordId`, `hasNoValue`: null, undefined or `''` is no value); on a walk, `src/core/evaluate.ts` (`identifyRowOncePerCheck`, once per row and resource in one check) | — (the hydrator and loop detection share one key) |
+| identify a row | `src/core/rowKeys.ts` (`identityColumnsOfRow`, `identityKeyOfRow`, `keyFromResourceAndColumns`), `src/core/recordId.ts` (`recordId`, `hasNoValue`: null, undefined or `''` is no value); on a walk, `src/core/evaluate.ts` (`identifyRowOncePerCheck`, once per row and resource in one check) | — (the hydrator and loop detection share one key) |
 | load a row | `src/helpers/hydration/hydrate.ts` | — (the app's `load` is called nowhere else; it is given `down` and brings the resource's declared lists with the row) |
 
 ## The lens, in this library's words

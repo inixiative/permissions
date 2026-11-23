@@ -6,11 +6,13 @@ import {
   type Permissions,
   permixOf,
   type Row,
+  type SchemaMap,
 } from '../index';
 import { checkWithRules, mapOf, type Rules } from './schemaMaps';
 
 // own ⊇ manage ⊇ operate ⊇ read on each tenant; a user has no operate.
-const schema: Rules = {
+const schema: SchemaMap = {
+  maps: {},
   permissions: {
     'db:organization': {
       actions: { own: null, manage: 'own', operate: 'manage', read: 'operate' },

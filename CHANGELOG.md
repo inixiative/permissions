@@ -45,6 +45,14 @@ repeated and template wrapped.
   supplied row into the records (before, only the stitch refused it).
 - A supplied map goes by any name (the reserved `app` is gone); a map name in both `maps` and
   `supplied` throws.
+- **Every function takes the whole map.** No function takes a part of it (`Pick<…, 'permissions'>`,
+  a field map beside the map it came from). The one exception is `makeKindRules`, which builds rules
+  and so takes the map before it has them (`SchemaMapWithoutPermissions`).
+- What is wrong with the map's own shape is in one place, `validateSchemaMap.ts`
+  (`problemsOfMapNames`, `problemsOfBridges`), in the words of `errors.ts`: the index and the check
+  throw the first problem, `validateSchema` reports them.
+- `schemaMap.ts` holds the types only. Its jobs moved to `resourceNames.ts`, `relations.ts`,
+  `rowKeys.ts` and `placement.ts`; cycle detection is `issuesOfDelegationBackToOwnAction.ts`.
 - The first check freezes `permissions` and `bridges`, not the field maps, which are the app's.
 - A stored rule's refusal now reads "stored outside the map is refused".
 

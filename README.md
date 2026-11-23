@@ -1026,7 +1026,7 @@ per-action include shapes. Then a missing relation can only mean the key is null
 loading artifact.
 
 `createHydrator` is that pattern over the **same schema map** the checks walk, so the two can't drift.
-Give it the map (it reads the data shape alone, so a `SchemaMapWithoutPermissions` serves) and
+Give it the map and
 `load`, one read of a resource's record by its target columns (`{ id }`, or every
 column of a composite key). `load` is the cache seam: the hydrator de-duplicates loads within one
 hydration, your wrapper caches across calls.

@@ -8,7 +8,7 @@ import {
   placeEntitlement,
   placeUnder,
   type Row,
-  type SchemaMapWithoutPermissions,
+  type SchemaMap,
 } from '../index';
 import {
   canGrantWithRules,
@@ -76,7 +76,8 @@ const fieldMap: FieldMap = {
   },
 };
 
-const map: SchemaMapWithoutPermissions = {
+const map: SchemaMap = {
+  permissions: {},
   maps: { db: fieldMap },
   polymorphism: {
     db: {
@@ -311,7 +312,8 @@ describe('an owner is placed under every record above it, not only its parent', 
 
 describe('a kind whose owner cannot be placed is still judged', () => {
   test('its record stays, the owner unknown, rather than the kind skipped', () => {
-    const orphanMap: SchemaMapWithoutPermissions = {
+    const orphanMap: SchemaMap = {
+      permissions: {},
       maps: {
         db: {
           models: {
@@ -466,7 +468,7 @@ describe('a root leaf is judged only on the kind (R88 adversarial, R90)', () => 
     expect(placed?.map((record) => record.ownerModel)).toEqual(['Organization', 'Space']);
   });
 
-  const billing: SchemaMapWithoutPermissions = {
+  const billing: SchemaMap = {
     ...map,
     maps: {
       db: {
@@ -528,7 +530,8 @@ describe('a root leaf is judged only on the kind (R88 adversarial, R90)', () => 
 });
 
 describe("on a multi-hop path only the kind narrows: the first step's parent is placed, not fixed (R88 adversarial)", () => {
-  const things: SchemaMapWithoutPermissions = {
+  const things: SchemaMap = {
+    permissions: {},
     maps: {
       db: {
         models: {

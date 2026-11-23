@@ -9,7 +9,7 @@ import {
   type PermissionEntry,
   placeEntitlement,
   type Row,
-  type SchemaMapWithoutPermissions,
+  type SchemaMap,
   validateSchema,
 } from '../index';
 import {
@@ -156,7 +156,7 @@ describe('a null check beside its row key', () => {
       toFields: ['id'],
     } as const;
     const db = plain.maps.db as FieldMap;
-    const profiles: SchemaMapWithoutPermissions = {
+    const profiles: SchemaMap = {
       ...plain,
       maps: {
         db: {

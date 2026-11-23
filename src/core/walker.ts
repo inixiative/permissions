@@ -4,12 +4,15 @@ import { evaluate, startOneCheck } from './evaluate';
 import { withExactStrings } from './exactStrings';
 import { answerOnce, freezeThenJudgeOnce } from './freezeThenJudgeOnce';
 import { idField } from './recordId';
+import { indexMap } from './relations';
+import { whyNameIsNoModel } from './resourceNames';
 import { issuesForRuleReadsOutsideLens } from './ruleReads';
-import { indexMap, type SchemaMap, whyNameIsNoModel } from './schemaMap';
-import { bridgeProblems, bridgesWalkedFromRecords, joinedBridgesOfSupplied } from './supplied';
+import type { SchemaMap } from './schemaMap';
+import { bridgesWalkedFromRecords, joinedBridgesOfSupplied } from './supplied';
 import type { ActionRule, AdditionalRules, PermixLike, Row, Subject } from './types';
 import { validateActionRule } from './validateActionRule';
 import { schemaIssuesRefusedOnFirstUse, schemaRuleIssues } from './validateSchema';
+import { problemsOfBridges } from './validateSchemaMap';
 
 const refuse = (what: string) => {
   throw new Error(
@@ -25,7 +28,7 @@ const outsideLens = ({ path, message }: { path: string; message: string }) => {
 const assertMap = (map: SchemaMap) =>
   freezeThenJudgeOnce(map.permissions, map, () => {
     if (map.bridges) freezeThenJudgeOnce(map.bridges, map, () => true);
-    const [bridge] = bridgeProblems(map);
+    const [bridge] = problemsOfBridges(map);
     if (bridge) throw new Error(`${bridge} (run validateSchema)`);
     const [negated] = schemaRuleIssues(map);
     if (negated) refuse(`\`${negated.path}\``);

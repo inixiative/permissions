@@ -5,12 +5,13 @@ import {
   lensesAtListItem,
   lensesAtRow,
   relationHopsFrom,
-  type SchemaMapWithoutPermissions,
+  type SchemaMap,
   validateActionRule,
 } from '../index';
 import { actorMap, mapWith, type Rules } from './schemaMaps';
 
-const map: SchemaMapWithoutPermissions = {
+const map: SchemaMap = {
+  permissions: {},
   supplied: { actor: actorMap },
   maps: {
     db: {
@@ -118,7 +119,8 @@ describe('relationHopsFrom / declaredListsOf', () => {
 });
 
 describe('relationHopsFrom over bridges and a self relation', () => {
-  const dbMap: SchemaMapWithoutPermissions = {
+  const dbMap: SchemaMap = {
+    permissions: {},
     maps: {
       db: {
         models: {

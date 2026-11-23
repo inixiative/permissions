@@ -1,6 +1,7 @@
 import { createHydrator, type HydrateDeps } from '../index';
 import { idField } from '../src/core/recordId';
-import { keysFrom, listsOf, relationOf, type SpelledRelationTree } from '../src/core/schemaMap';
+import { listsOf, relationOf, type SpelledRelationTree } from '../src/core/relations';
+import { keysFrom } from '../src/core/rowKeys';
 import type { Row } from '../src/core/types';
 
 /** A hydrator whose `load` brings a declared list by one read of the items, then one read per row under each. */

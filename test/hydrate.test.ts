@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { createHydrator, type Row, type SchemaMapWithoutPermissions } from '../index';
+import { createHydrator, type Row, type SchemaMap } from '../index';
 import { mapOf } from './schemaMaps';
 
 type Store = Record<string, Row[]>;
@@ -55,7 +55,8 @@ describe('createHydrator: the to-one, foreign-key-owning closure from the schema
 });
 
 describe('composite and non-id foreign keys', () => {
-  const map: SchemaMapWithoutPermissions = {
+  const map: SchemaMap = {
+    permissions: {},
     maps: {
       db: {
         models: {
@@ -94,7 +95,8 @@ describe('composite and non-id foreign keys', () => {
 });
 
 describe('what the walk does not follow', () => {
-  const map: SchemaMapWithoutPermissions = {
+  const map: SchemaMap = {
+    permissions: {},
     maps: {
       db: {
         models: {
@@ -135,7 +137,8 @@ describe('what the walk does not follow', () => {
 });
 
 describe('polymorphic records: every relation whose columns are set, whatever the kind', () => {
-  const map: SchemaMapWithoutPermissions = {
+  const map: SchemaMap = {
+    permissions: {},
     maps: {
       db: {
         models: {
