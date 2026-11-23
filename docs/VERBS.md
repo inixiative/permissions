@@ -56,6 +56,7 @@ what.
 | hop to a related row | `src/core/evaluate.ts` (`{ rel }` and the list arm), `src/core/bridgeHop.ts` (a bridge) | — |
 | remember a node's answer for one check | `src/core/evaluate.ts` (`walkAction`; `isNodeOnPath` is the counted test for a node on the path, `entitled`'s owner test included; a remembered answer's footprint is read against `visited` uncounted; the per-check state is `WhatOneCheckRemembers`) | — (a node reached after a hop: kept when no test in its walk found a node on the path, reused while no answer in its footprint is on the path; nothing outlives the check) |
 | consult an entitlement | `src/core/entitled.ts` (`entitled`) | — |
+| list the actions an entry holds | `src/core/actionsEntryHolds.ts` | — (used by the grant check and `coversEntitlement`) |
 | walk an anchor path on a record | `src/core/anchorPath.ts` (`rowsAlongAnchorPath`; `anchorRowReachedFrom`, whether it reaches the anchor; `rowsAbove`, the rows above a granted record) | — (used by `entitled`, the grant check and `pseudoRecords.ts`) |
 | walk the delegation graph | `src/core/reachableFrom.ts` (`delegationReach`) | — (used by `reachableFrom` and `validateActionRule`'s cycle test) |
 | identify a row | `src/core/rowKeys.ts` (`identityColumnsOfRow`, `identityKeyOfRow`, `keyFromResourceAndColumns`), `src/core/recordId.ts` (`recordId`, `hasNoValue`: null, undefined or `''` is no value); on a walk, `src/core/evaluate.ts` (`identifyRowOncePerCheck`, once per row and resource in one check) | — (the hydrator and loop detection share one key) |

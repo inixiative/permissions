@@ -63,26 +63,31 @@ const issuesOfEveryActionRule = (map: SchemaMap, judgedInItsMap: boolean): Valid
 export const schemaRuleIssues = (map: SchemaMap): ValidationIssue[] =>
   issuesOfEveryActionRule(map, false);
 
+const lensIssue = (path: string, message: string): ValidationIssue => ({
+  path,
+  code: 'lens',
+  message,
+});
+
+const issuesOfBridges = (map: SchemaMap): ValidationIssue[] =>
+  problemsOfBridges(map).map((message) => lensIssue('bridges', message));
+
 // why: a name that is no model has no lens, so nothing its rules read could be refused
-const issuesOfNamesAndBridges = (map: SchemaMap): ValidationIssue[] => {
+const issuesOfResourceNames = (map: SchemaMap): ValidationIssue[] => {
   const far = new Set(
     bridgesWalkedFromRecords(map).flatMap(({ endpoints }) => endpoints.map(endpointKey)),
   );
-  const lens = (path: string, message: string) => ({ path, code: 'lens', message });
-  return [
-    ...problemsOfBridges(map).map((message) => lens('bridges', message)),
-    ...Object.keys(map.permissions).flatMap((resource) => {
-      const why = whyNameIsNoModel(map, resource);
-      if (why) return [lens(resource, why)];
-      if (modelOfResource(map, resource) || far.has(resource)) return [];
-      return [lens(resource, resourceHasNoFieldMap(resource))];
-    }),
-  ];
+  return Object.keys(map.permissions).flatMap((resource) => {
+    const why = whyNameIsNoModel(map, resource);
+    if (why) return [lensIssue(resource, why)];
+    if (modelOfResource(map, resource) || far.has(resource)) return [];
+    return [lensIssue(resource, resourceHasNoFieldMap(resource))];
+  });
 };
 
 // Every read, action and operator issue of a map's well-formed rules, by `resource.action`.
 const readIssues = (map: SchemaMap): ValidationIssue[] => [
-  ...issuesOfNamesAndBridges(map),
+  ...issuesOfResourceNames(map),
   ...Object.entries(map.permissions).flatMap(([resource, permission]) =>
     Object.entries(permission?.actions ?? {}).flatMap(([action, rule]) =>
       validateActionRule(rule).ok
@@ -92,7 +97,7 @@ const readIssues = (map: SchemaMap): ValidationIssue[] => [
   ),
 ];
 
-/** Every issue of a map's rules, names and bridges that a check refuses on first use, by `resource.action`. */
+/** Every issue of a map's rules and resource names that a check refuses on first use, by `resource.action`; the check throws a bridge problem itself. */
 export const schemaIssuesRefusedOnFirstUse = (map: SchemaMap): ValidationIssue[] =>
   readIssues(map).filter(isRefusedByACheck);
 
@@ -124,12 +129,13 @@ export const validateSchema = (
   if (nameProblems.length)
     return {
       ok: false,
-      errors: [
-        ...nameProblems.map((message) => ({ path: '$', code: 'lens', message })),
-        ...problemsOfBridges(map).map((message) => ({ path: 'bridges', code: 'lens', message })),
-      ],
+      errors: [...nameProblems.map((message) => lensIssue('$', message)), ...issuesOfBridges(map)],
       warnings: [],
     };
-  const errors = [...issuesOfEveryActionRule(map, true), ...readIssues(map)];
+  const errors = [
+    ...issuesOfEveryActionRule(map, true),
+    ...issuesOfBridges(map),
+    ...readIssues(map),
+  ];
   return { ok: errors.length === 0, errors, warnings: lensWarnings(map) };
 };

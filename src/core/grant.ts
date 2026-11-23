@@ -1,4 +1,5 @@
 import { isEqual } from 'lodash-es';
+import { actionsEntryHolds } from './actionsEntryHolds';
 import { booleanAlgebra } from './algebra';
 import { rowsAbove } from './anchorPath';
 import { entitlementProblem } from './entitlementProblem';
@@ -49,9 +50,7 @@ export const createCanGrantEntitlement = <R extends string = string>(
     )
       return false;
     const resource = entry.resource as R;
-    const actions = Object.entries(entry.actions)
-      .filter(([, held]) => held === true)
-      .map(([action]) => action);
+    const actions = actionsEntryHolds(entry);
     const table = asOwner(permix);
     const above = rowsAbove(map, entry, pseudoRecord);
     const subject = { resource, record: pseudoRecord };
