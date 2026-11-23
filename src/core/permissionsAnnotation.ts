@@ -1,6 +1,6 @@
 import { type FieldEntry, hasColumn, isScalarField } from '@inixiative/field-map';
 import { idField } from './recordId';
-import { axesOfResource, modelOfResource } from './resourceNames';
+import { axesOfResource, fieldOfResource, modelOfResource } from './resourceNames';
 import type { SchemaMap } from './schemaMap';
 
 /** A field's `/// @permissions(...)` annotation, as field-map carries it. */
@@ -22,7 +22,7 @@ export const whyFieldIsNoPseudoField = (
   value: unknown,
 ): string | null => {
   const fields = modelOfResource(map, resource)?.fields ?? {};
-  const field = fields[name];
+  const field = fieldOfResource(map, resource, name);
   if (value !== true) return 'is true or absent';
   if (!field || !hasColumn(field)) return 'sits on a scalar or enum field';
   if (field.isList) return 'never sits on a list';

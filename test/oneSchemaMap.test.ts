@@ -147,6 +147,7 @@ describe('one schema map: maps, supplied, bridges, polymorphism, permissions', (
       '`db` is in both `maps` and `supplied`',
       'a bridge between `db',
     ]);
+    expect(validateSchema(map).errors.map((issue) => issue.path)).toEqual(['$', '$', 'bridges']);
   });
 
   test('polymorphism names a map in `maps` and a model of it', () => {

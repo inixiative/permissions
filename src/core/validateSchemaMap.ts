@@ -35,9 +35,3 @@ export const problemsOfBridges = (map: SchemaMap): string[] =>
     if (supplied === 1) return [bridgeHasOneEndSupplied(bridge)];
     return supplied === 0 && !isJoinedBridge(bridge) ? [bridgeFromRecordHasNoJoin(bridge)] : [];
   });
-
-/** What is wrong with the map's names and bridges, before any model or rule is read. */
-export const problemsOfSchemaMap = (map: SchemaMap): string[] => [
-  ...problemsOfMapNames(map),
-  ...problemsOfBridges(map),
-];

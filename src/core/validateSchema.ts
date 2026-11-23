@@ -13,7 +13,7 @@ import { isRefusedByACheck, relIssues, walkRelationPath } from './ruleReads';
 import type { SchemaMap } from './schemaMap';
 import { bridgesWalkedFromRecords } from './supplied';
 import { issuesOfShapeAndCycle, validateActionRule } from './validateActionRule';
-import { problemsOfBridges, problemsOfMapNames, problemsOfSchemaMap } from './validateSchemaMap';
+import { problemsOfBridges, problemsOfMapNames } from './validateSchemaMap';
 
 /** A segment a `{ rel }` may take next, and the resource it lands on. */
 export type RelationHop = { segment: string; resource: string; bridge: boolean };
@@ -120,10 +120,14 @@ const lensWarnings = (map: SchemaMap): ValidationIssue[] =>
 export const validateSchema = (
   map: SchemaMap,
 ): ValidationResult & { warnings: ValidationIssue[] } => {
-  if (problemsOfMapNames(map).length)
+  const nameProblems = problemsOfMapNames(map);
+  if (nameProblems.length)
     return {
       ok: false,
-      errors: problemsOfSchemaMap(map).map((message) => ({ path: '$', code: 'lens', message })),
+      errors: [
+        ...nameProblems.map((message) => ({ path: '$', code: 'lens', message })),
+        ...problemsOfBridges(map).map((message) => ({ path: 'bridges', code: 'lens', message })),
+      ],
       warnings: [],
     };
   const errors = [...issuesOfEveryActionRule(map, true), ...readIssues(map)];
