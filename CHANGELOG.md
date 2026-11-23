@@ -30,7 +30,7 @@ repeated and template wrapped.
 - `polymorphism` naming a map not in `maps`, or a model its map does not have, throws when the map
   is first used (an entry keyed the old way, by model alone, is caught by this).
 - **Every entry point takes the one map**: `createRebacCheck(map)(permix, subject, action)`,
-  `createRebacPaths`, `createCanGrantEntitlement(map)(permix, entry, placed)`, `validateSchema(map)`,
+  `createRebacPaths`, `createCanGrantEntitlement(map)(permix, entry, pseudoRecord)`, `validateSchema(map)`,
   `schemaRuleIssues(map)`, `relationHopsFrom(map, at, walked?)`, `reachableFrom`, `capAtRole` and
   `delegate` (each `map` first).
 - **`validateActionRule(rule, { map, resource, action?, rowRules?, additionalRules? })` answers what
@@ -45,6 +45,21 @@ repeated and template wrapped.
   supplied row into the records (before, only the stitch refused it).
 - A supplied map goes by any name (the reserved `app` is gone); a map name in both `maps` and
   `supplied` throws.
+- **Every function takes the whole map.** No function takes a part of it (`Pick<…, 'permissions'>`,
+  a field map beside the map it came from). The one exception is `makeKindRules`, which builds rules
+  and so takes the map before it has them (`SchemaMapWithoutPermissions`).
+- What is wrong with the map's names and bridges is in `validateSchemaMap.ts` (`problemsOfMapNames`,
+  `problemsOfBridges`), in the words of `errors.ts`. The index throws the first name problem and the
+  check the first bridge problem; `validateSchema` reports them all, where it used to throw on a
+  name problem (or pass, when no rule made it index the map).
+- `schemaMap.ts` holds the types only. Its jobs moved to `resourceNames.ts`, `relations.ts`,
+  `permissionsAnnotation.ts`, `rowKeys.ts`, `pseudoRecords.ts`, `anchorPath.ts` and `whereConjuncts.ts`; cycle detection
+  is `issuesOfDelegationBackToOwnAction.ts`.
+- `placeEntitlement` and `placeUnder` are `pseudoRecordsOfEntitlement` and `pseudoRecordsBelowAnchor`,
+  named for what they return (the README's pseudo record), in `pseudoRecords.ts`; walking a real
+  record to its anchor is `anchorPath.ts`. Behaviour unchanged.
+- The annotation `/// @permissions(place: true)` is `/// @permissions(pseudoField: true)`: a field a
+  grant's `where` may set on a stand-in below the anchor. An app's Prisma schema changes its key.
 - The first check freezes `permissions` and `bridges`, not the field maps, which are the app's.
 - A stored rule's refusal now reads "stored outside the map is refused".
 

@@ -1,4 +1,5 @@
 import { type Condition, check as checkRule } from '@inixiative/json-rules';
+import { anchorRowReachedFrom } from './anchorPath';
 import {
   evaluate,
   identifyRowOncePerCheck,
@@ -9,7 +10,6 @@ import {
 import { asOwner, permixId } from './identity';
 import { whyEntitlementWhereLeavesLens } from './lens';
 import { reachableFrom } from './reachableFrom';
-import { anchorRowReachedFrom } from './schemaMap';
 import type { PermixLike, Row } from './types';
 
 const holds = (where: Condition, record: Row): boolean => checkRule(where, record) === true;

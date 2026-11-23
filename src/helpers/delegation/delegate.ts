@@ -15,7 +15,7 @@ export type Delegation<Action extends string = string> = {
 };
 
 const capped = <Action extends string>(
-  map: Pick<SchemaMap, 'permissions'>,
+  map: SchemaMap,
   owner: Permissions<Action>,
   ceiling: string,
 ): Permissions<Action> =>
@@ -32,7 +32,7 @@ const capped = <Action extends string>(
  * nothing.
  */
 export const delegate = <Action extends string = string>(
-  map: Pick<SchemaMap, 'permissions'>,
+  map: SchemaMap,
   owner: Permissions<Action>,
   delegation: Delegation<NoInfer<Action>>,
 ): Permissions<Action> => {

@@ -5,8 +5,8 @@ import {
   createPermissions,
   type EntitlementEntry,
   type PermissionEntry,
-  placeEntitlement,
-  type SchemaMapWithoutPermissions,
+  pseudoRecordsOfEntitlement,
+  type SchemaMap,
 } from '../index';
 import {
   canGrantWithRules,
@@ -49,7 +49,8 @@ const fieldMap: FieldMap = {
     },
   },
 };
-const map: SchemaMapWithoutPermissions = {
+const map: SchemaMap = {
+  permissions: {},
   maps: { db: fieldMap },
   polymorphism: {
     db: {
@@ -163,10 +164,10 @@ describe('polymorphic steps', () => {
       where: { field: 'ownerModel', operator: 'in', value: ['Integration', 'Organization'] },
       actions: { manage: true },
     } as EntitlementEntry;
-    const placed = placeEntitlement(map, entry, o1);
-    expect(placed?.map((r) => (r.integration as { ownerModel: string }).ownerModel).sort()).toEqual(
-      ['Organization', 'Space'],
-    );
-    expect(placed?.every((r) => canGrant(writer, schema, entry, r))).toBe(false);
+    const pseudoRecord = pseudoRecordsOfEntitlement(map, entry, o1);
+    expect(
+      pseudoRecord?.map((r) => (r.integration as { ownerModel: string }).ownerModel).sort(),
+    ).toEqual(['Organization', 'Space']);
+    expect(pseudoRecord?.every((r) => canGrant(writer, schema, entry, r))).toBe(false);
   });
 });

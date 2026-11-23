@@ -6,7 +6,7 @@ import {
   type PermixLike,
   type Row,
   ruleFieldEqualsPath,
-  type SchemaMapWithoutPermissions,
+  type SchemaMap,
   validateSchema,
 } from '../index';
 import {
@@ -22,7 +22,8 @@ const toOne = (type: string, key: string) =>
   ({ kind: 'object', type, isList: false, fromFields: [key], toFields: ['id'] }) as const;
 
 // A token owned by an organization, a space (with its organization), a user, or no one (`default`).
-const map: SchemaMapWithoutPermissions = {
+const map: SchemaMap = {
+  permissions: {},
   maps: {
     db: {
       models: {

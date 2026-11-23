@@ -7,7 +7,7 @@ import {
   type PermissionEntry,
   type Permix,
   type Row,
-  type SchemaMapWithoutPermissions,
+  type SchemaMap,
 } from '../../index';
 import {
   actorData,
@@ -57,14 +57,14 @@ export type WalkCase = {
   objects: CaseObject[];
   tables: CaseTable[];
   query: { object: number; action: ActionRule };
-  grant: { ent: Omit<CaseEntitlement, 'owner' | 'ref'>; placed: number };
+  grant: { ent: Omit<CaseEntitlement, 'owner' | 'ref'>; pseudoRecord: number };
 };
 
 /** A resource's name: the case's `names`, else `db:r<index>`. */
 const resourceNameIn = (walkCase: WalkCase) => (index: number) =>
   walkCase.names?.[index] ?? `db:r${index}`;
 
-const mapOfCase = (walkCase: WalkCase): SchemaMapWithoutPermissions => {
+const mapOfCase = (walkCase: WalkCase): SchemaMap => {
   const resourceName = resourceNameIn(walkCase);
   const names = walkCase.resources.map((_, i) => resourceName(i));
   const byResource = <V>(of: (resource: WalkCase['resources'][number]) => [string, V][]) =>
@@ -192,7 +192,7 @@ export const outcomesOfWalkCase = async (walkCase: WalkCase) => {
     data: actorData(walkCase.tables[0]?.actor ?? null, { id: 'actor0' }),
   };
   const action = structuredClone(walkCase.query.action);
-  const placed = rows[walkCase.grant.placed] ?? record;
+  const pseudoRecord = rows[walkCase.grant.pseudoRecord] ?? record;
   return {
     check: outcome(() => checkWithRules(map)(holder, schema, subject, action)),
     paths: outcome(() => pathsWithRules(map, { limit: 2 })(holder, schema, subject, action)),
@@ -201,7 +201,7 @@ export const outcomesOfWalkCase = async (walkCase: WalkCase) => {
         holder,
         schema,
         entryOfCase(walkCase, { ...walkCase.grant.ent, ref: '' }),
-        placed,
+        pseudoRecord,
       ),
     ),
   };

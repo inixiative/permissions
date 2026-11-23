@@ -13,7 +13,7 @@ const isAnchor = (value: unknown): value is Anchor =>
   ((value as Anchor).path === undefined ||
     (typeof (value as Anchor).path === 'string' && (value as Anchor).path !== ''));
 
-/** What is wrong with an entitlement entry, or null: the rules `setup` and `placeEntitlement` share. */
+/** What is wrong with an entitlement entry, or null: the rules `setup` and `pseudoRecordsOfEntitlement` share. */
 export const entitlementProblem = (entry: EntitlementEntry): string | null => {
   if (!isAnchor(entry.anchor)) return '`anchor` is { resource, id, path? }, non-empty strings';
   if ((entry.anchor.path === undefined) !== (entry.anchor.resource === entry.resource))

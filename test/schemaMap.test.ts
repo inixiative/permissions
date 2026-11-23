@@ -5,10 +5,10 @@ import {
   createPermissions,
   type EntitlementEntry,
   type PermissionEntry,
-  placeEntitlement,
-  placeUnder,
+  pseudoRecordsBelowAnchor,
+  pseudoRecordsOfEntitlement,
   type Row,
-  type SchemaMapWithoutPermissions,
+  type SchemaMap,
 } from '../index';
 import {
   canGrantWithRules,
@@ -64,7 +64,8 @@ const fieldMap: FieldMap = {
   },
 };
 
-const map: SchemaMapWithoutPermissions = {
+const map: SchemaMap = {
+  permissions: {},
   maps: { db: fieldMap },
   polymorphism: {
     db: {
@@ -192,8 +193,8 @@ const may = async (
   entry: EntitlementEntry,
   anchor: Row,
 ) => {
-  const placed = placeEntitlement(map, entry, anchor);
-  return placed?.every((record) => canGrant(writer, schema, entry, record));
+  const pseudoRecord = pseudoRecordsOfEntitlement(map, entry, anchor);
+  return pseudoRecord?.every((record) => canGrant(writer, schema, entry, record));
 };
 
 describe('the path names a kind at each polymorphic step: read time', () => {
@@ -242,10 +243,10 @@ describe('the path names a kind at each polymorphic step: read time', () => {
   });
 });
 
-describe('placeEntitlement: the pseudo record, built from the anchor along the path', () => {
+describe('pseudoRecordsOfEntitlement: the pseudo record, built from the anchor along the path', () => {
   test('one step: the foreign key, one record per kind it admits, each owner under the anchor', () => {
     expect(
-      placeEntitlement(
+      pseudoRecordsOfEntitlement(
         map,
         entitlement('db:Integration', at('db:Organization', 'o1', 'organization'), 'manage'),
         o1,
@@ -263,7 +264,7 @@ describe('placeEntitlement: the pseudo record, built from the anchor along the p
 
   test('two steps: a pseudo space under the anchor, its id unknown', () => {
     expect(
-      placeEntitlement(
+      pseudoRecordsOfEntitlement(
         map,
         entitlement('db:Integration', at('db:Organization', 'o1', 'space.organization'), 'manage'),
         o1,
@@ -288,27 +289,27 @@ describe('placeEntitlement: the pseudo record, built from the anchor along the p
         ],
       },
     } as EntitlementEntry;
-    expect(placeEntitlement(map, entry, o1)).toEqual([
+    expect(pseudoRecordsOfEntitlement(map, entry, o1)).toEqual([
       { provider: 'slack', ownerModel: 'Organization', organizationId: 'o1', organization: o1 },
     ]);
   });
 
   test('a self anchor is the anchor itself', () => {
     expect(
-      placeEntitlement(map, entitlement('db:Space', at('db:Space', 's1'), 'read'), s1),
+      pseudoRecordsOfEntitlement(map, entitlement('db:Space', at('db:Space', 's1'), 'read'), s1),
     ).toEqual([s1]);
   });
 
   test('a path that does not end at the anchor model is null', () => {
     expect(
-      placeEntitlement(
+      pseudoRecordsOfEntitlement(
         map,
         entitlement('db:Integration', at('db:Space', 's1', 'organization'), 'manage'),
         s1,
       ),
     ).toBeNull();
     expect(
-      placeEntitlement(
+      pseudoRecordsOfEntitlement(
         map,
         entitlement('db:Organization', at('db:Space', 's1', 'spaces'), 'read'),
         s1,
@@ -317,7 +318,7 @@ describe('placeEntitlement: the pseudo record, built from the anchor along the p
   });
 });
 
-describe('the grant check on the placed record', () => {
+describe('the grant check on the pseudoRecord record', () => {
   test('a manager of o1 grants its own integrations (narrowed), not every kind under it', async () => {
     const manager = await table('db:Organization', 'o1', ['manage']);
     const integrations = entitlement(
@@ -363,7 +364,7 @@ describe('the grant check on the placed record', () => {
       at('db:Organization', 'o1', 'integration.organization'),
       'delete',
     );
-    expect(placeEntitlement(map, tokens, o1)?.map((token) => token.integration)).toEqual([
+    expect(pseudoRecordsOfEntitlement(map, tokens, o1)?.map((token) => token.integration)).toEqual([
       { ownerModel: 'Organization', organizationId: 'o1', organization: o1 },
       {
         ownerModel: 'Space',
@@ -377,25 +378,29 @@ describe('the grant check on the placed record', () => {
   });
 });
 
-describe('placeUnder: a record of a resource under an anchor, along a path', () => {
+describe('pseudoRecordsBelowAnchor: a record of a resource under an anchor, along a path', () => {
   test('the path decides the relation: its foreign keys, composite ones too, and its kind', () => {
-    expect(placeUnder(map, 'db:Integration', 'space', 'db:Space', s1)).toEqual([
+    expect(pseudoRecordsBelowAnchor(map, 'db:Integration', 'space', 'db:Space', s1)).toEqual([
       { ownerModel: 'Space', organizationId: 'o1', spaceId: 's1', space: s1 },
     ]);
   });
 
   test('a side: the inquiry an organization receives', () => {
-    expect(placeUnder(map, 'db:Inquiry', 'targetOrganization', 'db:Organization', o1)).toEqual([
+    expect(
+      pseudoRecordsBelowAnchor(map, 'db:Inquiry', 'targetOrganization', 'db:Organization', o1),
+    ).toEqual([
       { targetModel: 'Organization', targetOrganizationId: 'o1', targetOrganization: o1 },
     ]);
   });
 
   test('a path that does not lead to the anchor places nothing', () => {
-    expect(placeUnder(map, 'db:Integration', 'organization', 'db:Space', s1)).toEqual([]);
+    expect(pseudoRecordsBelowAnchor(map, 'db:Integration', 'organization', 'db:Space', s1)).toEqual(
+      [],
+    );
   });
 });
 
-describe('placeEntitlement refuses a malformed entry: the same rules setup applies', () => {
+describe('pseudoRecordsOfEntitlement refuses a malformed entry: the same rules setup applies', () => {
   const integrations = entitlement(
     'db:Integration',
     at('db:Organization', 'o1', 'organization'),
@@ -404,7 +409,7 @@ describe('placeEntitlement refuses a malformed entry: the same rules setup appli
 
   test('an anchor on another resource without a path', () => {
     expect(
-      placeEntitlement(
+      pseudoRecordsOfEntitlement(
         map,
         entitlement('db:Integration', at('db:Organization', 'o1'), 'manage'),
         o1,
@@ -417,11 +422,11 @@ describe('placeEntitlement refuses a malformed entry: the same rules setup appli
       ...integrations,
       where: { field: 'provider', operator: 'notEquals', value: 'slack' },
     } as EntitlementEntry;
-    expect(placeEntitlement(map, negated, o1)).toBeNull();
+    expect(pseudoRecordsOfEntitlement(map, negated, o1)).toBeNull();
   });
 
   test('an action that is not a boolean', () => {
     const odd = { ...integrations, actions: { manage: 'yes' } } as unknown as EntitlementEntry;
-    expect(placeEntitlement(map, odd, o1)).toBeNull();
+    expect(pseudoRecordsOfEntitlement(map, odd, o1)).toBeNull();
   });
 });

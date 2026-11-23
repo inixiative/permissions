@@ -133,7 +133,7 @@
         "isId": false,
         "annotations": {
           "permissions": {
-            "place": true
+            "pseudoField": true
           }
         }
       },
@@ -163,7 +163,7 @@
         },
         "annotations": {
           "permissions": {
-            "place": true
+            "pseudoField": true
           }
         }
       },

@@ -9,7 +9,7 @@ import {
   PathLimitError,
   type PermissionEntry,
   type PermixLike,
-  placeEntitlement,
+  pseudoRecordsOfEntitlement,
   type Row,
 } from '../index';
 import { outcomesOfWalkCase, type WalkCase, walkCase } from './fixtures/walkCases';
@@ -258,8 +258,9 @@ describe("the grant check's two passes share no answers", () => {
       ],
       { owner },
     );
-    const [placed] = placeEntitlement(map, spacesOfO1, { id: 'o1', name: 'acme' }) ?? [];
-    expect(canGrantWithRules(map)(writer, schema, spacesOfO1, placed as Row)).toBe(true);
+    const [pseudoRecord] =
+      pseudoRecordsOfEntitlement(map, spacesOfO1, { id: 'o1', name: 'acme' }) ?? [];
+    expect(canGrantWithRules(map)(writer, schema, spacesOfO1, pseudoRecord as Row)).toBe(true);
   });
 });
 
@@ -290,7 +291,7 @@ describe('walk modes', () => {
       ],
       tables: [{ grants: [], ents: [], actor: null }],
       query: { object: 0, action: 'q' },
-      grant: { ent: { resource: 0, path: [], anchorId: 'o1', actions: ['q'] }, placed: 0 },
+      grant: { ent: { resource: 0, path: [], anchorId: 'o1', actions: ['q'] }, pseudoRecord: 0 },
     };
     const { check } = await outcomesOfWalkCase(underAndOutside);
     expect(check).toBe(false);
@@ -441,7 +442,7 @@ describe('two objects of one row', () => {
       },
     };
     const anchor = await hydratedO1();
-    expect(placeEntitlement(loopMap, readOnO1, anchor)).toEqual([anchor]);
+    expect(pseudoRecordsOfEntitlement(loopMap, readOnO1, anchor)).toEqual([anchor]);
     expect(canGrantWithRules(loopMap)(await writerHolding('view'), schema, readOnO1, anchor)).toBe(
       false,
     );

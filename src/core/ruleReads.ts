@@ -9,13 +9,14 @@ import {
   lensesAtRow,
   whyRelationPathCannotBeWalked,
 } from './lens';
-import { relationOf, type SchemaMap, type SchemaMapWithoutPermissions } from './schemaMap';
+import { relationOf } from './relations';
+import type { SchemaMap } from './schemaMap';
 import { bridgesWalkedFromRecords, suppliedModelAt } from './supplied';
 import type { ActionRule } from './types';
 
 /** Walk a `{ rel }` path from `at` as a check hops it: the lenses where it lands, or why it cannot be walked. */
 export const walkRelationPath = (
-  map: SchemaMapWithoutPermissions,
+  map: SchemaMap,
   at: LensesAtRow,
   rel: string,
   path: string,

@@ -1,15 +1,14 @@
 import { hasNoValue, idField } from '../../core/recordId';
 import {
   followedToOneRelationsOf,
-  identityColumnsOfRow,
-  keyFromResourceAndColumns,
   listsOf,
-  modelOfResource,
   type Relation,
   relationOf,
-  type SchemaMapWithoutPermissions,
   type SpelledRelationTree,
-} from '../../core/schemaMap';
+} from '../../core/relations';
+import { modelOfResource } from '../../core/resourceNames';
+import { identityColumnsOfRow, keyFromResourceAndColumns } from '../../core/rowKeys';
+import type { SchemaMap } from '../../core/schemaMap';
 import type { Row } from '../../core/types';
 
 /** The declared paths under a list item, as nested relation names; a leaf is `{}`. */
@@ -31,7 +30,7 @@ export type Down = { [listField: string]: DownPaths };
  * and the declared paths.
  */
 export type HydrateDeps<R extends string = string> = {
-  map: SchemaMapWithoutPermissions;
+  map: SchemaMap;
   load: (resource: R, where: Row, down: Down) => Promise<Row | null>;
 };
 

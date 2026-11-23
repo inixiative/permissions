@@ -1,6 +1,6 @@
 import type { Condition } from '@inixiative/json-rules';
 import { isEqual } from 'lodash-es';
-import { conjuncts } from './schemaMap';
+import { conjuncts } from './whereConjuncts';
 
 /**
  * The `where` of an entry granted under a held one: `all` of the added conditions, then the held

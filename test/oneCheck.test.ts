@@ -1,8 +1,8 @@
 import { describe, expect, spyOn, test } from 'bun:test';
 import { map, model, nobody, pool, schema } from '../bench/fixtures';
 import { createPermissions } from '../index';
+import * as rowKeys from '../src/core/rowKeys';
 import * as ruleReads from '../src/core/ruleReads';
-import * as schemaMap from '../src/core/schemaMap';
 import * as validateActionRule from '../src/core/validateActionRule';
 import { checkWithRules, mapOf, pathsWithRules, type Rules } from './schemaMaps';
 
@@ -14,7 +14,7 @@ describe('a row is identified once per row per check', () => {
     const check = checkWithRules(map);
     const permix = await nobody();
     const record = pool(6)[0] as never;
-    const keyed = spyOn(schemaMap, 'identityKeyOfRow');
+    const keyed = spyOn(rowKeys, 'identityKeyOfRow');
     try {
       expect(check(permix, schema, { resource: model(6), record }, 'read')).toBe(false);
       expect(keyed).toHaveBeenCalledTimes(7);

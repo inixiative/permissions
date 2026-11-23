@@ -5,7 +5,7 @@ import {
   type EntitlementEntry,
   type PermissionEntry,
   type Permix,
-  placeEntitlement,
+  pseudoRecordsOfEntitlement,
   type Row,
 } from '../index';
 import { actorData, canGrantWithRules, checkWithRules, mapOf, type Rules } from './schemaMaps';
@@ -172,7 +172,7 @@ describe('canGrantEntitlement: never more than the writer could do from that anc
     expect(as('Token')).toBe(false);
   });
 
-  test('a child resource from its direct owner: the integrations of s1, judged on the record the app placed under s1', async () => {
+  test('a child resource from its direct owner: the integrations of s1, judged on the record the app pseudoRecord under s1', async () => {
     const integrations = entry('db:integration', at('db:space', 's1', 'space'), ['manage']);
     expect(
       may(await holding('db:space', 's1', ['manage']), integrations, integrationUnder(s1)),
@@ -184,7 +184,7 @@ describe('canGrantEntitlement: never more than the writer could do from that anc
 
   test('an anchor off the resource tree grants nothing', async () => {
     const offTree = entry('db:integration', at('db:user', 'u1', 'user'), ['read']);
-    expect(placeEntitlement(mapOf(relations, columns), offTree, { id: 'u1' })).toBeNull();
+    expect(pseudoRecordsOfEntitlement(mapOf(relations, columns), offTree, { id: 'u1' })).toBeNull();
   });
 
   test('a where only narrows: the writer must cover the whole collection at that anchor', async () => {
@@ -237,14 +237,14 @@ describe('canGrantEntitlement: never more than the writer could do from that anc
   });
 });
 
-describe('canGrantEntitlement on a placed record: a field it does not carry is unknown, not null', () => {
+describe('canGrantEntitlement on a pseudoRecord record: a field it does not carry is unknown, not null', () => {
   const rename = entry('db:space', at('db:space', 's1'), ['rename']);
 
-  test('a rule for draft-labelled records does not grant records the placed one leaves open', async () => {
+  test('a rule for draft-labelled records does not grant records the pseudoRecord one leaves open', async () => {
     expect(may(await holding('db:space', 's1', ['read']), rename, s1)).toBe(false);
   });
 
-  test('a placed record that pins the label is granted', async () => {
+  test('a pseudoRecord record that pins the label is granted', async () => {
     expect(may(await holding('db:space', 's1', ['read']), rename, { ...s1, label: 'draft' })).toBe(
       true,
     );
@@ -260,7 +260,7 @@ describe('canGrantEntitlement on a placed record: a field it does not carry is u
     await holder.setup([unnamed], { owner: await holding('db:space', 's1', ['manage']) });
     const integrations = entry('db:integration', at('db:space', 's1', 'space'), ['manage']);
     const grants = (granted: EntitlementEntry) =>
-      (placeEntitlement(mapOf(relations, columns), granted, s1) ?? []).every((record) =>
+      (pseudoRecordsOfEntitlement(mapOf(relations, columns), granted, s1) ?? []).every((record) =>
         may(holder, granted, record),
       );
     expect(grants(integrations)).toBe(false);
@@ -290,31 +290,31 @@ describe('a held entitlement is passed on only as a copy or a narrowing of itsel
     await holder.setup(held, { owner: await holding('db:space', 's1', ['manage']) });
     return holder;
   };
-  const placed = (where: Row = {}) => ({ ...integrationUnder(s1), ...where });
+  const pseudoRecord = (where: Row = {}) => ({ ...integrationUnder(s1), ...where });
 
   test('an exact copy, and a narrowing of it, pass', async () => {
     const holder = await holderOf(underS1(['manage', 'read'], slack));
-    expect(may(holder, underS1(['manage', 'read'], slack), placed({ provider: 'slack' }))).toBe(
-      true,
-    );
     expect(
-      may(holder, underS1(['read'], { all: [slack, named] }), placed({ provider: 'slack' })),
+      may(holder, underS1(['manage', 'read'], slack), pseudoRecord({ provider: 'slack' })),
+    ).toBe(true);
+    expect(
+      may(holder, underS1(['read'], { all: [slack, named] }), pseudoRecord({ provider: 'slack' })),
     ).toBe(true);
   });
 
   test('a grant wider than what is held is refused: a dropped condition or an extra action', async () => {
     const holder = await holderOf(underS1(['read'], slack));
-    expect(may(holder, underS1(['read']), placed())).toBe(false);
-    expect(may(holder, underS1(['read', 'manage'], slack), placed({ provider: 'slack' }))).toBe(
-      false,
-    );
+    expect(may(holder, underS1(['read']), pseudoRecord())).toBe(false);
+    expect(
+      may(holder, underS1(['read', 'manage'], slack), pseudoRecord({ provider: 'slack' })),
+    ).toBe(false);
   });
 
   test('a held entitlement passes on only what its granter still backs: copying never revives the rest (R111)', async () => {
     const holder = createPermissions();
     await holder.setup([underS1(['manage'])], { owner: await holding('db:space', 's1', ['read']) });
-    expect(may(holder, underS1(['manage']), placed())).toBe(false);
-    expect(may(holder, underS1(['read']), placed())).toBe(true);
+    expect(may(holder, underS1(['manage']), pseudoRecord())).toBe(false);
+    expect(may(holder, underS1(['read']), pseudoRecord())).toBe(true);
   });
 
   test('two held entitlements never combine into one wider grant', async () => {
@@ -325,14 +325,14 @@ describe('a held entitlement is passed on only as a copy or a narrowing of itsel
       operator: Operator.in,
       value: ['slack', 'teams'],
     });
-    expect(may(holder, both, placed())).toBe(false);
+    expect(may(holder, both, pseudoRecord())).toBe(false);
   });
 
   test('another anchor is not a copy of what is held: narrow with the where instead', async () => {
     const holder = await holderOf(
       entry('db:integration', at('db:organization', 'o1', 'space.organization'), ['read'], slack),
     );
-    expect(may(holder, underS1(['read'], slack), placed({ provider: 'slack' }))).toBe(false);
+    expect(may(holder, underS1(['read'], slack), pseudoRecord({ provider: 'slack' }))).toBe(false);
   });
 });
 
@@ -344,24 +344,26 @@ describe('a held entitlement passes on lower actions: each granted action reache
     await holder.setup([held], { owner: await holding('db:space', 's1', ['own']) });
     return holder;
   };
-  const placed = integrationUnder(s1);
+  const pseudoRecord = integrationUnder(s1);
 
   test('a lower action: holding manage grants read', async () => {
-    expect(may(await holderOf(underS1(['manage'])), underS1(['read']), placed)).toBe(true);
+    expect(may(await holderOf(underS1(['manage'])), underS1(['read']), pseudoRecord)).toBe(true);
   });
 
   test('through a chain: holding own grants read (read → manage → own)', async () => {
-    expect(may(await holderOf(underS1(['own'])), underS1(['read']), placed)).toBe(true);
+    expect(may(await holderOf(underS1(['own'])), underS1(['read']), pseudoRecord)).toBe(true);
   });
 
   test('a subset, and a subset with a lowered action', async () => {
     const holder = await holderOf(underS1(['read', 'manage']));
-    expect(may(holder, underS1(['read']), placed)).toBe(true);
-    expect(may(await holderOf(underS1(['own'])), underS1(['read', 'manage']), placed)).toBe(true);
+    expect(may(holder, underS1(['read']), pseudoRecord)).toBe(true);
+    expect(may(await holderOf(underS1(['own'])), underS1(['read', 'manage']), pseudoRecord)).toBe(
+      true,
+    );
   });
 
   test('never a higher action: holding manage does not grant own', async () => {
-    expect(may(await holderOf(underS1(['manage'])), underS1(['own']), placed)).toBe(false);
+    expect(may(await holderOf(underS1(['manage'])), underS1(['own']), pseudoRecord)).toBe(false);
   });
 
   test('a delegation that needs more than the action is not pure: holding read on a space does not grant rename', async () => {
@@ -373,7 +375,7 @@ describe('a held entitlement passes on lower actions: each granted action reache
 describe('passing on a lower action asks the grantor about that action, not the held one (R111)', () => {
   const underS1 = (actions: string[]) =>
     entry('db:integration', at('db:space', 's1', 'space'), actions);
-  const placed = integrationUnder(s1);
+  const pseudoRecord = integrationUnder(s1);
   const heldWhileGrantorReads = async () => {
     const holder = createPermissions();
     await holder.setup([underS1(['manage'])], {
@@ -383,11 +385,11 @@ describe('passing on a lower action asks the grantor about that action, not the 
   };
 
   test('the grantor lowered to read: the holder of manage still passes on read', async () => {
-    expect(may(await heldWhileGrantorReads(), underS1(['read']), placed)).toBe(true);
+    expect(may(await heldWhileGrantorReads(), underS1(['read']), pseudoRecord)).toBe(true);
   });
 
   test('and not manage, which the grantor no longer allows', async () => {
-    expect(may(await heldWhileGrantorReads(), underS1(['manage']), placed)).toBe(false);
+    expect(may(await heldWhileGrantorReads(), underS1(['manage']), pseudoRecord)).toBe(false);
   });
 
   test("the same when the grantor's read reaches the space through its organization", async () => {
@@ -395,28 +397,28 @@ describe('passing on a lower action asks the grantor about that action, not the 
     await holder.setup([underS1(['manage'])], {
       owner: await holding('db:organization', 'o1', ['read']),
     });
-    expect(may(holder, underS1(['read']), placed)).toBe(true);
-    expect(may(holder, underS1(['manage']), placed)).toBe(false);
+    expect(may(holder, underS1(['read']), pseudoRecord)).toBe(true);
+    expect(may(holder, underS1(['manage']), pseudoRecord)).toBe(false);
   });
 
   test('a grantor that lost even read passes on nothing', async () => {
     const holder = createPermissions();
     await holder.setup([underS1(['manage'])], { owner: await holding('db:space', 's9', ['own']) });
-    expect(may(holder, underS1(['read']), placed)).toBe(false);
+    expect(may(holder, underS1(['read']), pseudoRecord)).toBe(false);
   });
 });
 
-test('an entitlement that grants no action is malformed: refused at setup and at placement', async () => {
+test('an entitlement that grants no action is malformed: refused at setup and when its pseudo records are built', async () => {
   const nothing = entry('db:space', at('db:space', 's1'), []);
   const none = { ...nothing, actions: { own: false } };
-  expect(placeEntitlement(mapOf(relations, columns), nothing, s1)).toBeNull();
-  expect(placeEntitlement(mapOf(relations, columns), none, s1)).toBeNull();
+  expect(pseudoRecordsOfEntitlement(mapOf(relations, columns), nothing, s1)).toBeNull();
+  expect(pseudoRecordsOfEntitlement(mapOf(relations, columns), none, s1)).toBeNull();
   await expect(
     createPermissions().setup([none], { owner: await holding('db:space', 's1', ['own']) }),
   ).rejects.toThrow();
 });
 
-// Reversed 2026-11-14 for a row marked `grantsBelow` (test/grantBelow.test.ts); unmarked, it stands.
+// Reversed 2026-11-14 for a row marked `grantsBelow` (test/grantBelow.test.ts); withoutPseudoFields, it stands.
 describe('step one is the table: a stored entitlement is passed on only as itself, unless it is marked grantsBelow (R103)', () => {
   const manageS1 = entry('db:space', at('db:space', 's1'), ['manage']);
   const slackUnderS1 = entry('db:integration', at('db:space', 's1', 'space'), ['manage'], {

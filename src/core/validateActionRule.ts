@@ -5,10 +5,12 @@ import {
   validateRule,
 } from '@inixiative/json-rules';
 import { isPlainObject } from 'lodash-es';
-import { allDelegates, delegationReach } from './reachableFrom';
+import {
+  issuesOfDelegationBackToOwnAction,
+  type PlaceOfActionRule,
+} from './issuesOfDelegationBackToOwnAction';
 import { idField } from './recordId';
 import { issuesForRuleReadsOutsideLens } from './ruleReads';
-import type { SchemaMap } from './schemaMap';
 import type { ActionRule } from './types';
 
 const hasOnly = (node: Record<string, unknown>, keys: string[]): boolean =>
@@ -71,34 +73,8 @@ const issues = (rule: unknown, path: string): ValidationIssue[] => {
   return [{ path, code: 'actionRule', message: 'not an action rule' }];
 };
 
-/** Where a rule sits: the map, the resource, the action it is the rule of (none for a rule asked inline), and the other rule sets that reach the same record (`action → rule`). */
-export type ActionRuleContext = {
-  map: SchemaMap;
-  resource: string;
-  action?: string;
-  rowRules?: Record<string, unknown> | null;
-  additionalRules?: readonly (Record<string, unknown> | null | undefined)[];
-};
-
-type PlaceOfActionRule = Omit<ActionRuleContext, 'map' | 'action'> & {
-  map: Pick<SchemaMap, 'permissions'>;
-  action: string;
-};
-
-const cycles = (
-  rule: unknown,
-  { map, resource, action, rowRules, additionalRules = [] }: PlaceOfActionRule,
-) => {
-  const actions = map.permissions[resource]?.actions ?? {};
-  const reached = delegationReach(
-    allDelegates(rule),
-    (next) => [actions[next], rowRules?.[next], ...additionalRules.map((rules) => rules?.[next])],
-    allDelegates,
-  );
-  return reached.has(action)
-    ? [{ path: '$', code: 'cycle', message: `\`${action}\` delegates back to itself` }]
-    : [];
-};
+/** Where a rule sits: a {@link PlaceOfActionRule}, with no `action` for a rule asked inline or kept outside the map. */
+export type ActionRuleContext = Omit<PlaceOfActionRule, 'action'> & { action?: string };
 
 // A rule's shape and positivity; only a well-formed rule is judged further.
 const issuesOfShapeOrElse = (rule: unknown, more: () => ValidationIssue[]): ValidationIssue[] => {
@@ -108,7 +84,7 @@ const issuesOfShapeOrElse = (rule: unknown, more: () => ValidationIssue[]): Vali
 
 /** A rule's shape and positivity, then a cycle back to its own action; no reads. */
 export const issuesOfShapeAndCycle = (rule: unknown, place: PlaceOfActionRule): ValidationIssue[] =>
-  issuesOfShapeOrElse(rule, () => cycles(rule, place));
+  issuesOfShapeOrElse(rule, () => issuesOfDelegationBackToOwnAction(rule, place));
 
 /**
  * What a check refuses in an action rule: its shape, and every `{ rule }` in it a positive
@@ -125,7 +101,7 @@ export const validateActionRule = (
       ? [
           ...(context.action === undefined
             ? []
-            : cycles(rule, { ...context, action: context.action })),
+            : issuesOfDelegationBackToOwnAction(rule, { ...context, action: context.action })),
           ...issuesForRuleReadsOutsideLens(context.map, context.resource, rule as ActionRule),
         ]
       : [],

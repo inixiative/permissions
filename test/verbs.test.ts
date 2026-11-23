@@ -31,12 +31,12 @@ const RULES: { verb: string; pattern: RegExp; owners: string[] }[] = [
   {
     verb: 'decide which relations hydration follows',
     pattern: /\.fromFields/,
-    owners: ['src/core/schemaMap.ts'],
+    owners: ['src/core/relations.ts', 'src/core/permissionsAnnotation.ts'],
   },
   {
     verb: 'read a @permissions(...) annotation',
     pattern: /annotations\??\.permissions/,
-    owners: ['src/core/schemaMap.ts'],
+    owners: ['src/core/permissionsAnnotation.ts'],
   },
   {
     verb: 'build a json-rules lens and judge a path against it',
@@ -51,7 +51,7 @@ const RULES: { verb: string; pattern: RegExp; owners: string[] }[] = [
   {
     verb: 'say which bridges a rule reads and which a rel crosses',
     pattern: /\.bridges\b/,
-    owners: ['src/core/supplied.ts', 'src/core/walker.ts'],
+    owners: ['src/core/supplied.ts', 'src/core/validateSchemaMap.ts', 'src/core/walker.ts'],
   },
   {
     verb: 'freeze, then judge once',

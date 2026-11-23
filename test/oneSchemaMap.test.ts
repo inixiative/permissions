@@ -101,9 +101,12 @@ describe('one schema map: maps, supplied, bridges, polymorphism, permissions', (
     expect(reads(map, { ownerId: 'u1' }, { 'app:User': [{ id: 'u1' }] })).toBe(true);
   });
 
-  test('a map name in both `maps` and `supplied` throws', () => {
+  test('a map name in both `maps` and `supplied` throws, and validateSchema reports it', () => {
     const map = mapOfRead(mine, { supplied: { db: actor } });
     expect(() => reads(map, {})).toThrow(/`db` is in both `maps` and `supplied`/);
+    expect(validateSchema(map).errors.map((issue) => issue.message)).toEqual([
+      '`db` is in both `maps` and `supplied`: a map is one or the other',
+    ]);
   });
 
   test('a name with no map is refused: there is no map to default to', () => {
@@ -122,6 +125,29 @@ describe('one schema map: maps, supplied, bridges, polymorphism, permissions', (
     expect(() => check(nobody, { resource: 'db:Dok', record: {} }, 'read')).toThrow(
       /`db:Dok` is not a model of the map `db`/,
     );
+  });
+
+  test('validateSchema reports every name and bridge problem of a map that cannot be indexed', () => {
+    const map = mapOfRead(mine, {
+      supplied: { db: actor },
+      polymorphism: { nope: {} },
+      bridges: [
+        {
+          endpoints: [
+            { fieldMap: 'db', model: 'Doc' },
+            { fieldMap: 'crm', model: 'Account' },
+          ],
+          cardinality: 'oneToOne',
+        },
+      ],
+    });
+    expect(() => reads(map, {})).toThrow(/`polymorphism` names the map `nope`/);
+    expect(validateSchema(map).errors.map((issue) => issue.message.split(':')[0])).toEqual([
+      '`polymorphism` names the map `nope`, which is not in `maps`',
+      '`db` is in both `maps` and `supplied`',
+      'a bridge between `db',
+    ]);
+    expect(validateSchema(map).errors.map((issue) => issue.path)).toEqual(['$', '$', 'bridges']);
   });
 
   test('polymorphism names a map in `maps` and a model of it', () => {

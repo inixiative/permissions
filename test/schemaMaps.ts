@@ -12,7 +12,6 @@ import {
   type PermixLike,
   type Row,
   type SchemaMap,
-  type SchemaMapWithoutPermissions,
   type Subject,
 } from '../index';
 
@@ -59,7 +58,7 @@ export type ListOf = { item: string; down: readonly string[] };
 export type Rules = Pick<SchemaMap, 'permissions' | 'bridges'>;
 
 /** The map with `rules` laid over it: one object, as every entry point takes. */
-export const mapWith = (map: SchemaMapWithoutPermissions, rules: Rules): SchemaMap => {
+export const mapWith = (map: SchemaMap, rules: Rules): SchemaMap => {
   let byRules = mapsWithRules.get(map);
   if (!byRules) {
     byRules = new WeakMap();
@@ -67,17 +66,21 @@ export const mapWith = (map: SchemaMapWithoutPermissions, rules: Rules): SchemaM
   }
   let whole = byRules.get(rules);
   if (!whole) {
-    whole = { ...map, ...rules };
+    whole = {
+      ...map,
+      permissions: rules.permissions,
+      ...(rules.bridges ? { bridges: rules.bridges } : {}),
+    };
     byRules.set(rules, whole);
   }
   return whole;
 };
 
-const mapsWithRules = new WeakMap<SchemaMapWithoutPermissions, WeakMap<Rules, SchemaMap>>();
+const mapsWithRules = new WeakMap<SchemaMap, WeakMap<Rules, SchemaMap>>();
 
 /** A check over `map` that takes each case's rules beside the subject: `(permix, rules, subject, action)`. */
 export const checkWithRules =
-  (map: SchemaMapWithoutPermissions, options?: CheckOptions) =>
+  (map: SchemaMap, options?: CheckOptions) =>
   (permix: PermixLike, rules: Rules, subject: Subject, actionOrRule: ActionRule): boolean =>
     createRebacCheck(mapWith(map, rules), options)(permix, subject, actionOrRule);
 
@@ -107,7 +110,7 @@ export const mapOf = (
   relations: Record<string, Record<string, string>>,
   columns: Record<string, readonly string[]> = {},
   lists: Record<string, Record<string, ListOf>> = {},
-): SchemaMapWithoutPermissions => {
+): SchemaMap => {
   const resources = new Set([
     ...Object.keys(relations),
     ...Object.values(relations).flatMap((fields) => Object.values(fields)),
@@ -155,6 +158,7 @@ export const mapOf = (
     };
   }
   return {
+    permissions: {},
     maps: Object.fromEntries(
       Object.entries(models).map(([mapName, of]) => [mapName, { models: of }]),
     ),
@@ -164,12 +168,12 @@ export const mapOf = (
 
 /** Every admission over `map`, taking each case's rules beside the subject. */
 export const pathsWithRules =
-  (map: SchemaMapWithoutPermissions, options?: PathsOptions) =>
+  (map: SchemaMap, options?: PathsOptions) =>
   (permix: PermixLike, rules: Rules, subject: Subject, actionOrRule: ActionRule): Admission[] =>
     createRebacPaths(mapWith(map, rules), options)(permix, subject, actionOrRule);
 
 /** The grant check over `map`, taking each case's rules beside the entry. */
 export const canGrantWithRules =
-  (map: SchemaMapWithoutPermissions, options?: Pick<CheckOptions, 'additionalRules'>) =>
-  (permix: PermixLike, rules: Rules, entry: EntitlementEntry, placed: Row): boolean =>
-    createCanGrantEntitlement(mapWith(map, rules), options)(permix, entry, placed);
+  (map: SchemaMap, options?: Pick<CheckOptions, 'additionalRules'>) =>
+  (permix: PermixLike, rules: Rules, entry: EntitlementEntry, pseudoRecord: Row): boolean =>
+    createCanGrantEntitlement(mapWith(map, rules), options)(permix, entry, pseudoRecord);

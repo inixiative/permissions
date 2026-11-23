@@ -5,13 +5,13 @@ import {
   type GrantEntry,
   type Permissions,
   permixOf,
-  placeEntitlement,
+  pseudoRecordsOfEntitlement,
   type Row,
 } from '../index';
 import { canGrantWithRules, checkWithRules, mapOf, type Rules } from './schemaMaps';
 
 // Random writers (owner graphs up to three deep, loops included) and random granted entries over
-// one schema, on this code only: an unmarked writer stands in for the grant check before the rule
+// one schema, on this code only: an withoutPseudoFields writer stands in for the grant check before the rule
 // (the comparison against the released code was run outside the repo). It does not cover the
 // self-anchored cases; the R95, R99 and R101 tests in narrowGrant do.
 // For every case: the marks change no read, lose no grant, and each grant they add is one the
@@ -197,7 +197,7 @@ const rewritten = (
   }
   return out;
 };
-const unmarked = (permissions: Permissions) =>
+const withoutPseudoFields = (permissions: Permissions) =>
   rewritten(permissions, (entries) => entries.map(({ grantsBelow: _, ...entry }) => entry));
 const markedOnly = (permissions: Permissions) =>
   rewritten(permissions, (entries) => entries.filter((entry) => entry.grantsBelow === true));
@@ -224,11 +224,11 @@ test(`fuzz, ${CASES} cases: marks change no read, lose no grant, and add only gr
     const anchor = rows[entry.anchor.resource as Resource].find(
       (row) => row.id === entry.anchor.id,
     ) as Row;
-    const placed = placeEntitlement(map, entry, anchor);
+    const pseudoRecord = pseudoRecordsOfEntitlement(map, entry, anchor);
     const withMarks = await permixOf(writer);
-    const without = await permixOf(unmarked(writer));
+    const without = await permixOf(withoutPseudoFields(writer));
     const grants = (permix: typeof withMarks) =>
-      placed?.every((record) => canGrant(permix, schema, entry, record)) === true;
+      pseudoRecord?.every((record) => canGrant(permix, schema, entry, record)) === true;
     const reads = (permix: typeof withMarks) =>
       resources
         .flatMap((resource) =>

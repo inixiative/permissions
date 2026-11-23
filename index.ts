@@ -17,15 +17,14 @@ export {
   whyEntitlementWhereLeavesLens,
 } from './src/core/lens';
 export * from './src/core/permix';
+export { pseudoRecordsBelowAnchor, pseudoRecordsOfEntitlement } from './src/core/pseudoRecords';
 export { reachableFrom } from './src/core/reachableFrom';
 export * from './src/core/redundantEntitlements';
-export {
-  type PolymorphicAxis,
-  type Polymorphism,
-  placeEntitlement,
-  placeUnder,
-  type SchemaMap,
-  type SchemaMapWithoutPermissions,
+export type {
+  PolymorphicAxis,
+  Polymorphism,
+  SchemaMap,
+  SchemaMapWithoutPermissions,
 } from './src/core/schemaMap';
 export type * from './src/core/types';
 export { type ActionRuleContext, validateActionRule } from './src/core/validateActionRule';
