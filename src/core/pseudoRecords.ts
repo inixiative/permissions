@@ -132,17 +132,17 @@ export const pseudoRecordsBelowAnchor = <R extends string>(
         return owner ? [{ ...row, ...keysFrom(ownerRelation, owner), [ownerName]: owner }] : [row];
       });
   };
-  // why: marks fill a fresh stand-in before its keys, so the path wins and the anchor is never written
+  // why: pseudo fields fill a fresh stand-in before its keys, so the path wins and the anchor is never written
   const recordsDownPath = (current: R, segments: string[], prefix: string): Row[] => {
     const [segment, ...rest] = segments;
     if (segment === undefined) return current === anchorResource ? [anchor] : [];
     const relation = relationOf(map, current, segment);
     if (!relation) return [];
-    const marked = pseudoFieldsOf(map, current);
-    const marks =
+    const pseudoFields = pseudoFieldsOf(map, current);
+    const pseudoFieldValues =
       prefix === ''
         ? {}
-        : valuesWhereRequiresByEquals(leaves, `${prefix}.`, (name) => marked.has(name));
+        : valuesWhereRequiresByEquals(leaves, `${prefix}.`, (name) => pseudoFields.has(name));
     return recordsDownPath(
       relation.resource,
       rest,
@@ -151,7 +151,9 @@ export const pseudoRecordsBelowAnchor = <R extends string>(
       .flatMap((parent) =>
         recordsOnePerKind(current, segment, rest, relation, parent, prefix === ''),
       )
-      .map((row) => (Object.keys(marks).length ? { ...marks, ...row } : row));
+      .map((row) =>
+        Object.keys(pseudoFieldValues).length ? { ...pseudoFieldValues, ...row } : row,
+      );
   };
   return withExactStrings(() => recordsDownPath(resource, path.split('.'), ''));
 };

@@ -22,18 +22,17 @@ import {
 } from './resourceNames';
 import type { SchemaMap } from './schemaMap';
 
-const isSuppliedEnd = (map: SchemaMap, end: { fieldMap: string }) =>
-  isSuppliedMap(map, end.fieldMap);
-
 /** The bridges between two supplied maps, which a `{ rule }` reads along from a supplied row. */
 export const bridgesBetweenSuppliedMaps = (map: SchemaMap): Bridge[] =>
-  (map.bridges ?? []).filter((bridge) => bridge.endpoints.every((end) => isSuppliedEnd(map, end)));
+  (map.bridges ?? []).filter((bridge) =>
+    bridge.endpoints.every((end) => isSuppliedMap(map, end.fieldMap)),
+  );
 
 /** The joined bridges with no end supplied, which a `rel` walk crosses from a record. */
 export const bridgesWalkedFromRecords = (map: SchemaMap): JoinedBridge[] =>
   (map.bridges ?? []).filter(
     (bridge): bridge is JoinedBridge =>
-      isJoinedBridge(bridge) && !bridge.endpoints.some((end) => isSuppliedEnd(map, end)),
+      isJoinedBridge(bridge) && !bridge.endpoints.some((end) => isSuppliedMap(map, end.fieldMap)),
   );
 
 const stitchedSets = new WeakMap<SchemaMap, Map<'', FieldMapSet>>();
