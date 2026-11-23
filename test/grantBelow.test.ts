@@ -29,7 +29,7 @@ import {
 
 // The grant check's first pass also counts an entitlement the writer holds when it is marked
 // `grantsBelow`, has no `where`, and the walk meets it on a hydrated row above the granted record
-// (never the granted record itself, never a placed one). It then counts as a role on that row
+// (never the granted record itself, never a pseudoRecord one). It then counts as a role on that row
 // would. Aron, 2026-11-14: "unconditional, unlensed… your specific delegation is just one step on
 // the chain"; "we shouldn't pass lensed grants".
 
@@ -194,8 +194,8 @@ describe('the member case: operate on M, anchored at M, no where, backed by the 
   ];
 
   const grants = (permix: Permix, granted: EntitlementEntry, anchor: Row) => {
-    const placed = pseudoRecordsOfEntitlement(map, granted, anchor);
-    return placed?.every((record) => canGrant(permix, schema, granted, record)) === true;
+    const pseudoRecord = pseudoRecordsOfEntitlement(map, granted, anchor);
+    return pseudoRecord?.every((record) => canGrant(permix, schema, granted, record)) === true;
   };
   const uses = (permix: Permix) =>
     rebac(permix, schema, { resource: 'db:kcpThread', record: thread }, '*');
@@ -289,16 +289,16 @@ describe('the member case: operate on M, anchored at M, no where, backed by the 
   });
 
   // The "above" marker is the anchor row's own object and what it holds. A `where` never puts a
-  // row on the placed record: only scalar values on fields that are not relations are pinned.
-  test('a where cannot pin a look-alike of M onto the placed record', async () => {
+  // row on the pseudoRecord record: only scalar values on fields that are not relations are pinned.
+  test('a where cannot pin a look-alike of M onto the pseudoRecord record', async () => {
     const forged = entry(
       'db:integration',
       { resource: 'db:organization', id: 'o1', path: 'organization' },
       ['manage'],
       { all: [eq('ownerModel', 'OrganizationUser'), eq('organizationUser', { id: 'm1' })] },
     );
-    const placed = pseudoRecordsOfEntitlement(map, forged, o1);
-    expect(placed?.[0]).not.toHaveProperty('organizationUser');
+    const pseudoRecord = pseudoRecordsOfEntitlement(map, forged, o1);
+    expect(pseudoRecord?.[0]).not.toHaveProperty('organizationUser');
     expect(grants(await permixOf(memberP), forged, o1)).toBe(false);
     // the same pin under M itself, where the user is a row above
     const underM1 = entry(
@@ -397,8 +397,8 @@ const holding = (entries: EntitlementEntry[], owner: Permissions = root): Permis
 ];
 const grants = async (writer: Permissions, granted: EntitlementEntry, anchor: Row) => {
   const permix = await permixOf(writer);
-  const placed = pseudoRecordsOfEntitlement(map, granted, anchor);
-  return placed?.every((record) => canGrant(permix, schema, granted, record)) === true;
+  const pseudoRecord = pseudoRecordsOfEntitlement(map, granted, anchor);
+  return pseudoRecord?.every((record) => canGrant(permix, schema, granted, record)) === true;
 };
 const manages = async (holder: Permissions, space: Row) =>
   rebac(
@@ -524,7 +524,7 @@ describe('the mark: a row without grantsBelow never counts in the first pass', (
     expect(await grants(writer, integrationsOfS1(['read']), s1)).toBe(false);
   });
 
-  test('at every depth: a marked row backed by an unmarked one does not count', async () => {
+  test('at every depth: a marked row backed by an withoutPseudoFields one does not count', async () => {
     expect(await grants(holding([manageS1], holding([unmarkedS1])), row, s1)).toBe(false);
     expect(
       await grants(holding([manageS1], holding([manageS1], holding([unmarkedS1]))), row, s1),
@@ -553,7 +553,7 @@ describe('the mark: a row without grantsBelow never counts in the first pass', (
     }
   });
 
-  test('setup keeps a marked row and its unmarked twin as two rows, and carries the mark', async () => {
+  test('setup keeps a marked row and its withoutPseudoFields twin as two rows, and carries the mark', async () => {
     const permix = await permixOf(holding([unmarkedS1, manageS1, { ...manageS1 }]));
     const held = permix.entitlements('db:space', 'manage');
     expect(held.map((entitlement) => entitlement.grantsBelow)).toEqual([undefined, true]);
@@ -617,14 +617,14 @@ describe('the mark: a row without grantsBelow never counts in the first pass', (
             ]
           : [],
     };
-    const placed = { spaceId: 's1', space: s1 };
-    expect(canGrant(raw, schema, row, placed)).toBe(false);
+    const pseudoRecord = { spaceId: 's1', space: s1 };
+    expect(canGrant(raw, schema, row, pseudoRecord)).toBe(false);
     const [held] = raw.entitlements?.('db:space', 'manage') ?? [];
     const bare: PermixLike = {
       ...raw,
       entitlements: () => (held ? [{ ...held, where: undefined }] : []),
     };
-    expect(canGrant(bare, schema, row, placed)).toBe(true);
+    expect(canGrant(bare, schema, row, pseudoRecord)).toBe(true);
   });
 });
 
@@ -738,7 +738,7 @@ describe('refused: combining, sideways, another anchor, a rewritten where', () =
   });
 });
 
-// A self-anchored entry's placed record is the live granted row. An entitlement met on it is on
+// A self-anchored entry's pseudoRecord record is the live granted row. An entitlement met on it is on
 // the granted record, not above it, so it never counts: without this the rows below would be
 // re-anchored and combined for one row, and R99 reversed (review F1). Every row here is hydrated
 // as the database returns it, every held row is marked, and no `where` is involved.
@@ -800,19 +800,19 @@ describe('refused: an entitlement on the granted record itself (self-anchored en
   });
 });
 
-describe('refused: an entitlement met below the anchor, on a placed record', () => {
-  test('held on the granted resource itself, at the placed record: only the copy pass applies', async () => {
+describe('refused: an entitlement met below the anchor, on a pseudoRecord record', () => {
+  test('held on the granted resource itself, at the pseudoRecord record: only the copy pass applies', async () => {
     const writer = holding([below(integrationsOfS1(['manage']))]);
     const threads = entry(
       'db:kcpThread',
       { resource: 'db:space', id: 's1', path: 'integration.space' },
       ['read'],
     );
-    // the walk meets the held entitlement at the placed integration, between the thread and s1
+    // the walk meets the held entitlement at the pseudoRecord integration, between the thread and s1
     expect(await grants(writer, threads, s1)).toBe(false);
   });
 
-  test('held on every space of o1, met at the placed space between the integration and o1', async () => {
+  test('held on every space of o1, met at the pseudoRecord space between the integration and o1', async () => {
     const spacesOfO1 = below(
       entry('db:space', { resource: 'db:organization', id: 'o1', path: 'organization' }, [
         'manage',
@@ -823,7 +823,7 @@ describe('refused: an entitlement met below the anchor, on a placed record', () 
     expect(await grants(writer, spacesOfO1, o1)).toBe(true);
   });
 
-  test('held at integration i7 itself; the entry names id = i7, and the placed record still carries no key', async () => {
+  test('held at integration i7 itself; the entry names id = i7, and the pseudoRecord record still carries no key', async () => {
     const manageI7 = below(
       entry('db:integration', { resource: 'db:integration', id: 'i7' }, ['manage']),
     );
@@ -834,7 +834,7 @@ describe('refused: an entitlement met below the anchor, on a placed record', () 
 
   // The row at the end of the entry's path is taken as the anchor when its id is the entry's: the
   // caller hands in what `pseudoRecordsOfEntitlement` built, the same contract the table pass has on main.
-  test('the anchor is the row the placed record holds at the end of the path, by resource and id', async () => {
+  test('the anchor is the row the pseudoRecord record holds at the end of the path, by resource and id', async () => {
     const permix = await permixOf(holding([manageS1]));
     const lookAlike = { spaceId: 's1', space: { ...s1 } };
     expect(canGrant(permix, schema, integrationsOfS1(['manage']), lookAlike)).toBe(true);
@@ -887,8 +887,8 @@ describe('what counts as above: rows the anchor holds under a to-one relation th
     const byRole = await permixOf([{ entries: [grant('db:profile', 'p1', ['manage'])] }]);
     const on = (lib: SchemaMap, permix: Permix) => {
       const check = canGrantWithRules(lib);
-      const placed = pseudoRecordsOfEntitlement(lib, row, space);
-      return placed?.every((record) => check(permix, profiled, row, record)) === true;
+      const pseudoRecord = pseudoRecordsOfEntitlement(lib, row, space);
+      return pseudoRecord?.every((record) => check(permix, profiled, row, record)) === true;
     };
     expect(on(owning, byEntitlement)).toBe(true);
     expect(on(owning, byRole)).toBe(true);
@@ -924,10 +924,10 @@ describe('what counts as above: rows the anchor holds under a to-one relation th
     ]);
     expect(checkWithRules(lib)(writer, bridged, { ...subject, data }, 'manage')).toBe(true);
     const row = entry('db:integration', underS1, ['manage']);
-    const placed = pseudoRecordsOfEntitlement(lib, row, space);
-    expect(placed).not.toBeNull();
+    const pseudoRecord = pseudoRecordsOfEntitlement(lib, row, space);
+    expect(pseudoRecord).not.toBeNull();
     const check = canGrantWithRules(lib);
-    expect(placed?.every((record) => check(writer, bridged, row, record))).toBe(false);
+    expect(pseudoRecord?.every((record) => check(writer, bridged, row, record))).toBe(false);
   });
 
   // The held entitlement's own path is tested on the real row, kinds included (`reaches`).
@@ -1005,8 +1005,8 @@ describe('what counts as above: rows the anchor holds under a to-one relation th
     );
     const check = canGrantWithRules(lib);
     const on = (integration: Row) => {
-      const placed = pseudoRecordsOfEntitlement(lib, threads, integration);
-      return placed?.every((record) => check(writer, owned, threads, record)) === true;
+      const pseudoRecord = pseudoRecordsOfEntitlement(lib, threads, integration);
+      return pseudoRecord?.every((record) => check(writer, owned, threads, record)) === true;
     };
     const ofOrganization = {
       id: 'i1',
@@ -1060,7 +1060,7 @@ describe('upstream conditions', () => {
   });
 
   describe("the granter's condition is a schema rule, not an entitlement where", () => {
-    test('a schema rule upstream is re-run on the placed record, as for a table grant: unknown label refuses', async () => {
+    test('a schema rule upstream is re-run on the pseudoRecord record, as for a table grant: unknown label refuses', async () => {
       const ruled: Rules = {
         permissions: {
           ...schema.permissions,
@@ -1085,7 +1085,7 @@ describe('upstream conditions', () => {
   describe("the granter's row carries a lens", () => {
     // The library has no lens: an app keeps it on the stored row, applies the lenses of the rows
     // on the chain `paths` reports, and marks `grantsBelow` only a row with no lens. `g-row` is
-    // G's lensed row, so it is unmarked.
+    // G's lensed row, so it is withoutPseudoFields.
     const g = holding([entry('db:space', atS1, ['manage'], undefined, 'g-row')]);
     const w = holding([wRow], g);
     const chains = async (holder: Permissions) =>
@@ -1096,7 +1096,7 @@ describe('upstream conditions', () => {
         'manage',
       );
 
-    test('the grant check refuses: an unmarked row is not counted at any depth', async () => {
+    test('the grant check refuses: an withoutPseudoFields row is not counted at any depth', async () => {
       expect(await manages(w, s1)).toBe(true);
       expect(await grants(w, newRow, s1)).toBe(false);
     });
@@ -1118,7 +1118,7 @@ describe('upstream conditions', () => {
       expect(await chains(holding([newRow], x))).toEqual([[['new-row']]]);
     });
 
-    test('the same when the lens is on W’s own row: unmarked, it does not grant below it', async () => {
+    test('the same when the lens is on W’s own row: withoutPseudoFields, it does not grant below it', async () => {
       const lensedW = holding([entry('db:space', atS1, ['manage'], undefined, 'w-row-lensed')]);
       expect(await grants(lensedW, newRow, s1)).toBe(false);
     });

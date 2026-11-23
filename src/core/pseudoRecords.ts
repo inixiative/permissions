@@ -8,8 +8,8 @@ import type { EntitlementEntry } from './permix';
 import { idField, recordId } from './recordId';
 import {
   followedToOneRelationsOf,
-  marksOf,
   ownerRelationOf,
+  pseudoFieldsOf,
   type Relation,
   relationOf,
 } from './relations';
@@ -138,7 +138,7 @@ export const pseudoRecordsBelowAnchor = <R extends string>(
     if (segment === undefined) return current === anchorResource ? [anchor] : [];
     const relation = relationOf(map, current, segment);
     if (!relation) return [];
-    const marked = marksOf(map, current);
+    const marked = pseudoFieldsOf(map, current);
     const marks =
       prefix === ''
         ? {}

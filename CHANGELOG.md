@@ -58,6 +58,8 @@ repeated and template wrapped.
 - `placeEntitlement` and `placeUnder` are `pseudoRecordsOfEntitlement` and `pseudoRecordsBelowAnchor`,
   named for what they return (the README's pseudo record), in `pseudoRecords.ts`; walking a real
   record to its anchor is `anchorPath.ts`. Behaviour unchanged.
+- The annotation `/// @permissions(place: true)` is `/// @permissions(pseudoField: true)`: a field a
+  grant's `where` may set on a stand-in below the anchor. An app's Prisma schema changes its key.
 - The first check freezes `permissions` and `bridges`, not the field maps, which are the app's.
 - A stored rule's refusal now reads "stored outside the map is refused".
 

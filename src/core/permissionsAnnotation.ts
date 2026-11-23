@@ -10,12 +10,12 @@ export const permissionsAnnotation = (field: FieldEntry | undefined) =>
 export const skipsHydration = (field: FieldEntry | undefined): boolean =>
   permissionsAnnotation(field)?.hydrate === false;
 
-export const annotationKeys = ['hydrate', 'down', 'place'];
-const placeableTypes = ['String', 'Int', 'Boolean'];
+export const annotationKeys = ['hydrate', 'down', 'pseudoField'];
+const pseudoFieldTypes = ['String', 'Int', 'Boolean'];
 export const dottedPath = /^[A-Za-z_]\w*(\.[A-Za-z_]\w*)*$/;
 
-/** Why the field `name` of `resource` takes no `place` mark with this value, or null. */
-export const whyFieldTakesNoPlaceMark = (
+/** Why the field `name` of `resource` is no `pseudoField` with this value, or null. */
+export const whyFieldIsNoPseudoField = (
   map: SchemaMap,
   resource: string,
   name: string,
@@ -24,18 +24,18 @@ export const whyFieldTakesNoPlaceMark = (
   const fields = modelOfResource(map, resource)?.fields ?? {};
   const field = fields[name];
   if (value !== true) return 'is true or absent';
-  if (!field || !hasColumn(field)) return 'marks a scalar or enum field';
-  if (field.isList) return 'never marks a list';
-  if ((isScalarField(field) && field.isId) || name === idField()) return 'never marks an id';
+  if (!field || !hasColumn(field)) return 'sits on a scalar or enum field';
+  if (field.isList) return 'never sits on a list';
+  if ((isScalarField(field) && field.isId) || name === idField()) return 'never sits on an id';
   if (
     Object.values(fields).some(
       (other) => other.kind === 'object' && other.fromFields?.includes(name),
     )
   )
-    return 'never marks a relation key: the path sets it';
+    return 'never sits on a relation key: the path sets it';
   if (axesOfResource(map, resource).some((axis) => axis.field === name))
-    return 'never marks a discriminator: the path sets the kind';
-  if (field.kind === 'scalar' && !placeableTypes.includes(field.type))
-    return `marks String, Int, Boolean or an enum, not ${field.type}`;
+    return 'never sits on a discriminator: the path sets the kind';
+  if (field.kind === 'scalar' && !pseudoFieldTypes.includes(field.type))
+    return `sits on String, Int, Boolean or an enum, not ${field.type}`;
   return null;
 };

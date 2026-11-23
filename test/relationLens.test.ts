@@ -409,8 +409,8 @@ describe('a loop made by data denies; a schema that names itself throws', () => 
       actions: { read: true },
     };
     const grants = (writer: PermixLike, anchor: Row) =>
-      (pseudoRecordsOfEntitlement(map, entry, anchor) ?? []).every((placed) =>
-        canGrantWithRules(map)(writer, walks, entry, placed),
+      (pseudoRecordsOfEntitlement(map, entry, anchor) ?? []).every((pseudoRecord) =>
+        canGrantWithRules(map)(writer, walks, entry, pseudoRecord),
       );
     const orgReader: PermixLike = { check: (resource) => resource === 'db:Org' };
     const nobody: PermixLike = { check: () => false };
@@ -845,8 +845,8 @@ describe('the starting record: a row is known by resource and id', () => {
       actions: { x: true },
     };
     const grants = (writer: PermixLike, user: Row) =>
-      (pseudoRecordsOfEntitlement(map, entry, user) ?? []).every((placed) =>
-        canGrantWithRules(map)(writer, schema, entry, placed),
+      (pseudoRecordsOfEntitlement(map, entry, user) ?? []).every((pseudoRecord) =>
+        canGrantWithRules(map)(writer, schema, entry, pseudoRecord),
       );
     const u1 = await counting('db:User', db['db:User']?.u1 as Row);
     // main's answer: u1 creates its own org, so the data places u1 above itself, and the writer

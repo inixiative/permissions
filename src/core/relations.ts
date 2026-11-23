@@ -1,11 +1,12 @@
 import type { RelationField } from '@inixiative/field-map';
 import type { LensNarrowing, ModelNarrowing } from '@inixiative/json-rules';
+import { answerOnce } from './freezeThenJudgeOnce';
 import {
   annotationKeys,
   dottedPath,
   permissionsAnnotation,
   skipsHydration,
-  whyFieldTakesNoPlaceMark,
+  whyFieldIsNoPseudoField,
 } from './permissionsAnnotation';
 import {
   axesOfResource,
@@ -39,9 +40,8 @@ export type ListRelation<R extends string = string> = {
 };
 
 type MapIndex = {
-  relations: Map<string, Relation | string>;
   lists: Map<string, ListRelation>;
-  marks: Map<string, ReadonlySet<string>>;
+  pseudoFields: Map<string, ReadonlySet<string>>;
   toOnes: Map<string, [string, Relation][]>;
   idColumns: Map<string, readonly string[]>;
   lenses: Map<string, LensNarrowing | null>;
@@ -56,9 +56,8 @@ export const indexMap = (map: SchemaMap): MapIndex => {
   const [problem] = problemsOfMapNames(map);
   if (problem) throw new Error(problem);
   const index: MapIndex = {
-    relations: new Map<string, Relation | string>(),
     lists: new Map(),
-    marks: new Map(),
+    pseudoFields: new Map(),
     toOnes: new Map(),
     idColumns: new Map(),
     lenses: new Map(),
@@ -79,7 +78,7 @@ const indexAnnotations = (map: SchemaMap, index: MapIndex) => {
   for (const resource of modelsNamedIn(map.maps)) {
     const model = mapAndModelNamed(resource).modelName;
     const fields = modelOfResource(map, resource)?.fields ?? {};
-    const marks = new Set<string>();
+    const pseudoFields = new Set<string>();
     for (const [name, field] of Object.entries(fields)) {
       const annotation = permissionsAnnotation(field);
       if (!annotation) continue;
@@ -94,19 +93,19 @@ const indexAnnotations = (map: SchemaMap, index: MapIndex) => {
       if ('down' in annotation)
         index.lists.set(
           `${resource}\u0000${name}`,
-          listDeclaredByDownOrThrow(map, resource, name, annotation.down),
+          listDeclaredByDown(map, resource, name, annotation.down),
         );
-      if ('place' in annotation) {
-        const problem = whyFieldTakesNoPlaceMark(map, resource, name, annotation.place);
-        if (problem) throw new Error(`${at}: \`place\` ${problem}`);
-        marks.add(name);
+      if ('pseudoField' in annotation) {
+        const problem = whyFieldIsNoPseudoField(map, resource, name, annotation.pseudoField);
+        if (problem) throw new Error(`${at}: \`pseudoField\` ${problem}`);
+        pseudoFields.add(name);
       }
     }
-    if (marks.size) index.marks.set(resource, marks);
+    if (pseudoFields.size) index.pseudoFields.set(resource, pseudoFields);
   }
 };
 
-const listDeclaredByDownOrThrow = (
+const listDeclaredByDown = (
   map: SchemaMap,
   resource: string,
   name: string,
@@ -186,8 +185,10 @@ export const listsOf = <R extends string>(
     return of === resource ? [[name, list as ListRelation<R>] as [string, ListRelation<R>]] : [];
   });
 
-export const marksOf = <R extends string>(map: SchemaMap, resource: R): ReadonlySet<string> =>
-  indexMap(map).marks.get(resource) ?? new Set();
+export const pseudoFieldsOf = <R extends string>(
+  map: SchemaMap,
+  resource: R,
+): ReadonlySet<string> => indexMap(map).pseudoFields.get(resource) ?? new Set();
 
 const kindsWhoseForeignKeysAre = (axes: readonly PolymorphicAxis[], columns: readonly string[]) => {
   for (const axis of axes) {
@@ -199,18 +200,32 @@ const kindsWhoseForeignKeysAre = (axes: readonly PolymorphicAxis[], columns: rea
   return null;
 };
 
-/** `segment` of `resource` as a relation the hydrator follows, or why it is not one. */
+const followedToOneRelations = new WeakMap<MapIndex, Map<string, Relation | string>>();
+
+/** `segment` of `resource` as a relation the hydrator follows, or why it is not one; answered once per map. */
 export const followedToOneRelationOrWhyNot = <R extends string>(
   map: SchemaMap,
   resource: R,
   segment: string,
-): Relation<R> | string => {
-  const cache = indexMap(map).relations;
-  const key = `${resource}\u0000${segment}`;
-  if (!cache.has(key))
-    cache.set(key, followedToOneRelationOrWhyNotUncached(map, resource, segment));
-  return cache.get(key) as Relation<R> | string;
-};
+): Relation<R> | string =>
+  answerOnce(followedToOneRelations, indexMap(map), `${resource}\u0000${segment}`, () => {
+    const field = fieldOfResource(map, resource, segment);
+    const at = `\`${resource}.${segment}\``;
+    if (field?.kind !== 'object' || field.isList) return `${at} is not a to-one relation`;
+    const led = resourceLedToBy(resource, field);
+    if (skipsHydration(field))
+      return `${at} is \`hydrate: false\`: nothing loads it; drop the annotation or read it from \`${led}\``;
+    if (!field.fromFields?.length)
+      return `${at} keeps its foreign key on \`${led}\`: nothing loads it; write the rule on \`${led}\`, or hold the key on this model`;
+    if (!modelOfResource(map, led))
+      return `${at} leads to \`${led}\`, which is not a model of its map: nothing loads it`;
+    return {
+      resource: led,
+      from: field.fromFields,
+      to: field.toFields ?? [],
+      kinds: kindsWhoseForeignKeysAre(axesOfResource(map, resource), field.fromFields),
+    };
+  }) as Relation<R> | string;
 
 export const relationOf = <R extends string>(
   map: SchemaMap,
@@ -219,30 +234,6 @@ export const relationOf = <R extends string>(
 ): Relation<R> | null => {
   const relation = followedToOneRelationOrWhyNot(map, resource, segment);
   return typeof relation === 'string' ? null : relation;
-};
-
-const followedToOneRelationOrWhyNotUncached = <R extends string>(
-  map: SchemaMap,
-  resource: R,
-  segment: string,
-): Relation<R> | string => {
-  const field = fieldOfResource(map, resource, segment);
-  const at = `\`${resource}.${segment}\``;
-  if (field?.kind !== 'object' || field.isList) return `${at} is not a to-one relation`;
-  const led = resourceLedToBy(resource, field);
-  if (skipsHydration(field))
-    return `${at} is \`hydrate: false\`: nothing loads it; drop the annotation or read it from \`${led}\``;
-  if (!field.fromFields?.length)
-    return `${at} keeps its foreign key on \`${led}\`: nothing loads it; write the rule on \`${led}\`, or hold the key on this model`;
-  if (!modelOfResource(map, led))
-    return `${at} leads to \`${led}\`, which is not a model of its map: nothing loads it`;
-  const axes = axesOfResource(map, resource);
-  return {
-    resource: led as R,
-    from: field.fromFields,
-    to: field.toFields ?? [],
-    kinds: kindsWhoseForeignKeysAre(axes, field.fromFields),
-  };
 };
 
 /** Every to-one relation of `resource` the hydrator follows, by field name. */

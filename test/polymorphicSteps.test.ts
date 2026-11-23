@@ -164,10 +164,10 @@ describe('polymorphic steps', () => {
       where: { field: 'ownerModel', operator: 'in', value: ['Integration', 'Organization'] },
       actions: { manage: true },
     } as EntitlementEntry;
-    const placed = pseudoRecordsOfEntitlement(map, entry, o1);
-    expect(placed?.map((r) => (r.integration as { ownerModel: string }).ownerModel).sort()).toEqual(
-      ['Organization', 'Space'],
-    );
-    expect(placed?.every((r) => canGrant(writer, schema, entry, r))).toBe(false);
+    const pseudoRecord = pseudoRecordsOfEntitlement(map, entry, o1);
+    expect(
+      pseudoRecord?.map((r) => (r.integration as { ownerModel: string }).ownerModel).sort(),
+    ).toEqual(['Organization', 'Space']);
+    expect(pseudoRecord?.every((r) => canGrant(writer, schema, entry, r))).toBe(false);
   });
 });

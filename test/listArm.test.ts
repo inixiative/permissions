@@ -343,8 +343,8 @@ describe('the grant check', () => {
 
   test('a self-anchored entry is judged on the real row, list included', async () => {
     const c1 = await conversation('c1');
-    const [placed] = pseudoRecordsOfEntitlement(map, selfAnchored, c1) as Row[];
-    expect(placed).toBe(c1);
+    const [pseudoRecord] = pseudoRecordsOfEntitlement(map, selfAnchored, c1) as Row[];
+    expect(pseudoRecord).toBe(c1);
     expect(canGrant(await person('u-fay'), schema, selfAnchored, c1)).toBe(true);
     expect(canGrant(await person('u-otto'), schema, selfAnchored, c1)).toBe(false);
     expect(canGrant(await person('u-ada', 'manage'), schema, selfAnchored, c1)).toBe(false);
@@ -357,17 +357,17 @@ describe('the grant check', () => {
       actions: { inConversation: true },
     };
     const c1 = await conversation('c1');
-    const [placed] = pseudoRecordsOfEntitlement(map, entry, c1) as Row[];
-    expect(canGrant(await person('u-fay'), schema, entry, placed as Row)).toBe(true);
-    expect(canGrant(await person('u-otto'), schema, entry, placed as Row)).toBe(false);
+    const [pseudoRecord] = pseudoRecordsOfEntitlement(map, entry, c1) as Row[];
+    expect(canGrant(await person('u-fay'), schema, entry, pseudoRecord as Row)).toBe(true);
+    expect(canGrant(await person('u-otto'), schema, entry, pseudoRecord as Row)).toBe(false);
   });
 
   test('a stand-in conversation has no list: nobody grants "participant of every conversation"', async () => {
     const b1 = { uuid: 'b1' };
-    const [placed] = pseudoRecordsOfEntitlement(map, underBrand, b1) as Row[];
-    expect(placed).toEqual({ brandUuid: 'b1', brand: b1 });
+    const [pseudoRecord] = pseudoRecordsOfEntitlement(map, underBrand, b1) as Row[];
+    expect(pseudoRecord).toEqual({ brandUuid: 'b1', brand: b1 });
     for (const who of [await person('u-fay', 'advocate'), await person('u-ada', 'manage')])
-      expect(canGrant(who, schema, underBrand, placed as Row)).toBe(false);
+      expect(canGrant(who, schema, underBrand, pseudoRecord as Row)).toBe(false);
   });
 
   test('a `where` cannot pin a list onto the stand-in', async () => {
@@ -376,9 +376,9 @@ describe('the grant check', () => {
       ...underBrand,
       where: { field: 'participants', operator: 'equals', value: forged },
     } as EntitlementEntry;
-    const [placed] = pseudoRecordsOfEntitlement(map, entry, { uuid: 'b1' }) as Row[];
-    expect(placed).not.toHaveProperty('participants');
-    expect(canGrant(await person('u-fay'), schema, entry, placed as Row)).toBe(false);
+    const [pseudoRecord] = pseudoRecordsOfEntitlement(map, entry, { uuid: 'b1' }) as Row[];
+    expect(pseudoRecord).not.toHaveProperty('participants');
+    expect(canGrant(await person('u-fay'), schema, entry, pseudoRecord as Row)).toBe(false);
   });
 
   test('a copy is backed only where its grantor’s list is: the liveness walk has no list on a stand-in', async () => {
@@ -967,9 +967,9 @@ describe('one list per walk', () => {
       actions: { inConversation: true },
     });
     const forged = entry({ field: 'conversation', operator: 'equals', value: claimed });
-    const placed = pseudoRecordsOfEntitlement(withSender, forged, { uuid: 'b1' }) as Row[];
-    expect(placed.length).toBe(1);
-    for (const stand of placed) {
+    const pseudoRecord = pseudoRecordsOfEntitlement(withSender, forged, { uuid: 'b1' }) as Row[];
+    expect(pseudoRecord.length).toBe(1);
+    for (const stand of pseudoRecord) {
       expect(stand).not.toHaveProperty('conversation');
       expect(canGrantWithRules(withSender)(await person('u-otto'), schema, forged, stand)).toBe(
         false,

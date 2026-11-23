@@ -57,7 +57,7 @@ export type WalkCase = {
   objects: CaseObject[];
   tables: CaseTable[];
   query: { object: number; action: ActionRule };
-  grant: { ent: Omit<CaseEntitlement, 'owner' | 'ref'>; placed: number };
+  grant: { ent: Omit<CaseEntitlement, 'owner' | 'ref'>; pseudoRecord: number };
 };
 
 /** A resource's name: the case's `names`, else `db:r<index>`. */
@@ -192,7 +192,7 @@ export const outcomesOfWalkCase = async (walkCase: WalkCase) => {
     data: actorData(walkCase.tables[0]?.actor ?? null, { id: 'actor0' }),
   };
   const action = structuredClone(walkCase.query.action);
-  const placed = rows[walkCase.grant.placed] ?? record;
+  const pseudoRecord = rows[walkCase.grant.pseudoRecord] ?? record;
   return {
     check: outcome(() => checkWithRules(map)(holder, schema, subject, action)),
     paths: outcome(() => pathsWithRules(map, { limit: 2 })(holder, schema, subject, action)),
@@ -201,7 +201,7 @@ export const outcomesOfWalkCase = async (walkCase: WalkCase) => {
         holder,
         schema,
         entryOfCase(walkCase, { ...walkCase.grant.ent, ref: '' }),
-        placed,
+        pseudoRecord,
       ),
     ),
   };

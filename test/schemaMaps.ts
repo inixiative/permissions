@@ -175,5 +175,5 @@ export const pathsWithRules =
 /** The grant check over `map`, taking each case's rules beside the entry. */
 export const canGrantWithRules =
   (map: SchemaMap, options?: Pick<CheckOptions, 'additionalRules'>) =>
-  (permix: PermixLike, rules: Rules, entry: EntitlementEntry, placed: Row): boolean =>
-    createCanGrantEntitlement(mapWith(map, rules), options)(permix, entry, placed);
+  (permix: PermixLike, rules: Rules, entry: EntitlementEntry, pseudoRecord: Row): boolean =>
+    createCanGrantEntitlement(mapWith(map, rules), options)(permix, entry, pseudoRecord);

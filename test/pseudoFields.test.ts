@@ -16,14 +16,14 @@ import { annotate, loadModels } from './fixtures/load';
 import { canGrantWithRules, checkWithRules, mapWith, type Rules, stringColumn } from './schemaMaps';
 
 // Kingdom's surface → integrationResource → integration slice (schemas/kingdom.prisma), read by
-// field-map. `IntegrationResource.kind` and `.enabled` read `/// @permissions(place: true)`.
+// field-map. `IntegrationResource.kind` and `.enabled` read `/// @permissions(pseudoField: true)`.
 const models = loadModels('kingdom');
 const mapOver = (over: typeof models): SchemaMap => ({
   permissions: {},
   maps: { db: { models: over } },
 });
-const marked = mapOver(models);
-const unmarked = mapOver(
+const withPseudoFields = mapOver(models);
+const withoutPseudoFields = mapOver(
   annotate(annotate(models, 'IntegrationResource', 'kind'), 'IntegrationResource', 'enabled'),
 );
 
@@ -113,21 +113,27 @@ const everyChannel: EntitlementEntry = {
   },
   actions: { '*': true },
 };
-const placedOn = (map: SchemaMap, entry: EntitlementEntry, anchor: Row = i1) =>
+const pseudoRecordsOn = (map: SchemaMap, entry: EntitlementEntry, anchor: Row = i1) =>
   pseudoRecordsOfEntitlement(map, entry, anchor) as Row[];
 const granted = async (map: SchemaMap, rules: Rules, entry: EntitlementEntry, anchor = i1) => {
   const writer = await orgOwner();
   const canGrant = canGrantWithRules(map);
-  return placedOn(map, entry, anchor).every((record) => canGrant(writer, rules, entry, record));
+  return pseudoRecordsOn(map, entry, anchor).every((record) =>
+    canGrant(writer, rules, entry, record),
+  );
 };
 
 describe('Kingdom’s wide row: every channel of integration i1', () => {
   test('the one-form schema validates', () => {
-    expect(validateSchema(mapWith(marked, schema))).toEqual({ ok: true, errors: [], warnings: [] });
+    expect(validateSchema(mapWith(withPseudoFields, schema))).toEqual({
+      ok: true,
+      errors: [],
+      warnings: [],
+    });
   });
 
-  test('with the marks, the stated values join the stand-in resource', () => {
-    expect(placedOn(marked, everyChannel)).toEqual([
+  test('with the pseudo fields, the values the where requires join the pseudo record', () => {
+    expect(pseudoRecordsOn(withPseudoFields, everyChannel)).toEqual([
       {
         integrationResource: {
           kind: 'channel',
@@ -139,26 +145,26 @@ describe('Kingdom’s wide row: every channel of integration i1', () => {
     ]);
   });
 
-  test('granted with the marks, refused without; no copied root scalars anywhere', async () => {
-    expect(await granted(marked, schema, everyChannel)).toBe(true);
-    expect(placedOn(unmarked, everyChannel)).toEqual([
+  test('granted with the pseudo fields, refused without; no copied root scalars anywhere', async () => {
+    expect(await granted(withPseudoFields, schema, everyChannel)).toBe(true);
+    expect(pseudoRecordsOn(withoutPseudoFields, everyChannel)).toEqual([
       { integrationResource: { integrationId: 'i1', integration: i1 } },
     ]);
-    expect(await granted(unmarked, schema, everyChannel)).toBe(false);
+    expect(await granted(withoutPseudoFields, schema, everyChannel)).toBe(false);
     const fields = Object.keys(models.SlackChannelOperation?.fields ?? {});
     expect(fields).not.toContain('resourceKind');
     expect(fields).not.toContain('resourceEnabled');
   });
 
   test('a writer with no hold on the integration is refused either way', async () => {
-    const canGrant = canGrantWithRules(marked);
+    const canGrant = canGrantWithRules(withPseudoFields);
     const stranger = await holding(['db:Organization', 'o2', 'own']);
-    const [placed] = placedOn(marked, everyChannel);
-    expect(canGrant(stranger, schema, everyChannel, placed as Row)).toBe(false);
+    const [pseudoRecord] = pseudoRecordsOn(withPseudoFields, everyChannel);
+    expect(canGrant(stranger, schema, everyChannel, pseudoRecord as Row)).toBe(false);
   });
 
   test('at read the nested `where` is judged on the real resource', async () => {
-    const check = checkWithRules(marked);
+    const check = checkWithRules(withPseudoFields);
     const holder = createPermissions();
     await holder.setup([everyChannel], { owner: await orgOwner() });
     const on = (record: Row) => ({ resource: 'db:SlackChannelOperation', record });
@@ -174,14 +180,14 @@ describe('Kingdom’s wide row: every channel of integration i1', () => {
 
   test('stating only the kind leaves `enabled` unknown: refused', async () => {
     const entry = { ...everyChannel, where: equals('integrationResource.kind', 'channel') };
-    expect(await granted(marked, schema, entry)).toBe(false);
+    expect(await granted(withPseudoFields, schema, entry)).toBe(false);
   });
 });
 
 describe('what fills a stand-in, and what never does', () => {
   const withWhere = (where: Condition): EntitlementEntry => ({ ...everyChannel, where });
   const standIn = (map: SchemaMap, where: Condition, anchor: Row = i1) =>
-    (placedOn(map, withWhere(where), anchor)[0] as Row).integrationResource as Row;
+    (pseudoRecordsOn(map, withWhere(where), anchor)[0] as Row).integrationResource as Row;
 
   test('only a root conjunct: a leaf inside `any` is not true of every admitted record', () => {
     const where = {
@@ -190,7 +196,7 @@ describe('what fills a stand-in, and what never does', () => {
         equals('integrationResource.kind', 'user'),
       ],
     } as Condition;
-    expect(standIn(marked, where)).not.toHaveProperty('kind');
+    expect(standIn(withPseudoFields, where)).not.toHaveProperty('kind');
   });
 
   test('only a literal `equals`: no options, no other operator, no path', () => {
@@ -209,64 +215,67 @@ describe('what fills a stand-in, and what never does', () => {
         ],
       },
     ])
-      expect(standIn(marked, leaf as Condition)).not.toHaveProperty('kind');
+      expect(standIn(withPseudoFields, leaf as Condition)).not.toHaveProperty('kind');
   });
 
-  test('an unmarked nested field stays unknown', () => {
-    expect(standIn(marked, equals('integrationResource.name', 'general'))).not.toHaveProperty(
-      'name',
-    );
+  test('an withoutPseudoFields nested field stays unknown', () => {
+    expect(
+      standIn(withPseudoFields, equals('integrationResource.name', 'general')),
+    ).not.toHaveProperty('name');
   });
 
   test('the anchor and the rows above it are real and never written', () => {
-    const provider = mapOver(annotate(models, 'Integration', 'provider', { place: true }));
+    const provider = mapOver(annotate(models, 'Integration', 'provider', { pseudoField: true }));
     const linear = integration('i1', 'linear');
     const frozen = structuredClone(linear);
-    const [placed] = placedOn(
+    const [pseudoRecord] = pseudoRecordsOn(
       provider,
       withWhere(equals('integrationResource.integration.provider', 'slack')),
       linear,
     );
-    expect(((placed as Row).integrationResource as Row).integration).toBe(linear);
+    expect(((pseudoRecord as Row).integrationResource as Row).integration).toBe(linear);
     expect(linear).toEqual(frozen);
   });
 
   test('a leaf through a relation that is not the entry’s path fills nothing', () => {
-    const [placed] = placedOn(marked, withWhere(equals('projectIntegrationResource.id', 'pir1')));
-    expect(placed).toEqual({ integrationResource: { integrationId: 'i1', integration: i1 } });
+    const [pseudoRecord] = pseudoRecordsOn(
+      withPseudoFields,
+      withWhere(equals('projectIntegrationResource.id', 'pir1')),
+    );
+    expect(pseudoRecord).toEqual({ integrationResource: { integrationId: 'i1', integration: i1 } });
   });
 
-  test('each placement builds its own stand-ins: one grant’s value never reaches another’s', () => {
-    const channel = standIn(marked, equals('integrationResource.kind', 'channel'));
-    const user = standIn(marked, equals('integrationResource.kind', 'user'));
-    const none = standIn(marked, equals('integrationResource.name', 'x'));
+  test('each call builds its own stand-ins: one grant’s value never reaches another’s', () => {
+    const channel = standIn(withPseudoFields, equals('integrationResource.kind', 'channel'));
+    const user = standIn(withPseudoFields, equals('integrationResource.kind', 'user'));
+    const none = standIn(withPseudoFields, equals('integrationResource.name', 'x'));
     expect([channel.kind, user.kind, none.kind]).toEqual(['channel', 'user', undefined]);
     expect(channel.integration).toBe(i1);
     expect(i1).toEqual(integration('i1'));
   });
 
-  test('the root keeps today’s rule: any exact `equals` on the root pins, marked or not', () => {
-    const [placed] = placedOn(marked, withWhere(equals('channel', 'C1')));
-    expect((placed as Row).channel).toBe('C1');
+  test('the root keeps today’s rule: any exact `equals` on the root is copied, pseudo field or not', () => {
+    const [pseudoRecord] = pseudoRecordsOn(withPseudoFields, withWhere(equals('channel', 'C1')));
+    expect((pseudoRecord as Row).channel).toBe('C1');
   });
 });
 
-describe('where the mark is refused, when the map is first used', () => {
+describe('where the annotation is refused, when the map is first used', () => {
   const boot =
     (model: string, field: string, value: AnnoValue = true, base = models) =>
     () =>
       createRebacCheck({
-        ...mapOver(annotate(base, model, field, { place: value })),
+        ...mapOver(annotate(base, model, field, { pseudoField: value })),
         permissions: {},
       });
 
   test('keys, ids, dates, Json, relations, and anything but `true`', () => {
-    expect(boot('IntegrationResource', 'integrationId')).toThrow(/never marks a relation key/);
-    expect(boot('IntegrationResource', 'id')).toThrow(/never marks an id/);
+    expect(boot('IntegrationResource', 'integrationId')).toThrow(/never sits on a relation key/);
+    expect(boot('IntegrationResource', 'id')).toThrow(/never sits on an id/);
     expect(boot('Integration', 'deletedAt')).toThrow(/not DateTime/);
     expect(boot('IntegrationResource', 'metadata')).toThrow(/not Json/);
-    expect(boot('IntegrationResource', 'integration')).toThrow(/marks a scalar or enum field/);
-    expect(boot('IntegrationResource', 'projects')).toThrow(/marks a scalar or enum field/);
+    expect(boot('IntegrationResource', 'integration')).toThrow(/sits on a scalar or enum field/);
+    expect(boot('IntegrationResource', 'projects')).toThrow(/sits on a scalar or enum field/);
     expect(boot('IntegrationResource', 'kind', 'yes')).toThrow(/is true or absent/);
     expect(boot('IntegrationResource', 'kind', false)).toThrow(/is true or absent/);
     expect(boot('IntegrationResource', 'name')).not.toThrow();
@@ -294,19 +303,19 @@ describe('where the mark is refused, when the map is first used', () => {
     };
     const thing = (field: string) => () =>
       createRebacCheck({
-        maps: { db: { models: annotate(fieldMap.models, 'Thing', field, { place: true }) } },
+        maps: { db: { models: annotate(fieldMap.models, 'Thing', field, { pseudoField: true }) } },
         polymorphism: { db: { Thing: { axes: [{ field: 'ownerModel', fkMap: {} }] } } },
         permissions: {},
       });
-    expect(thing('ownerModel')).toThrow(/never marks a discriminator/);
-    expect(thing('tags')).toThrow(/never marks a list/);
+    expect(thing('ownerModel')).toThrow(/never sits on a discriminator/);
+    expect(thing('tags')).toThrow(/never sits on a list/);
     expect(thing('ratio')).toThrow(/not Float/);
     expect(thing('price')).toThrow(/not Decimal/);
     expect(thing('tier')).not.toThrow();
   });
 });
 
-describe('a polymorphic stand-in: the mark joins it, the path still sets its kind and keys', () => {
+describe('a polymorphic stand-in: the pseudo field joins it, the path still sets its kind and keys', () => {
   const scalar = stringColumn;
   const toOne = (type: string, fromFields: string[], toFields: string[]) =>
     ({ kind: 'object', type, isList: false, fromFields, toFields }) as const;
@@ -329,7 +338,7 @@ describe('a polymorphic stand-in: the mark joins it, the path still sets its kin
               ownerModel: scalar,
               organizationId: scalar,
               spaceId: scalar,
-              status: { ...scalar, annotations: { permissions: { place: true } } },
+              status: { ...scalar, annotations: { permissions: { pseudoField: true } } },
               organization: toOne('Organization', ['organizationId'], ['id']),
               space: toOne('Space', ['organizationId', 'spaceId'], ['organizationId', 'id']),
             },
@@ -372,8 +381,8 @@ describe('a polymorphic stand-in: the mark joins it, the path still sets its kin
       },
       actions: { manage: true },
     };
-    const [placed] = pseudoRecordsOfEntitlement(map, entry, s1) as Row[];
-    expect((placed as Row).integration).toEqual({
+    const [pseudoRecord] = pseudoRecordsOfEntitlement(map, entry, s1) as Row[];
+    expect((pseudoRecord as Row).integration).toEqual({
       status: 'active',
       ownerModel: 'Space',
       organizationId: 'o1',
@@ -416,27 +425,31 @@ const linked = schemaWith({
 
 describe('Kingdom’s project scope: a grant anchored at the project-resource join row', () => {
   test('the stand-in is a call through that link; everything the rule reads is a real row', () => {
-    expect(placedOn(marked, atJoinRow, pir1)).toEqual([
+    expect(pseudoRecordsOn(withPseudoFields, atJoinRow, pir1)).toEqual([
       { projectIntegrationResourceId: 'pir1', projectIntegrationResource: pir1 },
     ]);
   });
 
   test('refused under the one-form rule: the stand-in’s own `integrationResource` is unknown', async () => {
-    expect(await granted(marked, schema, atJoinRow, pir1)).toBe(false);
+    expect(await granted(withPseudoFields, schema, atJoinRow, pir1)).toBe(false);
   });
 
-  test('granted once the rule reaches the resource through the link; marks play no part', async () => {
-    expect(validateSchema(mapWith(marked, linked))).toEqual({ ok: true, errors: [], warnings: [] });
-    expect(await granted(marked, linked, atJoinRow, pir1)).toBe(true);
-    expect(await granted(unmarked, linked, atJoinRow, pir1)).toBe(true);
-    const canGrant = canGrantWithRules(marked);
+  test('granted once the rule reaches the resource through the link; pseudo fields play no part', async () => {
+    expect(validateSchema(mapWith(withPseudoFields, linked))).toEqual({
+      ok: true,
+      errors: [],
+      warnings: [],
+    });
+    expect(await granted(withPseudoFields, linked, atJoinRow, pir1)).toBe(true);
+    expect(await granted(withoutPseudoFields, linked, atJoinRow, pir1)).toBe(true);
+    const canGrant = canGrantWithRules(withPseudoFields);
     const projectOnly = await holding(['db:Project', 'p1', 'manage']);
-    const [placed] = placedOn(marked, atJoinRow, pir1);
-    expect(canGrant(projectOnly, linked, atJoinRow, placed as Row)).toBe(false);
+    const [pseudoRecord] = pseudoRecordsOn(withPseudoFields, atJoinRow, pir1);
+    expect(canGrant(projectOnly, linked, atJoinRow, pseudoRecord as Row)).toBe(false);
   });
 
   test('it reaches calls on that resource made through that link, and nothing else', async () => {
-    const check = checkWithRules(marked);
+    const check = checkWithRules(withPseudoFields);
     const holder = createPermissions();
     await holder.setup([atJoinRow], { owner: await orgOwner() });
     const sends = (record: Row) =>
@@ -457,10 +470,10 @@ describe('Kingdom’s project scope: a grant anchored at the project-resource jo
       },
       actions: { '*': true },
     };
-    expect(placedOn(marked, wholeProject, p1)).toEqual([
+    expect(pseudoRecordsOn(withPseudoFields, wholeProject, p1)).toEqual([
       { projectIntegrationResource: { projectId: 'p1', project: p1 } },
     ]);
-    expect(await granted(marked, linked, wholeProject, p1)).toBe(false);
+    expect(await granted(withPseudoFields, linked, wholeProject, p1)).toBe(false);
     const stated = {
       ...wholeProject,
       where: {
@@ -470,8 +483,8 @@ describe('Kingdom’s project scope: a grant anchored at the project-resource jo
         ],
       } as Condition,
     };
-    expect(await granted(marked, linked, stated, p1)).toBe(false);
-    const check = checkWithRules(marked);
+    expect(await granted(withPseudoFields, linked, stated, p1)).toBe(false);
+    const check = checkWithRules(withPseudoFields);
     const holder = createPermissions();
     await holder.setup([wholeProject], { owner: await orgOwner() });
     const sends = (record: Row) =>
@@ -483,7 +496,7 @@ describe('Kingdom’s project scope: a grant anchored at the project-resource jo
 });
 
 // The adversarial review's reproductions for part B and the project scope.
-describe('a marked field stated twice', () => {
+describe('a pseudo field the where requires twice', () => {
   const kinds = (...stated: string[]): EntitlementEntry => ({
     ...everyChannel,
     where: {
@@ -494,24 +507,24 @@ describe('a marked field stated twice', () => {
     } as Condition,
   });
   const standIn = (entry: EntitlementEntry) =>
-    (placedOn(marked, entry)[0] as Row).integrationResource as Row;
+    (pseudoRecordsOn(withPseudoFields, entry)[0] as Row).integrationResource as Row;
 
   test('two different values leave the field unknown, in either order: refused', async () => {
     for (const entry of [kinds('user', 'channel'), kinds('channel', 'user')]) {
       expect(standIn(entry)).not.toHaveProperty('kind');
       expect(standIn(entry).enabled).toBe(true);
-      expect(await granted(marked, schema, entry)).toBe(false);
+      expect(await granted(withPseudoFields, schema, entry)).toBe(false);
     }
   });
 
   test('the same value twice is one statement: a narrowed copy still pins it', async () => {
     expect(standIn(kinds('channel', 'channel')).kind).toBe('channel');
-    expect(await granted(marked, schema, kinds('channel', 'channel'))).toBe(true);
+    expect(await granted(withPseudoFields, schema, kinds('channel', 'channel'))).toBe(true);
   });
 
   test('the root follows the same rule', () => {
     const root = (...channels: string[]): Row =>
-      placedOn(marked, {
+      pseudoRecordsOn(withPseudoFields, {
         ...everyChannel,
         where: { all: channels.map((channel) => equals('channel', channel)) } as Condition,
       })[0] as Row;
@@ -541,7 +554,7 @@ describe('a project scope: a join-row entry and an anchor through the link', () 
     projectIntegrationResource: via,
   });
   const sendsAs = async (entry: EntitlementEntry) => {
-    const check = checkWithRules(marked);
+    const check = checkWithRules(withPseudoFields);
     const holder = createPermissions();
     await holder.setup([entry], { owner: await orgOwner() });
     return (record: Row) =>
@@ -573,7 +586,7 @@ describe('a project scope: a join-row entry and an anchor through the link', () 
   };
 
   test('a project scope anchors at the integration, through the link: the marks fill two levels down', async () => {
-    expect(placedOn(marked, inProject)).toEqual([
+    expect(pseudoRecordsOn(withPseudoFields, inProject)).toEqual([
       {
         projectIntegrationResource: {
           integrationResource: {
@@ -585,12 +598,12 @@ describe('a project scope: a join-row entry and an anchor through the link', () 
         },
       },
     ]);
-    expect(await granted(marked, linked, inProject)).toBe(true);
-    expect(await granted(unmarked, linked, inProject)).toBe(false);
-    const canGrant = canGrantWithRules(marked);
+    expect(await granted(withPseudoFields, linked, inProject)).toBe(true);
+    expect(await granted(withoutPseudoFields, linked, inProject)).toBe(false);
+    const canGrant = canGrantWithRules(withPseudoFields);
     const projectOnly = await holding(['db:Project', 'p1', 'manage']);
-    for (const placed of placedOn(marked, inProject))
-      expect(canGrant(projectOnly, linked, inProject, placed)).toBe(false);
+    for (const pseudoRecord of pseudoRecordsOn(withPseudoFields, inProject))
+      expect(canGrant(projectOnly, linked, inProject, pseudoRecord)).toBe(false);
   });
 
   test('at read it follows the project’s links live, and nothing outside the project or the kind', async () => {

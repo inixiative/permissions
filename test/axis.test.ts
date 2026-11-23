@@ -191,8 +191,8 @@ const theOrganizations = () =>
   underO1({ field: 'ownerModel', operator: 'equals', value: 'Organization' } as never);
 
 const may = async (writer: Awaited<ReturnType<typeof table>>, entry: EntitlementEntry) => {
-  const placed = pseudoRecordsOfEntitlement(map, entry, o1);
-  return placed?.every((record) => canGrant(writer, schema, entry, record));
+  const pseudoRecord = pseudoRecordsOfEntitlement(map, entry, o1);
+  return pseudoRecord?.every((record) => canGrant(writer, schema, entry, record));
 };
 
 const holderOf = async (entry: EntitlementEntry) => {
@@ -255,15 +255,15 @@ describe('a holder grants what it holds onward, and no more', () => {
 });
 
 describe('the grant is judged on one pseudo record per kind the entry admits (R81)', () => {
-  test('unfiltered: four pseudo records, each owner placed under the anchor', () => {
-    const placed = pseudoRecordsOfEntitlement(map, underO1(), o1);
-    expect(placed?.map((record) => record.ownerModel)).toEqual([
+  test('unfiltered: four pseudo records, each owner pseudoRecord under the anchor', () => {
+    const pseudoRecord = pseudoRecordsOfEntitlement(map, underO1(), o1);
+    expect(pseudoRecord?.map((record) => record.ownerModel)).toEqual([
       'Organization',
       'Space',
       'OrganizationUser',
       'SpaceUser',
     ]);
-    expect(placed?.[1]).toEqual({
+    expect(pseudoRecord?.[1]).toEqual({
       ownerModel: 'Space',
       organizationId: 'o1',
       organization: o1,
@@ -293,23 +293,26 @@ describe('the grant is judged on one pseudo record per kind the entry admits (R8
   });
 });
 
-describe('an owner is placed under every record above it, not only its parent', () => {
+describe('an owner is pseudoRecord under every record above it, not only its parent', () => {
   test("via organizationUser.organization: a space member's integration sits under its member and its space", async () => {
     const members: EntitlementEntry = {
       resource: 'db:Integration',
       anchor: { resource: 'db:Organization', id: 'o1', path: 'organizationUser.organization' },
       actions: { manage: true },
     };
-    const placed = pseudoRecordsOfEntitlement(map, members, o1);
-    expect(placed?.map((record) => record.ownerModel)).toEqual(['OrganizationUser', 'SpaceUser']);
-    const spaceMember = placed?.[1]?.spaceUser as Row;
+    const pseudoRecord = pseudoRecordsOfEntitlement(map, members, o1);
+    expect(pseudoRecord?.map((record) => record.ownerModel)).toEqual([
+      'OrganizationUser',
+      'SpaceUser',
+    ]);
+    const spaceMember = pseudoRecord?.[1]?.spaceUser as Row;
     expect(spaceMember.space).toEqual({ organizationId: 'o1', organization: o1 });
     expect(await may(await owner(), members)).toBe(true);
     expect(await may(await admin(), members)).toBe(false);
   });
 });
 
-describe('a kind whose owner cannot be placed is still judged', () => {
+describe('a kind whose owner cannot be pseudoRecord is still judged', () => {
   test('its record stays, the owner unknown, rather than the kind skipped', () => {
     const orphanMap: SchemaMap = {
       permissions: {},
@@ -451,7 +454,7 @@ describe('a root leaf is judged only on the kind (R88 adversarial, R90)', () => 
   const kindsK = { field: 'ownerModel', operator: 'in', value: ['Organization', 'Space'] };
   const withK = (leaf: Row) => underO1({ all: [kindsK, leaf] } as never);
 
-  test('a leaf on the placed owner object narrows nothing', async () => {
+  test('a leaf on the pseudoRecord owner object narrows nothing', async () => {
     const leaf = {
       field: 'space',
       operator: 'equals',
@@ -462,8 +465,8 @@ describe('a root leaf is judged only on the kind (R88 adversarial, R90)', () => 
 
   test("a leaf on a copy of the anchor's columns inside the owner narrows nothing", async () => {
     const leaf = { field: 'space.organization.name', operator: 'equals', value: 'Later' };
-    const placed = pseudoRecordsOfEntitlement(map, withK(leaf), { ...o1, name: 'Now' });
-    expect(placed?.map((record) => record.ownerModel)).toEqual(['Organization', 'Space']);
+    const pseudoRecord = pseudoRecordsOfEntitlement(map, withK(leaf), { ...o1, name: 'Now' });
+    expect(pseudoRecord?.map((record) => record.ownerModel)).toEqual(['Organization', 'Space']);
   });
 
   const billing: SchemaMap = {
@@ -520,14 +523,14 @@ describe('a root leaf is judged only on the kind (R88 adversarial, R90)', () => 
     ).toEqual(['Organization', 'Space']);
   });
 
-  test('a leaf on a top-level key copied from the placed owner narrows nothing', () => {
+  test('a leaf on a top-level key copied from the pseudoRecord owner narrows nothing', () => {
     expect(kindsUnder({ field: 'billingOrganizationId', operator: 'equals', value: 'o9' })).toEqual(
       ['Organization', 'Space'],
     );
   });
 });
 
-describe("on a multi-hop path only the kind narrows: the first step's parent is placed, not fixed (R88 adversarial)", () => {
+describe("on a multi-hop path only the kind narrows: the first step's parent is pseudoRecord, not fixed (R88 adversarial)", () => {
   const things: SchemaMap = {
     permissions: {},
     maps: {
@@ -590,7 +593,7 @@ describe("on a multi-hop path only the kind narrows: the first step's parent is 
     },
   };
 
-  test("a leaf on a key the placed parent's owner guessed narrows nothing", () => {
+  test("a leaf on a key the pseudoRecord parent's owner guessed narrows nothing", () => {
     const items: EntitlementEntry = {
       resource: 'db:Item',
       anchor: { resource: 'db:Organization', id: 'o1', path: 'thing.organization' },

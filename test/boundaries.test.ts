@@ -133,8 +133,11 @@ const ordering = (permix: Permix, buyerId: string, p: Row = product()) =>
 const reselling = (permix: Permix, buyerId: string, p: Row = product()) =>
   check(permix, schema, { resource: 'db:order', record: orderBy(buyerId, p) }, 'resell');
 const grants = (writer: Permix, entry: EntitlementEntry) => {
-  const placed = pseudoRecordsOfEntitlement(map, entry, { id: entry.anchor.id });
-  return !!placed?.length && placed.every((record) => canGrant(writer, schema, entry, record));
+  const pseudoRecord = pseudoRecordsOfEntitlement(map, entry, { id: entry.anchor.id });
+  return (
+    !!pseudoRecord?.length &&
+    pseudoRecord.every((record) => canGrant(writer, schema, entry, record))
+  );
 };
 
 const RETAIL = ['order'];

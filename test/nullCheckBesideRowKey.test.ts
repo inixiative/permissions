@@ -124,8 +124,8 @@ describe('a null check beside its row key', () => {
       ...(where ? { where } : {}),
     });
     const granted = (entry: EntitlementEntry) =>
-      (pseudoRecordsOfEntitlement(map, entry, o1) ?? [{}]).every((placed) =>
-        canGrantEntitlement(writer, schema, entry, placed),
+      (pseudoRecordsOfEntitlement(map, entry, o1) ?? [{}]).every((pseudoRecord) =>
+        canGrantEntitlement(writer, schema, entry, pseudoRecord),
       );
     expect(granted(overTheOrganization())).toBe(false);
     expect(granted(overTheOrganization(isNull('source') as never))).toBe(false);
@@ -193,12 +193,12 @@ describe('a null check beside its row key', () => {
       anchor: { resource: 'db:organization', id: 'o1', path: 'organization' },
       actions: { manage: true },
     };
-    const placed = pseudoRecordsOfEntitlement(profiles, entry, o1) ?? [];
-    expect(placed.length).toBe(1);
-    for (const record of placed) expect(record).not.toHaveProperty('id');
+    const pseudoRecord = pseudoRecordsOfEntitlement(profiles, entry, o1) ?? [];
+    expect(pseudoRecord.length).toBe(1);
+    for (const record of pseudoRecord) expect(record).not.toHaveProperty('id');
     const writer = await manager();
     expect(
-      placed.every((record) => canGrantWithRules(profiles)(writer, rules, entry, record)),
+      pseudoRecord.every((record) => canGrantWithRules(profiles)(writer, rules, entry, record)),
     ).toBe(false);
   });
 

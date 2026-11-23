@@ -295,8 +295,8 @@ crossed.
   the item) is "the list is not empty" under another spelling; write conditions that reach a
   person.
 - **A list never passes on a stand-in.** The pseudo record a grant is checked on has no lists:
-  `pseudoRecordsBelowAnchor` builds keys and parents, never items, and a `where` cannot pin one (only scalar
-  values are pinned, see [Granting one](#granting-one)). So nobody grants "participant of every
+  `pseudoRecordsBelowAnchor` builds keys and parents, never items, and a `where` cannot set one (only scalar
+  values are copied, see [Granting one](#granting-one)). So nobody grants "participant of every
   conversation in the brand"; a grant that rests on the list is anchored where a real list is (the
   conversation itself, or a record below it).
 - **Entitlements under an item** work as anywhere: one held on a membership row makes its holder
@@ -488,7 +488,7 @@ The key is the engine's id field (`permissions.idField`).
 The same gate judges the schema's rules, a row's `permissionRules`, `additionalRules` and an
 entitlement's `where`. Another column of the row does not stand in for its key: a grant's stand-in
 record carries foreign keys and never its own key (`pseudoRecordsOfEntitlement` leaves it off, whatever the
-`where` pins and even where a foreign key is the key), so a rule resting on an empty column cannot
+`where` requires and even where a foreign key is the key), so a rule resting on an empty column cannot
 be granted over many records. Give the column an explicit value when that grant is needed.
 
 What the key proves is that the row is there, not that it came back whole. A check reads a
@@ -685,7 +685,8 @@ resource-wide grant, or the superadmin flag, short-circuits before any walk.
 #### Granting one
 
 A grant is an action, and grant time mirrors read time through the same check. Build the grant
-check with the same map as the rebac check, place the entry on the hydrated anchor, and ask:
+check with the same map as the rebac check, build the entry's pseudo records from the hydrated
+anchor, and ask of each:
 
 ```ts
 const canGrantEntitlement = createCanGrantEntitlement(map);
@@ -696,8 +697,8 @@ const entry = {
   where: { field: 'provider', operator: 'equals', value: 'slack' },
   actions: { manage: true },
 };
-const placed = pseudoRecordsOfEntitlement(map, entry, await hydrate('db:Space', space)); // null: malformed
-placed?.every((record) => canGrantEntitlement(writer, entry, record)); // every Slack integration of s1?
+const pseudoRecords = pseudoRecordsOfEntitlement(map, entry, await hydrate('db:Space', space)); // null: malformed
+pseudoRecords?.every((record) => canGrantEntitlement(writer, entry, record)); // every Slack integration of s1?
 ```
 
 **Passing on a held entitlement narrowed.** A delegated grant keeps every condition of the held
@@ -717,43 +718,56 @@ delegatedWhere({ all: [slack, team] }, general); // { all: [general, slack, team
 whole on first use, so it throws for every caller, a superadmin too. The same first use refuses
 a schema that reads outside the [relation lens](#what-a-rule-may-read-the-relation-lens), and
 freezes it. A record's own `permissionRules` that are not positive are ignored, as before. A negated rule passes on a field the record lacks, so in
-the grant walk, where every field the placed record lacks is unknown, it granted what the writer
+the grant walk, where every field the pseudo record lacks is unknown, it granted what the writer
 cannot do. Run `validateSchema` and write rules positively (`role in ['member', 'guest']`, not
 `role notIn ['owner', 'admin']`).
 
-`pseudoRecordsOfEntitlement` first refuses a malformed entry (null), by the rules `setup` applies at install, so validity and the grant are one check before saving. It then builds the pseudo records of `entry.resource` from the anchor down the path (`pseudoRecordsBelowAnchor(map, resource, path, anchorResource, anchor, where?)`, also exported for placing a
-record you are about to create, narrowed by its `where` the same way): at
-each step the foreign keys whose values the parent knows, the parent attached under the
-relation, ids below the anchor unknown; on a polymorphic step one record per kind it admits, each
-with its owner placed under the anchor along every relation that leads there. The `where`'s root
-leaves (the `where` itself, or each leaf of its top `all`; nothing nested) on the first step's kind
-field with a literal `value` are checked on each record's kind: a kind a leaf fails is dropped
-(`ownerModel in [Organization, Space]` keeps those two). Any other leaf, a leaf reading its value
-from a path, and anything nested narrow nothing: dropping a record loosens the grant, so only the
-kind, which every real record of that kind shares, may drop it. The writer must pass on every
-record left. The root's exact `equals` leaves (`equals null` pins `null`) fill the rest: scalar
-values only, on fields that are not relations or lists, so a `where` never puts a row or a list
-on the placed record, and never the record's own key: a stand-in is not a row that is there, so a
-rule that asks its key to exist (a null check, above) fails on it. A pin on a relation admitted no hydrated record at read, so nothing real
-is lost there; a pin on a Json column or a scalar list was a live row (`equals` is deep) and is
-now refused at grant time, so state such a condition on a scalar field. A field two root leaves state with different values is left unknown, since no record holds
-both and the order of conjuncts must not decide a grant. The path
-wins over a pinned foreign key it knows, so a `where` cannot move the record out from under its
-anchor (a pin on a foreign key the path leaves unknown stays, and the rules still walk the placed
-relation). Below the root, a stand-in takes a stated value only on a marked field (next). It returns `null` when no kind is left, the anchor row is not the entry's, or the path
-does not end at the anchor's model through to-one relations. A self
-anchor is the anchor row itself.
+`pseudoRecordsOfEntitlement` first refuses a malformed entry (null), by the rules `setup` applies
+at install, so validity and the grant are one check before saving. It then builds the pseudo
+records of `entry.resource` from the anchor down the path
+(`pseudoRecordsBelowAnchor(map, resource, path, anchorResource, anchor, where?)`, also exported for
+a record you are about to create, narrowed by its `where` the same way). The writer must pass on
+every pseudo record it returns.
 
-**Marks: fields that join a stand-in.** The records `pseudoRecordsBelowAnchor` builds below the anchor carry
-keys and parents and nothing else, so a rule that reads a type field on one of them
-(`integrationResource.kind equals 'channel'`) finds it unknown and the grant is refused, however
-exactly the `where` states it. Mark the field in the Prisma schema:
+What a pseudo record holds:
+
+- **Keys and parents from the path.** At each step: the foreign keys whose values the parent
+  knows, and the parent attached under the relation. Ids below the anchor are unknown.
+- **One record per polymorphic kind.** A polymorphic step gives one record for each kind whose
+  foreign keys the step uses, each with its owner row built from the rows above the anchor, along
+  every relation that leads there.
+- **Only the kinds the `where` allows.** The `where`'s root leaves (the `where` itself, or each
+  leaf of its top `all`; nothing nested) on the first step's kind field with a literal `value` are
+  checked on each record's kind, and a kind a leaf fails is dropped (`ownerModel in [Organization,
+  Space]` keeps those two). No other leaf drops a record: dropping one loosens the grant, so only
+  the kind, which every real record of that kind shares, may do it.
+- **The values the `where` requires on the record's own columns.** Each root leaf that is an exact
+  `equals` (`equals null` gives `null`) is copied onto the record: scalar values only, on fields
+  that are not relations or lists, so a `where` never puts a row or a list on a pseudo record. A
+  field two root leaves require with different values is left unknown, since no record holds both
+  and the order of conjuncts must not decide a grant. An `equals` on a Json column or a scalar
+  list is refused at grant time; write such a condition on a scalar field.
+- **Never its own key.** A pseudo record is not a row that is there, so a rule that asks its key
+  to exist (a null check, above) fails on it.
+- **The path wins.** A foreign key the path knows overrides the same key required by the `where`,
+  so a `where` cannot move the record out from under its anchor. A foreign key the path leaves
+  unknown keeps the value the `where` requires, and the rules still walk the relation.
+
+Below the record itself, a stand-in takes a value from the `where` only on a pseudo field (next).
+The result is `null` when no kind is left, the anchor row is not the entry's, or the path does not
+end at the anchor's model through to-one relations. A self anchor is the anchor row itself.
+
+**Pseudo fields: fields a `where` may set on a stand-in.** The stand-ins
+`pseudoRecordsBelowAnchor` builds between the record and its anchor carry keys and parents and
+nothing else, so a rule that reads a type field on one of them (`integrationResource.kind equals
+'channel'`) finds it unknown and the grant is refused, however exactly the `where` requires it.
+Annotate the field in the Prisma schema:
 
 ```prisma
 model IntegrationResource {
-  /// @permissions(place: true)
+  /// @permissions(pseudoField: true)
   kind    String
-  /// @permissions(place: true)
+  /// @permissions(pseudoField: true)
   enabled Boolean
 }
 ```
@@ -764,51 +778,52 @@ row, anchored at the integration by `integrationResource.integration`, `where`
 `integrationResource.kind equals 'channel'` and `integrationResource.enabled equals true`, and the
 surface model needs no copied `resourceKind` column.
 
-- **What the mark means.** "A grant may state this field's value for records it has not seen."
-  It is sound because the stated leaf stays on the stored row: it is required of every copy, and
-  at read it is judged on the real record the anchor path walks. A mark adds no authority; it
-  lets the grant check believe, for the stand-in, what the `where` will enforce.
-- **Its limits.** Root conjuncts only (a leaf inside `any` is not true of every admitted record);
-  a literal `equals` only, with a scalar value; only on the entry's own path, at any depth; only
-  stand-ins strictly below the anchor, each built fresh, so the anchor and the rows above it are
-  real and never written. The path wins: keys, the parent and a polymorphic kind are set after
-  the marks. Two leaves stating one field differently fill nothing, in either order. Under a list
-  item nothing is filled.
+- **What it means.** "A grant may give this field's value for records it has not seen." It is
+  sound because the leaf stays on the stored row: it is required of every copy, and at read it is
+  judged on the real record the anchor path walks. A pseudo field adds no authority; it lets the
+  grant check believe, for the stand-in, what the `where` will enforce.
+- **Its limits.** Root conjuncts only (a leaf inside `any` is not true of every record it lets
+  through); a literal `equals` only, with a scalar value; only on the entry's own path, at any
+  depth; only stand-ins strictly below the anchor, each built fresh, so the anchor and the rows
+  above it are real and never written. The path wins: keys, the parent and a polymorphic kind are
+  set after the pseudo fields. Two leaves requiring different values of one field fill nothing, in
+  either order. Under a list item nothing is filled.
 - **Where it is refused**, when the map is first used: an id (the map's `isId`, or the field
   named by `permissions.idField`; a hand-built map that carries neither is not caught), a
   relation key, a discriminator, a list, a relation, and any scalar but String, Int and Boolean
   (so dates, Json, Float, Decimal, BigInt, Bytes). Enums are allowed. The value is `true` or the
-  key is absent. The value's type is not checked against the field: a mistyped pin gives a
+  key is absent. The value's type is not checked against the field: a mistyped value gives a
   refused or a dead row.
 
 **`@permissions(...)` is read strictly.** Three keys: `hydrate: false` on a relation, `down:
-[...]` on a list relation, `place: true` on a scalar. On first use of a map every annotation on a
-resource's model is read, and an unknown key, an empty annotation, a malformed value, or `down`
-beside `hydrate: false` throws. field-map keeps a malformed value without complaint (`down:
-a.b` arrives as a string, `place: yes` as `'yes'`), so a typo would otherwise be a silently
-missing list or mark. Annotations on models that are not resources are not read.
+[...]` on a list relation, `pseudoField: true` on a scalar. On first use of a map every annotation
+on a resource's model is read, and an unknown key, an empty annotation, a malformed value, or
+`down` beside `hydrate: false` throws. field-map keeps a malformed value without complaint (`down:
+a.b` arrives as a string, `pseudoField: yes` as `'yes'`), so a typo would otherwise be a silently
+missing list or pseudo field. Annotations on models that are not resources are not read.
 
-`canGrantEntitlement` judges each placed record in two passes:
+
+`canGrantEntitlement` judges each pseudo record in two passes:
 
 1. **The writer's table, and what it holds outright above the granted record.** Its table (its
-   role), given no `data`, takes each action on `placed`. An entitlement also counts here, as a
+   role), given no `data`, takes each action on the pseudo record. An entitlement also counts here, as a
    role on its record would, when all of these hold: it is marked `grantsBelow: true`; it has no
    `where`; and the walk meets it on a real row above the granted record (below). (A delegate's permissions capped at a ceiling, from `delegate`, is
-   permissions entries too.) A field `placed` does not carry fails every positive leaf, so a writer
+   permissions entries too.) A field the pseudo record does not carry fails every positive leaf, so a writer
    whose authority reads a field the `where` leaves open is refused. A rule that needs an actor (`actor:User.id exists`, an id compared to `actor:User.id`) never passes: who the writer is is not
    authority that can be handed on. A null check never passes either: a stand-in carries the keys
    on its path, never its own `id`, so a writer whose authority rests on an empty column grants it
    on the one record it anchors at, not over many. Rules are positive (`validateActionRule` refuses the rest),
-   which is what makes a pass on `placed` hold for every record the `where` admits.
+   which is what makes a pass on the pseudo record hold for every record the `where` admits.
 2. **One held entitlement.** Failing that, the entry is one entitlement the writer holds, passed on
    whole: the same `resource` and anchor (resource, id, path); each granted action one it holds or
    reaches by pure delegation (a bare action name, alone or an arm of a top-level `any`: holding
    `manage` grants `read` when `read` is `{ any: ['manage', …] }`); its `where` copied or narrowed
    (every condition of the held `where`, meaning itself or each child of its top `all`, among the
-   entry's); and whoever granted the held one still takes each granted action on `placed`, so
+   entry's); and whoever granted the held one still takes each granted action on the pseudo record, so
    a copy needs its granter to still hold the action at that anchor. That liveness walk asks the
    anchor and the action at every link and consults no `where`: a `where` varies too much to prove
-   on a placed record, so it is judged by its structure alone, and a pin `placed` leaves unknown
+   on a pseudo record, so it is judged by its structure alone, and a value the `where` requires that the pseudo record leaves unknown
    (`id in [A, B]`) passes on at any depth. A granter whose only live route is limited by a `where`
    therefore counts as live for records outside it; reads still apply every `where` on the chain
    they walk, so a copy installed under its writer admits no more than that chain. Held entitlements never
@@ -823,9 +838,9 @@ could pass on only a copy of `manage` on s1).
 
 - **Above the granted record** means the hydrated rows the entry's anchor row holds under to-one
   relations that own their key, followed up, plus the anchor row itself when the entry sits under
-  it by a path. An entitlement met anywhere else never counts: on a placed record below the
+  it by a path. An entitlement met anywhere else never counts: on a pseudo record below the
   anchor, on a row reached through a relation that does not own its key or across a bridge, or on
-  the granted record itself (a self-anchored entry's placed record is the granted row). So held
+  the granted record itself (a self-anchored entry's pseudo record is the granted row). So held
   entitlements still never combine, and one is still never re-anchored (held on the integrations
   of o1, never granted for the one integration i1) or stretched to an action that needs more than
   it (`read` on s1 never grants a rule-gated `rename` on s1).
@@ -856,7 +871,7 @@ Permissions evaluates every rule with exact strings (json-rules `string.caseInse
 leaf that wants case-insensitivity says so itself, and such a leaf never narrows.
 
 An action's rule is ReBAC (walks to parents) plus ABAC (`{ rule }` conditions on the record,
-conditions on `actor:<Model>`, who acts). Granting checks both on the placed record, with no actor, so a
+conditions on `actor:<Model>`, who acts). Granting checks both on the pseudo record, with no actor, so a
 rule that needs an actor never grants; at read time the holder's check walks the writer's table on the real
 record with the request's actor. A holder of a granted action reaches no further than its writer
 would on that record.

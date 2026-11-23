@@ -193,8 +193,8 @@ const may = async (
   entry: EntitlementEntry,
   anchor: Row,
 ) => {
-  const placed = pseudoRecordsOfEntitlement(map, entry, anchor);
-  return placed?.every((record) => canGrant(writer, schema, entry, record));
+  const pseudoRecord = pseudoRecordsOfEntitlement(map, entry, anchor);
+  return pseudoRecord?.every((record) => canGrant(writer, schema, entry, record));
 };
 
 describe('the path names a kind at each polymorphic step: read time', () => {
@@ -318,7 +318,7 @@ describe('pseudoRecordsOfEntitlement: the pseudo record, built from the anchor a
   });
 });
 
-describe('the grant check on the placed record', () => {
+describe('the grant check on the pseudoRecord record', () => {
   test('a manager of o1 grants its own integrations (narrowed), not every kind under it', async () => {
     const manager = await table('db:Organization', 'o1', ['manage']);
     const integrations = entitlement(

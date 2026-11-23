@@ -53,7 +53,7 @@ const o1 = { id: 'o1' };
 const o2 = { id: 'o2' };
 const s1 = { id: 's1', organizationId: 'o1', organization: o1 };
 
-describe('what a grant pins onto its pseudo records', () => {
+describe('the values of the where a grant copies onto its pseudo records', () => {
   test('pseudoRecordsOfEntitlement is null for an anchor row that is not the entry’s', () => {
     const e: EntitlementEntry = {
       resource: 'db:space',
@@ -69,13 +69,15 @@ describe('what a grant pins onto its pseudo records', () => {
       where: { field: 'priority', operator: 'greaterThan', value: 5 },
       actions: { manage: true },
     } as EntitlementEntry;
-    const placed = pseudoRecordsOfEntitlement(flat, e, s1) ?? [];
-    expect(placed.every((r) => !('priority' in r))).toBe(true);
+    const pseudoRecord = pseudoRecordsOfEntitlement(flat, e, s1) ?? [];
+    expect(pseudoRecord.every((r) => !('priority' in r))).toBe(true);
     const reader = createPermissions();
     return reader
       .setup({ resource: 'db:space', id: 's1', actions: { read: true } } as PermissionEntry)
       .then(() => {
-        expect(placed.every((r) => canGrantWithRules(flat)(reader, schema, e, r))).toBe(false);
+        expect(pseudoRecord.every((r) => canGrantWithRules(flat)(reader, schema, e, r))).toBe(
+          false,
+        );
       });
   });
   test('an equals with options (caseInsensitive) pins nothing', async () => {
@@ -85,14 +87,14 @@ describe('what a grant pins onto its pseudo records', () => {
       where: { field: 'label', operator: 'equals', value: 'Ops', caseInsensitive: true },
       actions: { label: true },
     } as EntitlementEntry;
-    const placed = pseudoRecordsOfEntitlement(flat, e, s1) ?? [];
+    const pseudoRecord = pseudoRecordsOfEntitlement(flat, e, s1) ?? [];
     const reader = createPermissions();
     await reader.setup({
       resource: 'db:space',
       id: 's1',
       actions: { read: true },
     } as PermissionEntry);
-    expect(placed.every((r) => canGrantWithRules(flat)(reader, schema, e, r))).toBe(false);
+    expect(pseudoRecord.every((r) => canGrantWithRules(flat)(reader, schema, e, r))).toBe(false);
   });
   test('a dotted equals leaf is not pinned as a literal key', () => {
     const e = {
@@ -122,8 +124,8 @@ describe("the app's json-rules string settings never reach permissions (R99)", (
         where: { field: 'label', operator: 'equals', value: 'Ops' },
         actions: { label: true },
       } as EntitlementEntry;
-      const placed = pseudoRecordsOfEntitlement(flat, ops, s1) ?? [];
-      expect(placed.map((record) => record.label)).toEqual(['Ops']);
+      const pseudoRecord = pseudoRecordsOfEntitlement(flat, ops, s1) ?? [];
+      expect(pseudoRecord.map((record) => record.label)).toEqual(['Ops']);
       const check = checkWithRules(flat);
       expect(
         check(

@@ -69,9 +69,9 @@ describe('the copy rule reads what delegatedWhere builds as narrowing the held w
   };
 
   const grants = async (held: Condition, entry: EntitlementEntry) => {
-    const placed = pseudoRecordsOfEntitlement(map, entry, { id: 's1' }) as Row[];
+    const pseudoRecord = pseudoRecordsOfEntitlement(map, entry, { id: 's1' }) as Row[];
     const holder = await holderOf(held);
-    return placed.every((record) => canGrant(holder, schema, entry, record));
+    return pseudoRecord.every((record) => canGrant(holder, schema, entry, record));
   };
 
   test('a held where narrowed by delegatedWhere is passed on; the held where dropped is not', async () => {
@@ -86,7 +86,7 @@ describe('the copy rule reads what delegatedWhere builds as narrowing the held w
 });
 
 describe('a negated schema rule is refused in the grant walk too', () => {
-  test('a negated rule on a field the placed record lacks throws instead of passing', async () => {
+  test('a negated rule on a field the pseudoRecord record lacks throws instead of passing', async () => {
     const schema: Rules = {
       permissions: {
         'db:space': { actions: { own: null } },
@@ -118,9 +118,9 @@ describe('a negated schema rule is refused in the grant walk too', () => {
       anchor: { resource: 'db:space', id: 's1', path: 'space' },
       actions: { read: true },
     };
-    const [placed] = pseudoRecordsOfEntitlement(map, entry, { id: 's1' }) as Row[];
+    const [pseudoRecord] = pseudoRecordsOfEntitlement(map, entry, { id: 's1' }) as Row[];
 
-    expect(() => canGrantWithRules(map)(writer, schema, entry, placed as Row)).toThrow(
+    expect(() => canGrantWithRules(map)(writer, schema, entry, pseudoRecord as Row)).toThrow(
       'is not a well-formed positive rule',
     );
   });

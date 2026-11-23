@@ -47,7 +47,7 @@ what.
 | say what is wrong with the map's names and bridges | `src/core/validateSchemaMap.ts` (`problemsOfMapNames`, `problemsOfBridges`, `problemsOfSchemaMap`), in the words of `src/core/errors.ts` | The index throws the first name problem and the check the first bridge problem; `validateSchema` reports them. A malformed `@permissions` annotation is read strictly by the index (`relations.ts`), which throws. |
 | find a rule that delegates back to its own action | `src/core/issuesOfDelegationBackToOwnAction.ts` | — (used by `validateActionRule` and `validateSchema`, over `delegationReach`) |
 | decide which relations hydration follows | `src/core/relations.ts` (`followedToOneRelationOrWhyNot`, `followedToOneRelationsOf`, `listOf`) | No `.fromFields` read elsewhere: an owning key is classified once. |
-| read a `@permissions(...)` annotation | `src/core/permissionsAnnotation.ts` (`permissionsAnnotation`, `skipsHydration`, `whyFieldTakesNoPlaceMark`) | No `annotations.permissions` read elsewhere. |
+| read a `@permissions(...)` annotation | `src/core/permissionsAnnotation.ts` (`permissionsAnnotation`, `skipsHydration`, `whyFieldIsNoPseudoField`) | No `annotations.permissions` read elsewhere. |
 | build a json-rules lens and judge a path against it | `src/core/lens.ts` | `validateRuleInLens` and `walkLensPath` are called nowhere else. |
 | spell a relation tree | `src/core/lens.ts` (`spellEveryFollowedRelationChain`) | json-rules' model defaults enter each model once; every route is spelled under `root` here, as json-rules' docs say to. |
 | freeze, then judge once | `src/core/freezeThenJudgeOnce.ts` | `Object.freeze` nowhere else: a schema, an inline rule and a `where` are frozen by the one function that memoises their judgement. |
