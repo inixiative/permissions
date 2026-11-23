@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import { Operator } from '@inixiative/json-rules';
 import { validateActionRule } from '../index';
+import { mapOf, mapWith } from './schemaMaps';
 
 const ok = (rule: unknown) => validateActionRule(rule).ok;
 
@@ -47,13 +48,13 @@ describe('validateActionRule: an action rule, checked like json-rules checks a c
 });
 
 describe('validateActionRule: a rule that delegates back to its own action is a cycle', () => {
-  const schema = {
+  const map = mapWith(mapOf({ 'db:doc': { parent: 'db:doc' } }), {
     permissions: {
-      doc: { actions: { own: null, manage: 'own', operate: 'manage', read: 'operate' } },
+      'db:doc': { actions: { own: null, manage: 'own', operate: 'manage', read: 'operate' } },
     },
-  };
+  });
   const at = (action: string, rule: unknown, rowRules?: Record<string, unknown>) =>
-    validateActionRule(rule, { schema, resource: 'doc', action, rowRules });
+    validateActionRule(rule, { map, resource: 'db:doc', action, rowRules });
 
   it('refuses a rule for read that is read', () => {
     expect(at('read', 'read').errors.map((issue) => issue.code)).toEqual(['cycle']);

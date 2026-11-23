@@ -1,13 +1,13 @@
-import { modelOf } from '@inixiative/field-map';
 import { hasNoValue, idField } from '../../core/recordId';
 import {
   followedToOneRelationsOf,
   identityColumnsOfRow,
   keyFromResourceAndColumns,
   listsOf,
+  modelOfResource,
   type Relation,
   relationOf,
-  type SchemaMap,
+  type SchemaMapWithoutPermissions,
   type SpelledRelationTree,
 } from '../../core/schemaMap';
 import type { Row } from '../../core/types';
@@ -31,7 +31,7 @@ export type Down = { [listField: string]: DownPaths };
  * and the declared paths.
  */
 export type HydrateDeps<R extends string = string> = {
-  map: SchemaMap<R>;
+  map: SchemaMapWithoutPermissions;
   load: (resource: R, where: Row, down: Down) => Promise<Row | null>;
 };
 
@@ -137,7 +137,7 @@ export const createHydrator = <R extends string>({ map, load }: HydrateDeps<R>) 
     record: Row,
   ): Promise<Row | null> => {
     if (!listsOf(map, resource).length) return null;
-    const where = identityColumnsOfRow(map as SchemaMap, resource, record);
+    const where = identityColumnsOfRow(map, resource, record);
     return where ? loadOnce(run, resource, where) : null;
   };
   const loadFollowedToOnesOnto = async (
@@ -164,9 +164,7 @@ export const createHydrator = <R extends string>({ map, load }: HydrateDeps<R>) 
   ): Row => {
     countLoadAgainstBudget(run, resource);
     const result: Row = { ...row };
-    for (const [name, field] of Object.entries(
-      modelOf(map.fieldMap, map.resources[resource])?.fields ?? {},
-    ))
+    for (const [name, field] of Object.entries(modelOfResource(map, resource)?.fields ?? {}))
       if (field.kind === 'object') delete result[name];
     for (const [name, below] of Object.entries(tree)) {
       const relation = relationOf(map, resource, name);

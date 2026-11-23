@@ -2,56 +2,60 @@ import { describe, expect, test } from 'bun:test';
 import { Operator } from '@inixiative/json-rules';
 import {
   type ActionRule,
-  createRebacCheck,
   type PermixLike,
-  type RebacSchema,
   type Row,
   ruleFieldEqualsPath,
-  type SchemaMap,
+  type SchemaMapWithoutPermissions,
   validateSchema,
 } from '../index';
-import { actorData, actorMap, stringColumn } from './schemaMaps';
+import {
+  actorData,
+  actorMap,
+  checkWithRules,
+  mapWith,
+  type Rules,
+  stringColumn,
+} from './schemaMaps';
 
 // Two supplied maps: who is acting, and the request's device posture from a security tool.
-const map: SchemaMap = {
-  resources: { doc: 'Doc', org: 'Org' },
-  fieldMap: {
-    models: {
-      Doc: {
-        fields: {
-          id: stringColumn,
-          ownerId: stringColumn,
-          orgId: stringColumn,
-          org: {
-            kind: 'object',
-            type: 'Org',
-            isList: false,
-            fromFields: ['orgId'],
-            toFields: ['id'],
+const map: SchemaMapWithoutPermissions = {
+  maps: {
+    db: {
+      models: {
+        Doc: {
+          fields: {
+            id: stringColumn,
+            ownerId: stringColumn,
+            orgId: stringColumn,
+            org: {
+              kind: 'object',
+              type: 'Org',
+              isList: false,
+              fromFields: ['orgId'],
+              toFields: ['id'],
+            },
+            status: { kind: 'enum', type: 'Status' },
           },
-          status: { kind: 'enum', type: 'Status' },
         },
+        Org: { fields: { id: stringColumn, ownerId: stringColumn } },
       },
-      Org: { fields: { id: stringColumn, ownerId: stringColumn } },
+      enums: { Status: ['draft', 'live'] },
     },
-    enums: { Status: ['draft', 'live'] },
   },
   supplied: {
-    maps: {
-      actor: actorMap,
-      device: { models: { Posture: { fields: { managed: stringColumn, risk: stringColumn } } } },
-    },
+    actor: actorMap,
+    device: { models: { Posture: { fields: { managed: stringColumn, risk: stringColumn } } } },
   },
 };
-const check = createRebacCheck(map);
+const check = checkWithRules(map);
 const nobody: PermixLike = { check: () => false };
-const schemaOf = (read: ActionRule): RebacSchema => ({
-  permissions: { doc: { actions: { read } }, org: { actions: { read: false } } },
+const schemaOf = (read: ActionRule): Rules => ({
+  permissions: { 'db:Doc': { actions: { read } }, 'db:Org': { actions: { read: false } } },
 });
 const read = (rule: ActionRule, record: Row, data?: Record<string, Row[]>) =>
-  check(nobody, schemaOf(rule), { resource: 'doc', record, ...(data ? { data } : {}) }, 'read');
+  check(nobody, schemaOf(rule), { resource: 'db:Doc', record, ...(data ? { data } : {}) }, 'read');
 const issues = (rule: ActionRule) =>
-  validateSchema(map, schemaOf(rule)).errors.map((issue) => issue.message);
+  validateSchema(mapWith(map, schemaOf(rule))).errors.map((issue) => issue.message);
 const exists = (field: string) => ({ field, operator: Operator.exists });
 
 const mine = ruleFieldEqualsPath('ownerId', 'actor:User.id');
@@ -132,72 +136,63 @@ describe('supplied maps: rows the call gives, read by every rule as <prefix>:<Mo
     expect(read(internal, {}, actorData('Internal'))).toBe(true);
     expect(read(internal, {}, actorData('User', { id: 'u1' }))).toBe(false);
   });
-
-  test('a supplied map may not take the name of the map of resources', () => {
-    const clash = createRebacCheck({ ...map, supplied: { maps: { app: actorMap } } });
-    expect(() => clash(nobody, schemaOf(mine), { resource: 'doc', record: {} }, 'read')).toThrow(
-      /a supplied map is named `app`/,
-    );
-  });
 });
 
 // The actor's own relations, and bridges on from it: a security tool's devices joined by the
 // actor's id (a list), its posture of the request (one row), and each device's findings (a list).
-const chained: SchemaMap = {
+const chained: SchemaMapWithoutPermissions = {
   ...map,
   supplied: {
-    maps: {
-      actor: {
-        models: {
-          User: {
-            fields: {
-              id: stringColumn,
-              orgId: stringColumn,
-              org: {
-                kind: 'object',
-                type: 'Org',
-                isList: false,
-                fromFields: ['orgId'],
-                toFields: ['id'],
-              },
-              groups: { kind: 'object', type: 'Group', isList: true },
+    actor: {
+      models: {
+        User: {
+          fields: {
+            id: stringColumn,
+            orgId: stringColumn,
+            org: {
+              kind: 'object',
+              type: 'Org',
+              isList: false,
+              fromFields: ['orgId'],
+              toFields: ['id'],
             },
+            groups: { kind: 'object', type: 'Group', isList: true },
           },
-          Org: { fields: { id: stringColumn, plan: stringColumn } },
-          Group: { fields: { id: stringColumn, name: stringColumn } },
         },
-      },
-      sec: {
-        models: {
-          Device: { fields: { serial: stringColumn, userId: stringColumn, risk: stringColumn } },
-          Finding: { fields: { serial: stringColumn, severity: stringColumn } },
-          Posture: { fields: { managed: stringColumn } },
-        },
+        Org: { fields: { id: stringColumn, plan: stringColumn } },
+        Group: { fields: { id: stringColumn, name: stringColumn } },
       },
     },
-    bridges: [
-      {
-        endpoints: [
-          { fieldMap: 'actor', model: 'User', on: 'id' },
-          { fieldMap: 'sec', model: 'Device', on: 'userId' },
-        ],
-        cardinality: 'oneToMany',
+    sec: {
+      models: {
+        Device: { fields: { serial: stringColumn, userId: stringColumn, risk: stringColumn } },
+        Finding: { fields: { serial: stringColumn, severity: stringColumn } },
+        Posture: { fields: { managed: stringColumn } },
       },
-      {
-        endpoints: [
-          { fieldMap: 'sec', model: 'Device', on: 'serial' },
-          { fieldMap: 'sec', model: 'Finding', on: 'serial' },
-        ],
-        cardinality: 'oneToMany',
-      },
-    ],
+    },
   },
+  bridges: [
+    {
+      endpoints: [
+        { fieldMap: 'actor', model: 'User', on: 'id' },
+        { fieldMap: 'sec', model: 'Device', on: 'userId' },
+      ],
+      cardinality: 'oneToMany',
+    },
+    {
+      endpoints: [
+        { fieldMap: 'sec', model: 'Device', on: 'serial' },
+        { fieldMap: 'sec', model: 'Finding', on: 'serial' },
+      ],
+      cardinality: 'oneToMany',
+    },
+  ],
 };
-const chainedCheck = createRebacCheck(chained);
+const chainedCheck = checkWithRules(chained);
 const readChained = (rule: ActionRule, record: Row, data: Record<string, Row[]>) =>
-  chainedCheck(nobody, schemaOf(rule), { resource: 'doc', record, data }, 'read');
+  chainedCheck(nobody, schemaOf(rule), { resource: 'db:Doc', record, data }, 'read');
 const chainedIssues = (rule: ActionRule) =>
-  validateSchema(chained, schemaOf(rule)).errors.map((issue) => issue.message);
+  validateSchema(mapWith(chained, schemaOf(rule))).errors.map((issue) => issue.message);
 const value = (field: string, operator: Operator, v: string): ActionRule => ({
   rule: { field, operator, value: v },
 });
@@ -284,24 +279,21 @@ describe('supplied maps with relations and bridges of their own', () => {
     expect(readChained(lowRiskDevice, {}, smuggled)).toBe(false);
   });
 
-  test('a supplied bridge into the map of resources has no endpoint, so no chain leads back', () => {
-    const back = createRebacCheck({
+  test('a bridge from a supplied map into the records is refused, so no chain leads back', () => {
+    const back = checkWithRules({
       ...chained,
-      supplied: {
-        maps: chained.supplied?.maps ?? {},
-        bridges: [
-          {
-            endpoints: [
-              { fieldMap: 'actor', model: 'User', on: 'id' },
-              { fieldMap: 'app', model: 'Doc', on: 'ownerId' },
-            ],
-            cardinality: 'oneToMany',
-          },
-        ],
-      },
+      bridges: [
+        {
+          endpoints: [
+            { fieldMap: 'actor', model: 'User', on: 'id' },
+            { fieldMap: 'db', model: 'Doc', on: 'ownerId' },
+          ],
+          cardinality: 'oneToMany',
+        },
+      ],
     });
-    expect(() => back(nobody, schemaOf(mine), { resource: 'doc', record: {} }, 'read')).toThrow(
-      /endpoint 'app:Doc' not found/,
+    expect(() => back(nobody, schemaOf(mine), { resource: 'db:Doc', record: {} }, 'read')).toThrow(
+      /a bridge between `actor:User` and `db:Doc` has one end supplied: no chain leads from a supplied row into the records/,
     );
   });
 });

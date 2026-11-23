@@ -1,29 +1,32 @@
 import { describe, expect, test } from 'bun:test';
 import { Operator } from '@inixiative/json-rules';
-import { createPermissions, createRebacCheck, type RebacSchema } from '../index';
-import { mapOf } from './schemaMaps';
+import { createPermissions } from '../index';
+import { checkWithRules, mapOf, type Rules } from './schemaMaps';
 
-const check = createRebacCheck(
-  mapOf({ document: { teams: 'team' } }, { team: ['public'], document: ['public'] }),
+const check = checkWithRules(
+  mapOf(
+    { 'db:document': { teams: 'db:team' } },
+    { 'db:team': ['public'], 'db:document': ['public'] },
+  ),
 );
 
 describe('intra-map relation checks accept single records only', () => {
-  const schema: RebacSchema = {
+  const schema: Rules = {
     permissions: {
-      document: { actions: { read: { rel: 'teams', action: 'read' } } },
-      team: { actions: { read: null } },
+      'db:document': { actions: { read: { rel: 'teams', action: 'read' } } },
+      'db:team': { actions: { read: null } },
     },
   };
 
   test('an empty list cannot inherit a resource-wide grant', async () => {
     const permix = createPermissions();
-    await permix.setup([{ resource: 'team', actions: { read: true } }]);
+    await permix.setup([{ resource: 'db:team', actions: { read: true } }]);
     expect(
       check(
         permix,
         schema,
         {
-          resource: 'document',
+          resource: 'db:document',
           record: { id: 'd1', teams: [] },
         },
         'read',
@@ -33,13 +36,13 @@ describe('intra-map relation checks accept single records only', () => {
 
   test('a populated list is rejected instead of being treated as a related record', async () => {
     const permix = createPermissions();
-    await permix.setup([{ resource: 'team', actions: { read: true } }]);
+    await permix.setup([{ resource: 'db:team', actions: { read: true } }]);
     expect(
       check(
         permix,
         schema,
         {
-          resource: 'document',
+          resource: 'db:document',
           record: { id: 'd1', teams: [{ id: 't1' }] },
         },
         'read',
@@ -50,7 +53,7 @@ describe('intra-map relation checks accept single records only', () => {
         permix,
         schema,
         {
-          resource: 'document',
+          resource: 'db:document',
           record: { id: 'd1', teams: { id: 't1' } },
         },
         'read',
@@ -59,10 +62,10 @@ describe('intra-map relation checks accept single records only', () => {
   });
 
   test('a list cannot reach a scalar ABAC rule and throw', () => {
-    const abacSchema: RebacSchema = {
+    const abacSchema: Rules = {
       permissions: {
         ...schema.permissions,
-        team: {
+        'db:team': {
           actions: {
             read: {
               rule: {
@@ -80,7 +83,7 @@ describe('intra-map relation checks accept single records only', () => {
         createPermissions(),
         abacSchema,
         {
-          resource: 'document',
+          resource: 'db:document',
           record: { id: 'd1', teams: [{ id: 't1', public: true }] },
         },
         'read',

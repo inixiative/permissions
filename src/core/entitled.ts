@@ -29,7 +29,7 @@ export const entitled = <R extends string, T>(
 ): T => {
   const { above } = walk;
   if (above && !above.has(record)) return walk.algebra.none;
-  const held = [...reachableFrom(walk.schema, resource, action)].flatMap(
+  const held = [...reachableFrom(walk.map, resource, action)].flatMap(
     (implying) => permix.entitlements?.(resource, implying) ?? [],
   );
   return walk.algebra.any(

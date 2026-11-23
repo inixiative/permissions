@@ -1,18 +1,16 @@
 import { describe, expect, test } from 'bun:test';
 import {
-  createRebacCheck,
   type Delegation,
   delegate,
   type EntitlementEntry,
   type Permissions,
   permixOf,
-  type RebacSchema,
   type Row,
 } from '../index';
-import { mapOf } from './schemaMaps';
+import { checkWithRules, mapOf, type Rules } from './schemaMaps';
 
 // own ⊇ manage ⊇ operate ⊇ read on each tenant; a user has no operate.
-const schema: RebacSchema = {
+const schema: Rules = {
   permissions: {
     'db:organization': {
       actions: { own: null, manage: 'own', operate: 'manage', read: 'operate' },
@@ -28,7 +26,7 @@ const schema: RebacSchema = {
     'db:user': { actions: { own: null, read: 'own' } },
   },
 };
-const check = createRebacCheck(
+const check = checkWithRules(
   mapOf({ 'db:space': { organization: 'db:organization' } }, { 'db:user': [] }),
 );
 

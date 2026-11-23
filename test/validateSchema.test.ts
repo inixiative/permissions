@@ -1,22 +1,22 @@
 import { describe, expect, test } from 'bun:test';
 import { Operator } from '@inixiative/json-rules';
-import { type RebacSchema, validateSchema } from '../index';
-import { mapOf } from './schemaMaps';
+import { validateSchema } from '../index';
+import { mapOf, mapWith, type Rules } from './schemaMaps';
 
 const map = mapOf(
   {
-    document: { organization: 'organization', author: 'user', folder: 'folder' },
-    folder: { organization: 'organization', archive: 'archive' },
-    organization: { billing: 'billing' },
+    'db:document': { organization: 'db:organization', author: 'db:user', folder: 'db:folder' },
+    'db:folder': { organization: 'db:organization', archive: 'db:archive' },
+    'db:organization': { billing: 'db:billing' },
   },
-  { user: ['name'] },
+  { 'db:user': ['name'] },
 );
 
-const schema: RebacSchema = {
+const schema: Rules = {
   permissions: {
-    organization: { actions: { manage: null, read: 'manage' } },
-    folder: { actions: { read: { rel: 'organization', action: 'read' } } },
-    document: {
+    'db:organization': { actions: { manage: null, read: 'manage' } },
+    'db:folder': { actions: { read: { rel: 'organization', action: 'read' } } },
+    'db:document': {
       actions: {
         read: {
           any: [
@@ -32,43 +32,45 @@ const schema: RebacSchema = {
 
 describe('validateSchema', () => {
   test('a schema whose rels resolve and whose actions exist is valid', () => {
-    expect(validateSchema(map, schema)).toEqual({ ok: true, errors: [], warnings: [] });
+    expect(validateSchema(mapWith(map, schema))).toEqual({ ok: true, errors: [], warnings: [] });
   });
 
   test('names a relation the map does not have', () => {
-    const bad: RebacSchema = {
-      permissions: { document: { actions: { read: { rel: 'orgnization', action: 'read' } } } },
+    const bad: Rules = {
+      permissions: { 'db:document': { actions: { read: { rel: 'orgnization', action: 'read' } } } },
     };
-    expect(validateSchema(map, bad).errors).toEqual([
+    expect(validateSchema(mapWith(map, bad)).errors).toEqual([
       {
-        path: 'document.read',
+        path: 'db:document.read',
         code: 'relation',
-        message: '`document` has no relation `orgnization`',
+        message: '`db:document` has no relation `orgnization`',
       },
     ]);
   });
 
   test('names an action missing where the walk lands, or a delegation to a missing action', () => {
-    const bad: RebacSchema = {
+    const bad: Rules = {
       permissions: {
-        organization: { actions: { manage: null } },
-        document: { actions: { read: { rel: 'organization', action: 'view' }, edit: 'write' } },
+        'db:organization': { actions: { manage: null } },
+        'db:document': {
+          actions: { read: { rel: 'organization', action: 'view' }, edit: 'write' },
+        },
       },
     };
-    expect(validateSchema(map, bad).errors.map((issue) => issue.message)).toEqual([
-      '`organization` has no action `view`',
-      '`document` has no action `write`',
+    expect(validateSchema(mapWith(map, bad)).errors.map((issue) => issue.message)).toEqual([
+      '`db:organization` has no action `view`',
+      '`db:document` has no action `write`',
     ]);
   });
 
   test('carries validateActionRule’s refusals, e.g. a negated rule', () => {
-    const bad: RebacSchema = {
+    const bad: Rules = {
       permissions: {
         document: {
           actions: { read: { rule: { field: 'state', operator: Operator.notEquals, value: 'x' } } },
         },
       },
     };
-    expect(validateSchema(map, bad).ok).toBe(false);
+    expect(validateSchema(mapWith(map, bad)).ok).toBe(false);
   });
 });

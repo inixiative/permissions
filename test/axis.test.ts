@@ -2,18 +2,20 @@ import { describe, expect, test } from 'bun:test';
 import type { FieldMap } from '@inixiative/field-map';
 import { Operator } from '@inixiative/json-rules';
 import {
-  createCanGrantEntitlement,
   createPermissions,
-  createRebacCheck,
   type EntitlementEntry,
   type PermissionEntry,
   placeEntitlement,
   placeUnder,
-  type RebacSchema,
   type Row,
-  type SchemaMap,
+  type SchemaMapWithoutPermissions,
 } from '../index';
-import { stringColumn as scalar } from './schemaMaps';
+import {
+  canGrantWithRules,
+  checkWithRules,
+  type Rules,
+  stringColumn as scalar,
+} from './schemaMaps';
 
 const toOne = (type: string, fromFields: string[], toFields: string[]) =>
   ({ kind: 'object', type, isList: false, fromFields, toFields }) as const;
@@ -74,28 +76,23 @@ const fieldMap: FieldMap = {
   },
 };
 
-const map: SchemaMap = {
-  resources: {
-    'db:organization': 'Organization',
-    'db:space': 'Space',
-    'db:organizationUser': 'OrganizationUser',
-    'db:spaceUser': 'SpaceUser',
-    'db:integration': 'Integration',
-  },
-  fieldMap,
+const map: SchemaMapWithoutPermissions = {
+  maps: { db: fieldMap },
   polymorphism: {
-    Integration: {
-      axes: [
-        {
-          field: 'ownerModel',
-          fkMap: {
-            Organization: ['organizationId'],
-            Space: ['organizationId', 'spaceId'],
-            OrganizationUser: ['organizationId', 'userId'],
-            SpaceUser: ['organizationId', 'spaceId', 'userId'],
+    db: {
+      Integration: {
+        axes: [
+          {
+            field: 'ownerModel',
+            fkMap: {
+              Organization: ['organizationId'],
+              Space: ['organizationId', 'spaceId'],
+              OrganizationUser: ['organizationId', 'userId'],
+              SpaceUser: ['organizationId', 'spaceId', 'userId'],
+            },
           },
-        },
-      ],
+        ],
+      },
     },
   },
 };
@@ -104,13 +101,13 @@ const kindIs = (value: string) => ({
   rule: { field: 'ownerModel', operator: Operator.equals, value },
 });
 
-const schema: RebacSchema = {
+const schema: Rules = {
   permissions: {
-    'db:organization': { actions: { own: null, manage: 'own' } },
-    'db:space': { actions: { own: { rel: 'organization', action: 'own' }, manage: 'own' } },
-    'db:organizationUser': { actions: { own: { rel: 'organization', action: 'own' } } },
-    'db:spaceUser': { actions: { own: { rel: 'space', action: 'own' } } },
-    'db:integration': {
+    'db:Organization': { actions: { own: null, manage: 'own' } },
+    'db:Space': { actions: { own: { rel: 'organization', action: 'own' }, manage: 'own' } },
+    'db:OrganizationUser': { actions: { own: { rel: 'organization', action: 'own' } } },
+    'db:SpaceUser': { actions: { own: { rel: 'space', action: 'own' } } },
+    'db:Integration': {
       actions: {
         manage: {
           any: [
@@ -125,8 +122,8 @@ const schema: RebacSchema = {
   },
 };
 
-const check = createRebacCheck(map);
-const canGrant = createCanGrantEntitlement(map);
+const check = checkWithRules(map);
+const canGrant = canGrantWithRules(map);
 
 const organizationOf = (id: string) => ({ id });
 const o1 = organizationOf('o1');
@@ -174,7 +171,7 @@ const integrationsUnder = (organization: Row) => {
 const table = async (actions: string[]) => {
   const permix = createPermissions();
   await permix.setup({
-    resource: 'db:organization',
+    resource: 'db:Organization',
     id: 'o1',
     actions: Object.fromEntries(actions.map((action) => [action, true])),
   } as PermissionEntry);
@@ -184,8 +181,8 @@ const owner = () => table(['own']);
 const admin = () => table(['manage']);
 
 const underO1 = (where?: EntitlementEntry['where']): EntitlementEntry => ({
-  resource: 'db:integration',
-  anchor: { resource: 'db:organization', id: 'o1', path: 'organization' },
+  resource: 'db:Integration',
+  anchor: { resource: 'db:Organization', id: 'o1', path: 'organization' },
   actions: { manage: true },
   ...(where ? { where } : {}),
 });
@@ -207,16 +204,16 @@ describe('an anchor path names the anchor and the axis; every kind on it is reac
   test('under o1: all four kinds of integration, none under o2', async () => {
     const holder = await holderOf(underO1());
     for (const record of Object.values(integrationsUnder(o1)))
-      expect(check(holder, schema, { resource: 'db:integration', record }, 'manage')).toBe(true);
+      expect(check(holder, schema, { resource: 'db:Integration', record }, 'manage')).toBe(true);
     for (const record of Object.values(integrationsUnder(o2)))
-      expect(check(holder, schema, { resource: 'db:integration', record }, 'manage')).toBe(false);
+      expect(check(holder, schema, { resource: 'db:Integration', record }, 'manage')).toBe(false);
   });
 
   test("the where narrows the kinds: ownerModel = Organization reaches the organization's own only", async () => {
     const holder = await holderOf(theOrganizations());
     const reached = Object.entries(integrationsUnder(o1))
       .filter(([, record]) =>
-        check(holder, schema, { resource: 'db:integration', record }, 'manage'),
+        check(holder, schema, { resource: 'db:Integration', record }, 'manage'),
       )
       .map(([kind]) => kind);
     expect(reached).toEqual(['Organization']);
@@ -285,8 +282,8 @@ describe('the grant is judged on one pseudo record per kind the entry admits (R8
 
   test('anchored at a space: the kinds that carry its keys, a space and its members', () => {
     const atSpace: EntitlementEntry = {
-      resource: 'db:integration',
-      anchor: { resource: 'db:space', id: 's1', path: 'space' },
+      resource: 'db:Integration',
+      anchor: { resource: 'db:Space', id: 's1', path: 'space' },
       actions: { manage: true },
     };
     expect(placeEntitlement(map, atSpace, s1)?.map((record) => record.ownerModel)).toEqual([
@@ -299,8 +296,8 @@ describe('the grant is judged on one pseudo record per kind the entry admits (R8
 describe('an owner is placed under every record above it, not only its parent', () => {
   test("via organizationUser.organization: a space member's integration sits under its member and its space", async () => {
     const members: EntitlementEntry = {
-      resource: 'db:integration',
-      anchor: { resource: 'db:organization', id: 'o1', path: 'organizationUser.organization' },
+      resource: 'db:Integration',
+      anchor: { resource: 'db:Organization', id: 'o1', path: 'organizationUser.organization' },
       actions: { manage: true },
     };
     const placed = placeEntitlement(map, members, o1);
@@ -314,37 +311,40 @@ describe('an owner is placed under every record above it, not only its parent', 
 
 describe('a kind whose owner cannot be placed is still judged', () => {
   test('its record stays, the owner unknown, rather than the kind skipped', () => {
-    const orphanMap: SchemaMap = {
-      resources: { 'db:organization': 'Organization', 'db:widget': 'Widget', 'db:thing': 'Thing' },
-      fieldMap: {
-        models: {
-          Organization: { fields: { id: scalar } },
-          Widget: { fields: { id: scalar } },
-          Thing: {
-            fields: {
-              ownerModel: scalar,
-              organizationId: scalar,
-              widgetId: scalar,
-              organization: toOne('Organization', ['organizationId'], ['id']),
-              widget: toOne('Widget', ['organizationId', 'widgetId'], ['organizationId', 'id']),
+    const orphanMap: SchemaMapWithoutPermissions = {
+      maps: {
+        db: {
+          models: {
+            Organization: { fields: { id: scalar } },
+            Widget: { fields: { id: scalar } },
+            Thing: {
+              fields: {
+                ownerModel: scalar,
+                organizationId: scalar,
+                widgetId: scalar,
+                organization: toOne('Organization', ['organizationId'], ['id']),
+                widget: toOne('Widget', ['organizationId', 'widgetId'], ['organizationId', 'id']),
+              },
             },
           },
         },
       },
       polymorphism: {
-        Thing: {
-          axes: [
-            {
-              field: 'ownerModel',
-              fkMap: { Organization: ['organizationId'], Widget: ['organizationId', 'widgetId'] },
-            },
-          ],
+        db: {
+          Thing: {
+            axes: [
+              {
+                field: 'ownerModel',
+                fkMap: { Organization: ['organizationId'], Widget: ['organizationId', 'widgetId'] },
+              },
+            ],
+          },
         },
       },
     };
     const things: EntitlementEntry = {
-      resource: 'db:thing',
-      anchor: { resource: 'db:organization', id: 'o1', path: 'organization' },
+      resource: 'db:Thing',
+      anchor: { resource: 'db:Organization', id: 'o1', path: 'organization' },
       actions: { manage: true },
     };
     expect(placeEntitlement(orphanMap, things, o1)?.map((record) => record.ownerModel)).toEqual([
@@ -466,42 +466,46 @@ describe('a root leaf is judged only on the kind (R88 adversarial, R90)', () => 
     expect(placed?.map((record) => record.ownerModel)).toEqual(['Organization', 'Space']);
   });
 
-  const billing: SchemaMap = {
+  const billing: SchemaMapWithoutPermissions = {
     ...map,
-    fieldMap: {
-      models: {
-        ...fieldMap.models,
-        Space: {
-          fields: {
-            ...fieldMap.models.Space?.fields,
-            billingOrganizationId: scalar,
-            billingOrganization: toOne('Organization', ['billingOrganizationId'], ['id']),
+    maps: {
+      db: {
+        models: {
+          ...fieldMap.models,
+          Space: {
+            fields: {
+              ...fieldMap.models.Space?.fields,
+              billingOrganizationId: scalar,
+              billingOrganization: toOne('Organization', ['billingOrganizationId'], ['id']),
+            },
           },
-        },
-        Integration: {
-          fields: {
-            ...fieldMap.models.Integration?.fields,
-            billingOrganizationId: scalar,
-            space: toOne(
-              'Space',
-              ['organizationId', 'spaceId', 'billingOrganizationId'],
-              ['organizationId', 'id', 'billingOrganizationId'],
-            ),
+          Integration: {
+            fields: {
+              ...fieldMap.models.Integration?.fields,
+              billingOrganizationId: scalar,
+              space: toOne(
+                'Space',
+                ['organizationId', 'spaceId', 'billingOrganizationId'],
+                ['organizationId', 'id', 'billingOrganizationId'],
+              ),
+            },
           },
         },
       },
     },
     polymorphism: {
-      Integration: {
-        axes: [
-          {
-            field: 'ownerModel',
-            fkMap: {
-              Organization: ['organizationId'],
-              Space: ['organizationId', 'spaceId', 'billingOrganizationId'],
+      db: {
+        Integration: {
+          axes: [
+            {
+              field: 'ownerModel',
+              fkMap: {
+                Organization: ['organizationId'],
+                Space: ['organizationId', 'spaceId', 'billingOrganizationId'],
+              },
             },
-          },
-        ],
+          ],
+        },
       },
     },
   };
@@ -524,73 +528,71 @@ describe('a root leaf is judged only on the kind (R88 adversarial, R90)', () => 
 });
 
 describe("on a multi-hop path only the kind narrows: the first step's parent is placed, not fixed (R88 adversarial)", () => {
-  const things: SchemaMap = {
-    resources: {
-      'db:organization': 'Organization',
-      'db:widget': 'Widget',
-      'db:thing': 'Thing',
-      'db:item': 'Item',
-    },
-    fieldMap: {
-      models: {
-        Organization: { fields: { id: scalar } },
-        Widget: {
-          fields: {
-            id: scalar,
-            organizationId: scalar,
-            billingOrganizationId: scalar,
-            organization: toOne('Organization', ['organizationId'], ['id']),
-            billingOrganization: toOne('Organization', ['billingOrganizationId'], ['id']),
+  const things: SchemaMapWithoutPermissions = {
+    maps: {
+      db: {
+        models: {
+          Organization: { fields: { id: scalar } },
+          Widget: {
+            fields: {
+              id: scalar,
+              organizationId: scalar,
+              billingOrganizationId: scalar,
+              organization: toOne('Organization', ['organizationId'], ['id']),
+              billingOrganization: toOne('Organization', ['billingOrganizationId'], ['id']),
+            },
           },
-        },
-        Thing: {
-          fields: {
-            id: scalar,
-            ownerModel: scalar,
-            organizationId: scalar,
-            widgetId: scalar,
-            billingOrganizationId: scalar,
-            organization: toOne('Organization', ['organizationId'], ['id']),
-            widget: toOne(
-              'Widget',
-              ['organizationId', 'widgetId', 'billingOrganizationId'],
-              ['organizationId', 'id', 'billingOrganizationId'],
-            ),
+          Thing: {
+            fields: {
+              id: scalar,
+              ownerModel: scalar,
+              organizationId: scalar,
+              widgetId: scalar,
+              billingOrganizationId: scalar,
+              organization: toOne('Organization', ['organizationId'], ['id']),
+              widget: toOne(
+                'Widget',
+                ['organizationId', 'widgetId', 'billingOrganizationId'],
+                ['organizationId', 'id', 'billingOrganizationId'],
+              ),
+            },
           },
-        },
-        Item: {
-          fields: {
-            id: scalar,
-            thingId: scalar,
-            thingBillingOrganizationId: scalar,
-            thing: toOne(
-              'Thing',
-              ['thingId', 'thingBillingOrganizationId'],
-              ['id', 'billingOrganizationId'],
-            ),
+          Item: {
+            fields: {
+              id: scalar,
+              thingId: scalar,
+              thingBillingOrganizationId: scalar,
+              thing: toOne(
+                'Thing',
+                ['thingId', 'thingBillingOrganizationId'],
+                ['id', 'billingOrganizationId'],
+              ),
+            },
           },
         },
       },
     },
     polymorphism: {
-      Thing: {
-        axes: [
-          {
-            field: 'ownerModel',
-            fkMap: {
-              Organization: ['organizationId'],
-              Widget: ['organizationId', 'widgetId', 'billingOrganizationId'],
+      db: {
+        Thing: {
+          axes: [
+            {
+              field: 'ownerModel',
+              fkMap: {
+                Organization: ['organizationId'],
+                Widget: ['organizationId', 'widgetId', 'billingOrganizationId'],
+              },
             },
-          },
-        ],
+          ],
+        },
       },
     },
   };
 
   test("a leaf on a key the placed parent's owner guessed narrows nothing", () => {
     const items: EntitlementEntry = {
-      resource: 'db:item',
-      anchor: { resource: 'db:organization', id: 'o1', path: 'thing.organization' },
+      resource: 'db:Item',
+      anchor: { resource: 'db:Organization', id: 'o1', path: 'thing.organization' },
       actions: { manage: true },
       where: { field: 'thingBillingOrganizationId', operator: 'equals', value: 'o9' } as never,
     };
@@ -601,7 +603,7 @@ describe("on a multi-hop path only the kind narrows: the first step's parent is 
 describe('placeUnder narrows by its where the way a grant does', () => {
   test('no where: every kind; a root kind leaf: the kinds it admits', () => {
     const under = (where?: EntitlementEntry['where']) =>
-      placeUnder(map, 'db:integration', 'organization', 'db:organization', o1, where).map(
+      placeUnder(map, 'db:Integration', 'organization', 'db:Organization', o1, where).map(
         (record) => record.ownerModel,
       );
     expect(under()).toHaveLength(4);

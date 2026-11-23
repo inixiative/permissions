@@ -3,32 +3,24 @@ import type { AnnoValue, FieldMap, ScalarType } from '@inixiative/field-map';
 import type { Condition } from '@inixiative/json-rules';
 import {
   type ActionRule,
-  createCanGrantEntitlement,
   createPermissions,
   createRebacCheck,
   type EntitlementEntry,
   placeEntitlement,
-  type RebacSchema,
   type Row,
-  type SchemaMap,
+  type SchemaMapWithoutPermissions,
   validateSchema,
 } from '../index';
 import { createHydratorReadingEachRowThroughLoad } from './createHydratorReadingEachRowThroughLoad';
 import { annotate, loadModels } from './fixtures/load';
-import { stringColumn } from './schemaMaps';
+import { canGrantWithRules, checkWithRules, mapWith, type Rules, stringColumn } from './schemaMaps';
 
 // Kingdom's surface → integrationResource → integration slice (schemas/kingdom.prisma), read by
 // field-map. `IntegrationResource.kind` and `.enabled` read `/// @permissions(place: true)`.
 const models = loadModels('kingdom');
-const resources = {
-  'db:organization': 'Organization',
-  'db:project': 'Project',
-  'db:integration': 'Integration',
-  'db:integrationResource': 'IntegrationResource',
-  'db:projectIntegrationResource': 'ProjectIntegrationResource',
-  'slack:channel': 'SlackChannelOperation',
-};
-const mapOver = (over: typeof models): SchemaMap => ({ resources, fieldMap: { models: over } });
+const mapOver = (over: typeof models): SchemaMapWithoutPermissions => ({
+  maps: { db: { models: over } },
+});
 const marked = mapOver(models);
 const unmarked = mapOver(
   annotate(annotate(models, 'IntegrationResource', 'kind'), 'IntegrationResource', 'enabled'),
@@ -55,23 +47,23 @@ const operates = (at: string): ActionRule => ({
   ],
 });
 
-const schemaWith = (every: ActionRule): RebacSchema => ({
+const schemaWith = (every: ActionRule): Rules => ({
   permissions: {
-    'db:organization': { actions: { own: null, manage: 'own' } },
-    'db:project': {
+    'db:Organization': { actions: { own: null, manage: 'own' } },
+    'db:Project': {
       actions: { manage: { rel: 'organization', action: 'manage' }, read: 'manage' },
     },
-    'db:integration': {
+    'db:Integration': {
       actions: { manage: { rel: 'organization', action: 'manage' }, operate: 'manage' },
     },
-    'db:integrationResource': {
+    'db:IntegrationResource': {
       actions: {
         manage: { rel: 'integration', action: 'manage' },
         operate: { rel: 'integration', action: 'operate' },
       },
     },
-    'db:projectIntegrationResource': { actions: { read: { rel: 'project', action: 'read' } } },
-    'slack:channel': { actions: { '*': every, 'message.send': '*' } },
+    'db:ProjectIntegrationResource': { actions: { read: { rel: 'project', action: 'read' } } },
+    'db:SlackChannelOperation': { actions: { '*': every, 'message.send': '*' } },
   },
 });
 const schema = schemaWith(operates('integrationResource'));
@@ -107,11 +99,11 @@ const holding = async (...grants: [string, string, string][]) => {
   );
   return permix;
 };
-const orgOwner = () => holding(['db:organization', 'o1', 'own']);
+const orgOwner = () => holding(['db:Organization', 'o1', 'own']);
 
 const everyChannel: EntitlementEntry = {
-  resource: 'slack:channel',
-  anchor: { resource: 'db:integration', id: 'i1', path: 'integrationResource.integration' },
+  resource: 'db:SlackChannelOperation',
+  anchor: { resource: 'db:Integration', id: 'i1', path: 'integrationResource.integration' },
   where: {
     all: [
       equals('integrationResource.kind', 'channel'),
@@ -120,22 +112,22 @@ const everyChannel: EntitlementEntry = {
   },
   actions: { '*': true },
 };
-const placedOn = (map: SchemaMap, entry: EntitlementEntry, anchor: Row = i1) =>
+const placedOn = (map: SchemaMapWithoutPermissions, entry: EntitlementEntry, anchor: Row = i1) =>
   placeEntitlement(map, entry, anchor) as Row[];
 const granted = async (
-  map: SchemaMap,
-  rules: RebacSchema,
+  map: SchemaMapWithoutPermissions,
+  rules: Rules,
   entry: EntitlementEntry,
   anchor = i1,
 ) => {
   const writer = await orgOwner();
-  const canGrant = createCanGrantEntitlement(map);
+  const canGrant = canGrantWithRules(map);
   return placedOn(map, entry, anchor).every((record) => canGrant(writer, rules, entry, record));
 };
 
 describe('Kingdom’s wide row: every channel of integration i1', () => {
   test('the one-form schema validates', () => {
-    expect(validateSchema(marked, schema)).toEqual({ ok: true, errors: [], warnings: [] });
+    expect(validateSchema(mapWith(marked, schema))).toEqual({ ok: true, errors: [], warnings: [] });
   });
 
   test('with the marks, the stated values join the stand-in resource', () => {
@@ -163,17 +155,17 @@ describe('Kingdom’s wide row: every channel of integration i1', () => {
   });
 
   test('a writer with no hold on the integration is refused either way', async () => {
-    const canGrant = createCanGrantEntitlement(marked);
-    const stranger = await holding(['db:organization', 'o2', 'own']);
+    const canGrant = canGrantWithRules(marked);
+    const stranger = await holding(['db:Organization', 'o2', 'own']);
     const [placed] = placedOn(marked, everyChannel);
     expect(canGrant(stranger, schema, everyChannel, placed as Row)).toBe(false);
   });
 
   test('at read the nested `where` is judged on the real resource', async () => {
-    const check = createRebacCheck(marked);
+    const check = checkWithRules(marked);
     const holder = createPermissions();
     await holder.setup([everyChannel], { owner: await orgOwner() });
-    const on = (record: Row) => ({ resource: 'slack:channel', record });
+    const on = (record: Row) => ({ resource: 'db:SlackChannelOperation', record });
     expect(check(holder, schema, on(call(resource('r1', i1))), 'message.send')).toBe(true);
     expect(check(holder, schema, on(call(resource('r2', i1, 'user'))), 'message.send')).toBe(false);
     expect(
@@ -192,7 +184,7 @@ describe('Kingdom’s wide row: every channel of integration i1', () => {
 
 describe('what fills a stand-in, and what never does', () => {
   const withWhere = (where: Condition): EntitlementEntry => ({ ...everyChannel, where });
-  const standIn = (map: SchemaMap, where: Condition, anchor: Row = i1) =>
+  const standIn = (map: SchemaMapWithoutPermissions, where: Condition, anchor: Row = i1) =>
     (placedOn(map, withWhere(where), anchor)[0] as Row).integrationResource as Row;
 
   test('only a root conjunct: a leaf inside `any` is not true of every admitted record', () => {
@@ -267,7 +259,10 @@ describe('where the mark is refused, when the map is first used', () => {
   const boot =
     (model: string, field: string, value: AnnoValue = true, base = models) =>
     () =>
-      createRebacCheck(mapOver(annotate(base, model, field, { place: value })));
+      createRebacCheck({
+        ...mapOver(annotate(base, model, field, { place: value })),
+        permissions: {},
+      });
 
   test('keys, ids, dates, Json, relations, and anything but `true`', () => {
     expect(boot('IntegrationResource', 'integrationId')).toThrow(/never marks a relation key/);
@@ -303,9 +298,9 @@ describe('where the mark is refused, when the map is first used', () => {
     };
     const thing = (field: string) => () =>
       createRebacCheck({
-        resources: { thing: 'Thing' },
-        fieldMap: { models: annotate(fieldMap.models, 'Thing', field, { place: true }) },
-        polymorphism: { Thing: { axes: [{ field: 'ownerModel', fkMap: {} }] } },
+        maps: { db: { models: annotate(fieldMap.models, 'Thing', field, { place: true }) } },
+        polymorphism: { db: { Thing: { axes: [{ field: 'ownerModel', fkMap: {} }] } } },
+        permissions: {},
       });
     expect(thing('ownerModel')).toThrow(/never marks a discriminator/);
     expect(thing('tags')).toThrow(/never marks a list/);
@@ -319,51 +314,49 @@ describe('a polymorphic stand-in: the mark joins it, the path still sets its kin
   const scalar = stringColumn;
   const toOne = (type: string, fromFields: string[], toFields: string[]) =>
     ({ kind: 'object', type, isList: false, fromFields, toFields }) as const;
-  const map: SchemaMap = {
-    resources: {
-      'db:organization': 'Organization',
-      'db:space': 'Space',
-      'db:integration': 'Integration',
-      'db:webhook': 'Webhook',
-    },
-    fieldMap: {
-      models: {
-        Organization: { fields: { id: scalar } },
-        Space: {
-          fields: {
-            id: scalar,
-            organizationId: scalar,
-            organization: toOne('Organization', ['organizationId'], ['id']),
+  const map: SchemaMapWithoutPermissions = {
+    maps: {
+      db: {
+        models: {
+          Organization: { fields: { id: scalar } },
+          Space: {
+            fields: {
+              id: scalar,
+              organizationId: scalar,
+              organization: toOne('Organization', ['organizationId'], ['id']),
+            },
           },
-        },
-        Integration: {
-          fields: {
-            id: scalar,
-            ownerModel: scalar,
-            organizationId: scalar,
-            spaceId: scalar,
-            status: { ...scalar, annotations: { permissions: { place: true } } },
-            organization: toOne('Organization', ['organizationId'], ['id']),
-            space: toOne('Space', ['organizationId', 'spaceId'], ['organizationId', 'id']),
+          Integration: {
+            fields: {
+              id: scalar,
+              ownerModel: scalar,
+              organizationId: scalar,
+              spaceId: scalar,
+              status: { ...scalar, annotations: { permissions: { place: true } } },
+              organization: toOne('Organization', ['organizationId'], ['id']),
+              space: toOne('Space', ['organizationId', 'spaceId'], ['organizationId', 'id']),
+            },
           },
-        },
-        Webhook: {
-          fields: {
-            id: scalar,
-            integrationId: scalar,
-            integration: toOne('Integration', ['integrationId'], ['id']),
+          Webhook: {
+            fields: {
+              id: scalar,
+              integrationId: scalar,
+              integration: toOne('Integration', ['integrationId'], ['id']),
+            },
           },
         },
       },
     },
     polymorphism: {
-      Integration: {
-        axes: [
-          {
-            field: 'ownerModel',
-            fkMap: { Organization: ['organizationId'], Space: ['organizationId', 'spaceId'] },
-          },
-        ],
+      db: {
+        Integration: {
+          axes: [
+            {
+              field: 'ownerModel',
+              fkMap: { Organization: ['organizationId'], Space: ['organizationId', 'spaceId'] },
+            },
+          ],
+        },
       },
     },
   };
@@ -371,8 +364,8 @@ describe('a polymorphic stand-in: the mark joins it, the path still sets its kin
   test('status is filled; ownerModel and the keys come from the path, whatever the where says', () => {
     const s1 = { id: 's1', organizationId: 'o1', organization: o1 };
     const entry: EntitlementEntry = {
-      resource: 'db:webhook',
-      anchor: { resource: 'db:space', id: 's1', path: 'integration.space' },
+      resource: 'db:Webhook',
+      anchor: { resource: 'db:Space', id: 's1', path: 'integration.space' },
       where: {
         all: [
           equals('integration.status', 'active'),
@@ -408,9 +401,9 @@ const pir1 = link('pir1', p1, r1);
 // The entry: no `where`, no part A, no part B. The surface record of a call made in a project
 // carries the join row it acts through as a to-one, `projectIntegrationResource`.
 const atJoinRow: EntitlementEntry = {
-  resource: 'slack:channel',
+  resource: 'db:SlackChannelOperation',
   anchor: {
-    resource: 'db:projectIntegrationResource',
+    resource: 'db:ProjectIntegrationResource',
     id: 'pir1',
     path: 'projectIntegrationResource',
   },
@@ -436,21 +429,21 @@ describe('Kingdom’s project scope: a grant anchored at the project-resource jo
   });
 
   test('granted once the rule reaches the resource through the link; marks play no part', async () => {
-    expect(validateSchema(marked, linked)).toEqual({ ok: true, errors: [], warnings: [] });
+    expect(validateSchema(mapWith(marked, linked))).toEqual({ ok: true, errors: [], warnings: [] });
     expect(await granted(marked, linked, atJoinRow, pir1)).toBe(true);
     expect(await granted(unmarked, linked, atJoinRow, pir1)).toBe(true);
-    const canGrant = createCanGrantEntitlement(marked);
-    const projectOnly = await holding(['db:project', 'p1', 'manage']);
+    const canGrant = canGrantWithRules(marked);
+    const projectOnly = await holding(['db:Project', 'p1', 'manage']);
     const [placed] = placedOn(marked, atJoinRow, pir1);
     expect(canGrant(projectOnly, linked, atJoinRow, placed as Row)).toBe(false);
   });
 
   test('it reaches calls on that resource made through that link, and nothing else', async () => {
-    const check = createRebacCheck(marked);
+    const check = checkWithRules(marked);
     const holder = createPermissions();
     await holder.setup([atJoinRow], { owner: await orgOwner() });
     const sends = (record: Row) =>
-      check(holder, linked, { resource: 'slack:channel', record }, 'message.send');
+      check(holder, linked, { resource: 'db:SlackChannelOperation', record }, 'message.send');
     expect(sends(call(r1, pir1))).toBe(true);
     expect(sends(call(r1))).toBe(false);
     expect(sends(call(r1, link('pir2', p2, r1)))).toBe(false);
@@ -459,9 +452,9 @@ describe('Kingdom’s project scope: a grant anchored at the project-resource jo
 
   test('anchored at the project instead ("everything in p1"): reads work, but no table can grant it', async () => {
     const wholeProject: EntitlementEntry = {
-      resource: 'slack:channel',
+      resource: 'db:SlackChannelOperation',
       anchor: {
-        resource: 'db:project',
+        resource: 'db:Project',
         id: 'p1',
         path: 'projectIntegrationResource.project',
       },
@@ -481,11 +474,11 @@ describe('Kingdom’s project scope: a grant anchored at the project-resource jo
       } as Condition,
     };
     expect(await granted(marked, linked, stated, p1)).toBe(false);
-    const check = createRebacCheck(marked);
+    const check = checkWithRules(marked);
     const holder = createPermissions();
     await holder.setup([wholeProject], { owner: await orgOwner() });
     const sends = (record: Row) =>
-      check(holder, linked, { resource: 'slack:channel', record }, 'message.send');
+      check(holder, linked, { resource: 'db:SlackChannelOperation', record }, 'message.send');
     expect(sends(call(r1, pir1))).toBe(true);
     expect(sends(call(r2, link('pir3', p1, r2)))).toBe(true);
     expect(sends(call(r1, link('pir2', p2, r1)))).toBe(false);
@@ -551,11 +544,11 @@ describe('a project scope: a join-row entry and an anchor through the link', () 
     projectIntegrationResource: via,
   });
   const sendsAs = async (entry: EntitlementEntry) => {
-    const check = createRebacCheck(marked);
+    const check = checkWithRules(marked);
     const holder = createPermissions();
     await holder.setup([entry], { owner: await orgOwner() });
     return (record: Row) =>
-      check(holder, linked, { resource: 'slack:channel', record }, 'message.send');
+      check(holder, linked, { resource: 'db:SlackChannelOperation', record }, 'message.send');
   };
 
   // B-2: the rule cannot tie the two carriers together on a stand-in, so the surface record must
@@ -570,8 +563,8 @@ describe('a project scope: a join-row entry and an anchor through the link', () 
   });
 
   const inProject: EntitlementEntry = {
-    resource: 'slack:channel',
-    anchor: { resource: 'db:integration', id: 'i1', path: `${viaLink}.integration` },
+    resource: 'db:SlackChannelOperation',
+    anchor: { resource: 'db:Integration', id: 'i1', path: `${viaLink}.integration` },
     where: {
       all: [
         equals(`${viaLink}.kind`, 'channel'),
@@ -597,8 +590,8 @@ describe('a project scope: a join-row entry and an anchor through the link', () 
     ]);
     expect(await granted(marked, linked, inProject)).toBe(true);
     expect(await granted(unmarked, linked, inProject)).toBe(false);
-    const canGrant = createCanGrantEntitlement(marked);
-    const projectOnly = await holding(['db:project', 'p1', 'manage']);
+    const canGrant = canGrantWithRules(marked);
+    const projectOnly = await holding(['db:Project', 'p1', 'manage']);
     for (const placed of placedOn(marked, inProject))
       expect(canGrant(projectOnly, linked, inProject, placed)).toBe(false);
   });
@@ -623,22 +616,22 @@ describe('a junction list: a resource is reached through a project it is attache
     arrayOperator: 'any',
     condition: { rel: 'project', action: 'read' },
   };
-  const rules: RebacSchema = {
+  const rules: Rules = {
     permissions: {
       ...schema.permissions,
-      'db:integrationResource': {
+      'db:IntegrationResource': {
         actions: { operate: { rel: 'integration', action: 'operate' }, read: inProject },
       },
     },
   };
   const rows: Record<string, Row[]> = {
-    'db:organization': [o1, { id: 'o2' }],
-    'db:integrationResource': [{ id: 'r1' }, { id: 'r2' }],
-    'db:project': [
+    'db:Organization': [o1, { id: 'o2' }],
+    'db:IntegrationResource': [{ id: 'r1' }, { id: 'r2' }],
+    'db:Project': [
       { id: 'p1', organizationId: 'o1' },
       { id: 'p2', organizationId: 'o2' },
     ],
-    'db:projectIntegrationResource': [
+    'db:ProjectIntegrationResource': [
       { id: 'l1', projectId: 'p1', integrationResourceId: 'r1' },
       { id: 'l2', projectId: 'p2', integrationResourceId: 'r2' },
     ],
@@ -651,26 +644,28 @@ describe('a junction list: a resource is reached through a project it is attache
     loadItems: async (of, where) => rows[of]?.filter(matches(where)) ?? [],
   });
   const read = async (permix: Awaited<ReturnType<typeof holding>>, id: string) =>
-    createRebacCheck(junction)(
+    checkWithRules(junction)(
       permix,
       rules,
       {
-        resource: 'db:integrationResource',
-        record: await hydrate('db:integrationResource', { id }),
+        resource: 'db:IntegrationResource',
+        record: await hydrate('db:IntegrationResource', { id }),
       },
       'read',
     );
 
   test('the declaration carries what the rule walks, and a shorter one is reported', () => {
-    expect(validateSchema(junction, rules).errors).toEqual([]);
+    expect(validateSchema(mapWith(junction, rules)).errors).toEqual([]);
     const short = mapOver(
       annotate(models, 'IntegrationResource', 'projects', { down: ['project'] }),
     );
-    expect(validateSchema(short, rules).errors.map((issue) => issue.code)).toEqual(['down']);
+    expect(validateSchema(mapWith(short, rules)).errors.map((issue) => issue.code)).toEqual([
+      'down',
+    ]);
   });
 
   test('a role on the project, or above it, reads the resources attached to it and no others', async () => {
-    const onProject = await holding(['db:project', 'p1', 'read']);
+    const onProject = await holding(['db:Project', 'p1', 'read']);
     expect(await read(onProject, 'r1')).toBe(true);
     expect(await read(onProject, 'r2')).toBe(false);
     expect(await read(await orgOwner(), 'r1')).toBe(true);

@@ -1,11 +1,8 @@
 import { describe, expect, test } from 'bun:test';
-import { fieldOf, modelOf } from '@inixiative/field-map';
+import { type FieldMap, fieldOf, modelOf } from '@inixiative/field-map';
 import { type Condition, Operator } from '@inixiative/json-rules';
 import {
   coversEntitlement,
-  createCanGrantEntitlement,
-  createRebacCheck,
-  createRebacPaths,
   delegate,
   delegatedWhere,
   type EntitlementEntry,
@@ -15,13 +12,20 @@ import {
   type PermixLike,
   permixOf,
   placeEntitlement,
-  type RebacSchema,
   type Row,
-  type SchemaMap,
+  type SchemaMapWithoutPermissions,
   wellFormedEntitlements,
   withoutRedundantEntitlements,
 } from '../index';
-import { actorData, mapOf, stringColumn } from './schemaMaps';
+import {
+  actorData,
+  canGrantWithRules,
+  checkWithRules,
+  mapOf,
+  pathsWithRules,
+  type Rules,
+  stringColumn,
+} from './schemaMaps';
 
 // The grant check's first pass also counts an entitlement the writer holds when it is marked
 // `grantsBelow`, has no `where`, and the walk meets it on a hydrated row above the granted record
@@ -63,7 +67,7 @@ describe('the member case: operate on M, anchored at M, no where, backed by the 
     all: [ownedBy(model), { rel, action }],
   });
   const standard = { own: null, manage: 'own', operate: 'manage', read: 'operate' };
-  const schema: RebacSchema = {
+  const schema: Rules = {
     permissions: {
       'db:user': { actions: standard },
       'db:organization': { actions: standard },
@@ -102,7 +106,7 @@ describe('the member case: operate on M, anchored at M, no where, backed by the 
           read: { any: ['operate', { rel: 'integration', action: 'read' }] },
         },
       },
-      'kcp:thread': {
+      'db:kcpThread': {
         actions: {
           '*': {
             all: [
@@ -124,7 +128,7 @@ describe('the member case: operate on M, anchored at M, no where, backed by the 
         organizationUser: 'db:organizationUser',
       },
       'db:integrationResource': { integration: 'db:integration' },
-      'kcp:thread': { integrationResource: 'db:integrationResource' },
+      'db:kcpThread': { integrationResource: 'db:integrationResource' },
     },
     {
       'db:organizationUser': ['role'],
@@ -132,8 +136,8 @@ describe('the member case: operate on M, anchored at M, no where, backed by the 
       'db:integrationResource': ['enabled'],
     },
   );
-  const rebac = createRebacCheck(map);
-  const canGrant = createCanGrantEntitlement(map);
+  const rebac = checkWithRules(map);
+  const canGrant = canGrantWithRules(map);
 
   const u1 = { id: 'u1' };
   const o1 = { id: 'o1' };
@@ -159,7 +163,7 @@ describe('the member case: operate on M, anchored at M, no where, backed by the 
   const thread = { id: 't1', integrationResourceId: 'r1', integrationResource: r1 };
 
   const surface = entry(
-    'kcp:thread',
+    'db:kcpThread',
     { resource: 'db:integrationResource', id: 'r1', path: 'integrationResource' },
     ['*'],
   );
@@ -193,7 +197,7 @@ describe('the member case: operate on M, anchored at M, no where, backed by the 
     return placed?.every((record) => canGrant(permix, schema, granted, record)) === true;
   };
   const uses = (permix: Permix) =>
-    rebac(permix, schema, { resource: 'kcp:thread', record: thread }, '*');
+    rebac(permix, schema, { resource: 'db:kcpThread', record: thread }, '*');
   const outcome = async (permissions: Permissions) => {
     const permix = await permixOf(permissions);
     return {
@@ -318,7 +322,7 @@ describe('the member case: operate on M, anchored at M, no where, backed by the 
 
 // ───────────────────────── organization → space → integration ─────────────────────────
 
-const schema: RebacSchema = {
+const schema: Rules = {
   permissions: {
     'db:organization': {
       actions: {
@@ -345,7 +349,7 @@ const schema: RebacSchema = {
         read: { any: ['manage', { rel: 'space', action: 'read' }] },
       },
     },
-    'kcp:thread': {
+    'db:kcpThread': {
       actions: {
         read: { rel: 'integration', action: 'read' },
         post: { rel: 'integration', action: 'manage' },
@@ -357,13 +361,13 @@ const map = mapOf(
   {
     'db:space': { organization: 'db:organization' },
     'db:integration': { space: 'db:space' },
-    'kcp:thread': { integration: 'db:integration' },
+    'db:kcpThread': { integration: 'db:integration' },
   },
   { 'db:space': ['label'], 'db:integration': ['provider'] },
 );
-const rebac = createRebacCheck(map);
-const paths = createRebacPaths(map);
-const canGrant = createCanGrantEntitlement(map);
+const rebac = checkWithRules(map);
+const paths = pathsWithRules(map);
+const canGrant = canGrantWithRules(map);
 
 const o1 = { id: 'o1' };
 const spaceRow = (id: string, label: string) => ({
@@ -414,7 +418,7 @@ describe("R103's case grants when the held row is marked grantsBelow", () => {
 
   test('two rows above: threads under the integrations of s1', async () => {
     const threads = entry(
-      'kcp:thread',
+      'db:kcpThread',
       { resource: 'db:space', id: 's1', path: 'integration.space' },
       ['read'],
     );
@@ -771,15 +775,19 @@ describe('refused: an entitlement on the granted record itself (self-anchored en
 
   test('R101: read on the threads of i1 and post on the threads of s1 do not combine on t1', async () => {
     const readOfI1 = below(
-      entry('kcp:thread', { resource: 'db:integration', id: 'i1', path: 'integration' }, ['read']),
+      entry('db:kcpThread', { resource: 'db:integration', id: 'i1', path: 'integration' }, [
+        'read',
+      ]),
     );
     const postOfS1 = below(
-      entry('kcp:thread', { resource: 'db:space', id: 's1', path: 'integration.space' }, ['post']),
+      entry('db:kcpThread', { resource: 'db:space', id: 's1', path: 'integration.space' }, [
+        'post',
+      ]),
     );
-    const both = entry('kcp:thread', { resource: 'kcp:thread', id: 't1' }, ['read', 'post']);
+    const both = entry('db:kcpThread', { resource: 'db:kcpThread', id: 't1' }, ['read', 'post']);
     const holder = await permixOf(holding([readOfI1, postOfS1]));
     for (const action of ['read', 'post'])
-      expect(rebac(holder, schema, { resource: 'kcp:thread', record: t1 }, action)).toBe(true);
+      expect(rebac(holder, schema, { resource: 'db:kcpThread', record: t1 }, action)).toBe(true);
     expect(await grants(holding([readOfI1, postOfS1]), both, t1)).toBe(false);
   });
 
@@ -794,7 +802,7 @@ describe('refused: an entitlement met below the anchor, on a placed record', () 
   test('held on the granted resource itself, at the placed record: only the copy pass applies', async () => {
     const writer = holding([below(integrationsOfS1(['manage']))]);
     const threads = entry(
-      'kcp:thread',
+      'db:kcpThread',
       { resource: 'db:space', id: 's1', path: 'integration.space' },
       ['read'],
     );
@@ -837,7 +845,7 @@ describe('what counts as above: rows the anchor holds under a to-one relation th
   const eqKind = (kind: string) => ({ rule: eq('ownerModel', kind) });
 
   test('a row reached through a relation that does not own its key is not above', async () => {
-    const profiled: RebacSchema = {
+    const profiled: Rules = {
       permissions: {
         'db:profile': { actions: { manage: null } },
         'db:space': { actions: { manage: { rel: 'profile', action: 'manage' } } },
@@ -848,17 +856,20 @@ describe('what counts as above: rows the anchor holds under a to-one relation th
       'db:space': { profile: 'db:profile' },
       'db:integration': { space: 'db:space' },
     });
-    const profile = fieldOf(owning.fieldMap, 'db:space', 'profile');
+    const db = owning.maps.db as FieldMap;
+    const profile = fieldOf(db, 'space', 'profile');
     if (profile?.kind !== 'object') throw new Error('db:space.profile is a relation');
-    const inverse: SchemaMap = {
+    const inverse: SchemaMapWithoutPermissions = {
       ...owning,
-      fieldMap: {
-        models: {
-          ...owning.fieldMap.models,
-          'db:space': {
-            fields: {
-              ...modelOf(owning.fieldMap, 'db:space')?.fields,
-              profile: { ...profile, fromFields: [], toFields: [] },
+      maps: {
+        db: {
+          models: {
+            ...db.models,
+            space: {
+              fields: {
+                ...modelOf(db, 'space')?.fields,
+                profile: { ...profile, fromFields: [], toFields: [] },
+              },
             },
           },
         },
@@ -872,8 +883,8 @@ describe('what counts as above: rows the anchor holds under a to-one relation th
       { entries: [manageP1], owner: [{ entries: [grant('db:profile', 'p1', ['manage'])] }] },
     ]);
     const byRole = await permixOf([{ entries: [grant('db:profile', 'p1', ['manage'])] }]);
-    const on = (lib: SchemaMap, permix: Permix) => {
-      const check = createCanGrantEntitlement(lib);
+    const on = (lib: SchemaMapWithoutPermissions, permix: Permix) => {
+      const check = canGrantWithRules(lib);
       const placed = placeEntitlement(lib, row, space);
       return placed?.every((record) => check(permix, profiled, row, record)) === true;
     };
@@ -885,7 +896,7 @@ describe('what counts as above: rows the anchor holds under a to-one relation th
   });
 
   test('a row reached across a bridge is not above: the first pass crosses no bridge', async () => {
-    const bridged: RebacSchema = {
+    const bridged: Rules = {
       bridges: [
         {
           endpoints: [
@@ -909,11 +920,11 @@ describe('what counts as above: rows the anchor holds under a to-one relation th
     const writer = await permixOf([
       { entries: [manageA1], owner: [{ entries: [grant('crm:Account', 'a1', ['manage'])] }] },
     ]);
-    expect(createRebacCheck(lib)(writer, bridged, { ...subject, data }, 'manage')).toBe(true);
+    expect(checkWithRules(lib)(writer, bridged, { ...subject, data }, 'manage')).toBe(true);
     const row = entry('db:integration', underS1, ['manage']);
     const placed = placeEntitlement(lib, row, space);
     expect(placed).not.toBeNull();
-    const check = createCanGrantEntitlement(lib);
+    const check = canGrantWithRules(lib);
     expect(placed?.every((record) => check(writer, bridged, row, record))).toBe(false);
   });
 
@@ -927,48 +938,46 @@ describe('what counts as above: rows the anchor holds under a to-one relation th
       fromFields: [from],
       toFields: ['id'],
     });
-    const lib: SchemaMap = {
-      resources: {
-        'db:organization': 'Organization',
-        'db:user': 'User',
-        'db:integration': 'Integration',
-        'kcp:thread': 'Thread',
-      },
-      fieldMap: {
-        models: {
-          Organization: { fields: { id: column } },
-          User: { fields: { id: column } },
-          Integration: {
-            fields: {
-              id: column,
-              ownerModel: column,
-              organizationId: column,
-              userId: column,
-              organization: toOne('Organization', 'organizationId'),
-              user: toOne('User', 'userId'),
+    const lib: SchemaMapWithoutPermissions = {
+      maps: {
+        db: {
+          models: {
+            organization: { fields: { id: column } },
+            user: { fields: { id: column } },
+            integration: {
+              fields: {
+                id: column,
+                ownerModel: column,
+                organizationId: column,
+                userId: column,
+                organization: toOne('organization', 'organizationId'),
+                user: toOne('user', 'userId'),
+              },
             },
-          },
-          Thread: {
-            fields: {
-              id: column,
-              integrationId: column,
-              integration: toOne('Integration', 'integrationId'),
+            kcpThread: {
+              fields: {
+                id: column,
+                integrationId: column,
+                integration: toOne('integration', 'integrationId'),
+              },
             },
           },
         },
       },
       polymorphism: {
-        Integration: {
-          axes: [
-            {
-              field: 'ownerModel',
-              fkMap: { Organization: ['organizationId'], User: ['userId'] },
-            },
-          ],
+        db: {
+          integration: {
+            axes: [
+              {
+                field: 'ownerModel',
+                fkMap: { Organization: ['organizationId'], User: ['userId'] },
+              },
+            ],
+          },
         },
       },
     };
-    const owned: RebacSchema = {
+    const owned: Rules = {
       permissions: {
         'db:organization': { actions: { own: null, read: 'own' } },
         'db:user': { actions: { own: null } },
@@ -977,7 +986,7 @@ describe('what counts as above: rows the anchor holds under a to-one relation th
             read: { all: [eqKind('Organization'), { rel: 'organization', action: 'read' }] },
           },
         },
-        'kcp:thread': { actions: { read: { rel: 'integration', action: 'read' } } },
+        'db:kcpThread': { actions: { read: { rel: 'integration', action: 'read' } } },
       },
     };
     const integrationsOfO1 = below(
@@ -987,11 +996,11 @@ describe('what counts as above: rows the anchor holds under a to-one relation th
     );
     const writer = await permixOf(holding([integrationsOfO1]));
     const threads = entry(
-      'kcp:thread',
+      'db:kcpThread',
       { resource: 'db:integration', id: 'i1', path: 'integration' },
       ['read'],
     );
-    const check = createCanGrantEntitlement(lib);
+    const check = canGrantWithRules(lib);
     const on = (integration: Row) => {
       const placed = placeEntitlement(lib, threads, integration);
       return placed?.every((record) => check(writer, owned, threads, record)) === true;
@@ -1049,7 +1058,7 @@ describe('upstream conditions', () => {
 
   describe("the granter's condition is a schema rule, not an entitlement where", () => {
     test('a schema rule upstream is re-run on the placed record, as for a table grant: unknown label refuses', async () => {
-      const ruled: RebacSchema = {
+      const ruled: Rules = {
         permissions: {
           ...schema.permissions,
           'db:space': {
@@ -1116,7 +1125,7 @@ describe('upstream conditions', () => {
 describe("list pins and delegatedWhere narrowing, as on main's copy pass", () => {
   const threadsOfS1 = (where?: Condition) =>
     entry(
-      'kcp:thread',
+      'db:kcpThread',
       { resource: 'db:space', id: 's1', path: 'integration.space' },
       ['read'],
       where,

@@ -1,5 +1,5 @@
 import type { EntitlementEntry } from '../../core/permix';
-import type { RebacSchema } from '../../core/types';
+import type { SchemaMap } from '../../core/schemaMap';
 import { capAtRole } from './capAtRole';
 import type { Permissions } from './permissions';
 
@@ -15,15 +15,13 @@ export type Delegation<Action extends string = string> = {
 };
 
 const capped = <Action extends string>(
-  schema: RebacSchema,
+  map: Pick<SchemaMap, 'permissions'>,
   owner: Permissions<Action>,
   ceiling: string,
 ): Permissions<Action> =>
   owner.flatMap((group) => {
     if (group.owner) return [];
-    const entries = group.entries.flatMap(
-      (entry) => capAtRole<Action>(schema, entry, ceiling) ?? [],
-    );
+    const entries = group.entries.flatMap((entry) => capAtRole<Action>(map, entry, ceiling) ?? []);
     return entries.length ? [{ entries }] : [];
   });
 
@@ -34,14 +32,14 @@ const capped = <Action extends string>(
  * nothing.
  */
 export const delegate = <Action extends string = string>(
-  schema: RebacSchema,
+  map: Pick<SchemaMap, 'permissions'>,
   owner: Permissions<Action>,
   delegation: Delegation<NoInfer<Action>>,
 ): Permissions<Action> => {
   if (delegation.full) return owner;
   const entitlements = delegation.entitlements ?? [];
   return [
-    ...(delegation.ceiling ? capped(schema, owner, delegation.ceiling) : []),
+    ...(delegation.ceiling ? capped(map, owner, delegation.ceiling) : []),
     ...(entitlements.length ? [{ entries: entitlements, owner }] : []),
   ];
 };

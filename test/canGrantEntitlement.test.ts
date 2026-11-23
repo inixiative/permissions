@@ -1,17 +1,14 @@
 import { describe, expect, test } from 'bun:test';
 import { Operator } from '@inixiative/json-rules';
 import {
-  createCanGrantEntitlement,
   createPermissions,
-  createRebacCheck,
   type EntitlementEntry,
   type PermissionEntry,
   type Permix,
   placeEntitlement,
-  type RebacSchema,
   type Row,
 } from '../index';
-import { actorData, mapOf } from './schemaMaps';
+import { actorData, canGrantWithRules, checkWithRules, mapOf, type Rules } from './schemaMaps';
 
 // A grant is an action: the writer could take every action the holder would hold, from where it
 // would act. Grant time mirrors read time through the same check (Aron, 2026-10-22 and 2026-10-25).
@@ -20,7 +17,7 @@ const person = { rule: { field: 'actor:User.id', operator: Operator.exists } };
 const highRoles = ['owner', 'admin'];
 const lowRoles = ['member', 'guest'];
 
-const schema: RebacSchema = {
+const schema: Rules = {
   permissions: {
     'db:organization': {
       actions: {
@@ -70,8 +67,8 @@ const columns = {
   'db:space': ['label', 'name', 'role'],
   'db:integration': ['provider', 'name'],
 };
-const canGrantEntitlement = createCanGrantEntitlement(mapOf(relations, columns));
-const rebac = createRebacCheck(mapOf(relations, columns));
+const canGrantEntitlement = canGrantWithRules(mapOf(relations, columns));
+const rebac = checkWithRules(mapOf(relations, columns));
 const check = (
   permix: Permix,
   resource: string,

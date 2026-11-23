@@ -1,17 +1,14 @@
 import { expect, test } from 'bun:test';
 import { type Condition, check as checkRule, Operator } from '@inixiative/json-rules';
 import {
-  createCanGrantEntitlement,
-  createRebacCheck,
   type EntitlementEntry,
   type GrantEntry,
   type Permissions,
   permixOf,
   placeEntitlement,
-  type RebacSchema,
   type Row,
 } from '../index';
-import { mapOf } from './schemaMaps';
+import { canGrantWithRules, checkWithRules, mapOf, type Rules } from './schemaMaps';
 
 // Random writers (owner graphs up to three deep, loops included) and random granted entries over
 // one schema, on this code only: an unmarked writer stands in for the grant check before the rule
@@ -32,7 +29,7 @@ const chance = (probability: number) => random() < probability;
 const eq = (field: string, value: unknown): Condition =>
   ({ field, operator: Operator.equals, value }) as Condition;
 
-const schema: RebacSchema = {
+const schema: Rules = {
   permissions: {
     'db:organization': { actions: { own: null, manage: 'own', read: 'manage' } },
     'db:space': {
@@ -53,7 +50,7 @@ const schema: RebacSchema = {
         draftOnly: { all: [{ rule: eq('space.label', 'draft') }, 'read'] },
       },
     },
-    'kcp:thread': {
+    'db:kcpThread': {
       actions: {
         read: { rel: 'integration', action: 'read' },
         post: { rel: 'integration', action: 'manage' },
@@ -61,18 +58,18 @@ const schema: RebacSchema = {
     },
   },
 };
-const resources = ['db:organization', 'db:space', 'db:integration', 'kcp:thread'] as const;
+const resources = ['db:organization', 'db:space', 'db:integration', 'db:kcpThread'] as const;
 type Resource = (typeof resources)[number];
 const map = mapOf(
   {
     'db:space': { organization: 'db:organization' },
     'db:integration': { space: 'db:space' },
-    'kcp:thread': { integration: 'db:integration' },
+    'db:kcpThread': { integration: 'db:integration' },
   },
   { 'db:space': ['label'], 'db:integration': ['provider'] },
 );
-const rebac = createRebacCheck(map);
-const canGrant = createCanGrantEntitlement(map);
+const rebac = checkWithRules(map);
+const canGrant = canGrantWithRules(map);
 const actionsOf = (resource: Resource) => Object.keys(schema.permissions[resource]?.actions ?? {});
 
 type World = Record<Resource, Row[]>;
@@ -109,7 +106,7 @@ const world = (): World => {
     'db:organization': [o1, o2],
     'db:space': spaces,
     'db:integration': integrations,
-    'kcp:thread': threads,
+    'db:kcpThread': threads,
   };
 };
 const anchorsAbove: Record<Resource, [string, Resource][]> = {
@@ -119,7 +116,7 @@ const anchorsAbove: Record<Resource, [string, Resource][]> = {
     ['space', 'db:space'],
     ['space.organization', 'db:organization'],
   ],
-  'kcp:thread': [
+  'db:kcpThread': [
     ['integration', 'db:integration'],
     ['integration.space', 'db:space'],
     ['integration.space.organization', 'db:organization'],
@@ -140,7 +137,7 @@ const wheres: Record<Resource, Condition[]> = {
     { field: 'id', operator: Operator.in, value: ['i1', 'i2'] } as Condition,
     { all: [eq('provider', 'slack'), eq('id', 'i1')] },
   ],
-  'kcp:thread': [eq('id', 'ti1a'), eq('integration.provider', 'slack')],
+  'db:kcpThread': [eq('id', 'ti1a'), eq('integration.provider', 'slack')],
 };
 const idOf = (rows: Row[]) => pick(rows).id as string;
 

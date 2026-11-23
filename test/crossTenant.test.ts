@@ -1,14 +1,8 @@
 import { describe, expect, test } from 'bun:test';
-import {
-  createPermissions,
-  createRebacCheck,
-  type EntitlementEntry,
-  type PermissionEntry,
-  type RebacSchema,
-} from '../index';
-import { mapOf } from './schemaMaps';
+import { createPermissions, type EntitlementEntry, type PermissionEntry } from '../index';
+import { checkWithRules, mapOf, type Rules } from './schemaMaps';
 
-const schema: RebacSchema = {
+const schema: Rules = {
   permissions: {
     'db:organization': {
       actions: { own: null, manage: 'own', operate: 'manage', read: 'operate' },
@@ -23,7 +17,7 @@ const schema: RebacSchema = {
     },
   },
 };
-const check = createRebacCheck(mapOf({ 'db:space': { organization: 'db:organization' } }));
+const check = checkWithRules(mapOf({ 'db:space': { organization: 'db:organization' } }));
 const o2 = { id: 'o2' };
 const s = { id: 's', organizationId: 'o2', organization: o2 };
 
@@ -90,7 +84,7 @@ describe('three sides: every granter down the chain must say yes too (R112)', ()
 });
 
 describe('two jumps: a user token reaches a distributor product through the org the user is in (R113)', () => {
-  const chainSchema: RebacSchema = {
+  const chainSchema: Rules = {
     permissions: {
       'db:distributor': {
         actions: { own: null, manage: 'own', operate: 'manage', read: 'operate' },
@@ -105,7 +99,7 @@ describe('two jumps: a user token reaches a distributor product through the org 
       },
     },
   };
-  const chainCheck = createRebacCheck(mapOf({ 'db:product': { distributor: 'db:distributor' } }));
+  const chainCheck = checkWithRules(mapOf({ 'db:product': { distributor: 'db:distributor' } }));
   const productOf = (distributorId: string) => ({
     id: 'p',
     distributorId,

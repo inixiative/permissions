@@ -1,20 +1,25 @@
 import { describe, expect, test } from 'bun:test';
+import type { FieldMap } from '@inixiative/field-map';
 import { type Condition, Operator } from '@inixiative/json-rules';
 import {
   type ActionRule,
-  createCanGrantEntitlement,
   createPermissions,
-  createRebacCheck,
   type EntitlementEntry,
   entitlementProblem,
   type PermissionEntry,
   placeEntitlement,
-  type RebacSchema,
   type Row,
-  type SchemaMap,
+  type SchemaMapWithoutPermissions,
   validateSchema,
 } from '../index';
-import { actorData, mapOf } from './schemaMaps';
+import {
+  actorData,
+  canGrantWithRules,
+  checkWithRules,
+  mapOf,
+  mapWith,
+  type Rules,
+} from './schemaMaps';
 
 // A null check also holds where the value is missing, so it is accepted only beside an `exists` on
 // the key of the row it reads (Aron, 2026-11-22: "`row exists and key is null` is another valid check").
@@ -42,7 +47,7 @@ const map = mapOf(
 const unlocked = {
   any: [isNull('source'), { field: 'source', operator: Operator.in, value: ['open'] }],
 };
-const actionsOf = (docRead: ActionRule, docManage: ActionRule): RebacSchema => ({
+const actionsOf = (docRead: ActionRule, docManage: ActionRule): Rules => ({
   permissions: {
     'db:organization': { actions: { manage: null, read: 'manage' } },
     'db:doc': { actions: { manage: docManage, read: docRead } },
@@ -71,11 +76,11 @@ const schema = actionsOf(false, {
   all: [rowIsThereAnd('id', unlocked), { rel: 'organization', action: 'manage' }],
 });
 
-const rebac = createRebacCheck(map);
-const canGrantEntitlement = createCanGrantEntitlement(map);
+const rebac = checkWithRules(map);
+const canGrantEntitlement = canGrantWithRules(map);
 const check = (
   permix: Awaited<ReturnType<typeof holding>>,
-  rules: RebacSchema,
+  rules: Rules,
   resource: string,
   record: Row,
   action: string,
@@ -99,8 +104,8 @@ describe('a null check beside its row key', () => {
     const bare = actionsOf(false, {
       all: [{ rule: unlocked }, { rel: 'organization', action: 'manage' }],
     });
-    expect(validateSchema(map, bare).ok).toBe(false);
-    expect(validateSchema(map, schema).ok).toBe(true);
+    expect(validateSchema(mapWith(map, bare)).ok).toBe(false);
+    expect(validateSchema(mapWith(map, schema)).ok).toBe(true);
   });
 
   test('it holds on a row that is there with the column empty, and on no other', async () => {
@@ -145,27 +150,30 @@ describe('a null check beside its row key', () => {
     const plain = mapOf({}, { 'db:profile': ['source'], 'db:organization': [] });
     const keyedByItsOrganization = {
       kind: 'object',
-      type: 'db:organization',
+      type: 'organization',
       isList: false,
       fromFields: ['id'],
       toFields: ['id'],
     } as const;
-    const profiles: SchemaMap = {
+    const db = plain.maps.db as FieldMap;
+    const profiles: SchemaMapWithoutPermissions = {
       ...plain,
-      fieldMap: {
-        ...plain.fieldMap,
-        models: {
-          ...plain.fieldMap.models,
-          'db:profile': {
-            fields: {
-              ...plain.fieldMap.models['db:profile']?.fields,
-              organization: keyedByItsOrganization,
+      maps: {
+        db: {
+          ...db,
+          models: {
+            ...db.models,
+            profile: {
+              fields: {
+                ...db.models.profile?.fields,
+                organization: keyedByItsOrganization,
+              },
             },
           },
         },
       },
     };
-    const rules: RebacSchema = {
+    const rules: Rules = {
       permissions: {
         'db:organization': { actions: { manage: null } },
         'db:profile': {
@@ -190,13 +198,13 @@ describe('a null check beside its row key', () => {
     for (const record of placed) expect(record).not.toHaveProperty('id');
     const writer = await manager();
     expect(
-      placed.every((record) => createCanGrantEntitlement(profiles)(writer, rules, entry, record)),
+      placed.every((record) => canGrantWithRules(profiles)(writer, rules, entry, record)),
     ).toBe(false);
   });
 
   test('on a supplied row: a row that is not given never passes', async () => {
     const rootKey = actionsOf(rowIsThereAnd('actor:Token.id', isNull('actor:Token.userId')), false);
-    expect(validateSchema(map, rootKey).ok).toBe(true);
+    expect(validateSchema(mapWith(map, rootKey)).ok).toBe(true);
     const anyone = await nobody();
     const read = (data: Record<string, Row[]>) =>
       check(anyone, rootKey, 'db:doc', doc({}), 'read', data);
@@ -205,7 +213,7 @@ describe('a null check beside its row key', () => {
     expect(read(actorData('User', { id: 'u1' }))).toBe(false);
     expect(read({})).toBe(false);
     const keyOfAnotherRow = actionsOf(rowIsThereAnd('id', isNull('actor:Token.userId')), false);
-    expect(validateSchema(map, keyOfAnotherRow).ok).toBe(false);
+    expect(validateSchema(mapWith(map, keyOfAnotherRow)).ok).toBe(false);
   });
 
   test('through a relation: a row that is not loaded never passes', async () => {
@@ -213,7 +221,7 @@ describe('a null check beside its row key', () => {
       rowIsThereAnd('organization.id', isNull('organization.deletedAt')),
       false,
     );
-    expect(validateSchema(map, live).ok).toBe(true);
+    expect(validateSchema(mapWith(map, live)).ok).toBe(true);
     const anyone = await nobody();
     const read = (record: Row) => check(anyone, live, 'db:doc', record, 'read');
     expect(read(doc({}))).toBe(true);
@@ -260,6 +268,8 @@ describe('a null check beside its row key', () => {
       { field: 'source', operator: Operator.notEquals, value: 'locked' },
       { field: 'source', operator: Operator.notIn, value: ['locked'] },
     ])
-      expect(validateSchema(map, actionsOf(rowIsThereAnd('id', refused), false)).ok).toBe(false);
+      expect(validateSchema(mapWith(map, actionsOf(rowIsThereAnd('id', refused), false))).ok).toBe(
+        false,
+      );
   });
 });

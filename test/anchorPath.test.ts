@@ -2,16 +2,14 @@ import { describe, expect, test } from 'bun:test';
 import {
   type Anchor,
   createPermissions,
-  createRebacCheck,
   type EntitlementEntry,
   type PermissionEntry,
   type PermixLike,
-  type RebacSchema,
   type Row,
 } from '../index';
-import { mapOf } from './schemaMaps';
+import { checkWithRules, mapOf, type Rules } from './schemaMaps';
 
-const schema: RebacSchema = {
+const schema: Rules = {
   permissions: {
     'db:organization': { actions: { own: null, manage: 'own', read: 'manage' } },
     'db:space': {
@@ -51,7 +49,7 @@ const relations: Record<string, Record<string, string>> = {
   },
   'db:inquiry': { sourceOrganization: 'db:organization', targetOrganization: 'db:organization' },
 };
-const check = createRebacCheck(mapOf(relations));
+const check = checkWithRules(mapOf(relations));
 
 const o1 = { id: 'o1' };
 const o2 = { id: 'o2' };

@@ -6,21 +6,25 @@ import {
   isScalarField,
   type ModelEntry,
   modelOf,
+  own,
   type RelationField,
 } from '@inixiative/field-map';
 import {
+  type Bridge,
   type Condition,
   check as checkRule,
-  type FieldMapSet,
+  endpointKey,
   type LensNarrowing,
   type ModelNarrowing,
+  parseEndpointKey,
+  relationTargetOf,
 } from '@inixiative/json-rules';
 import { omit } from 'lodash-es';
 import { entitlementProblem } from './entitlementProblem';
 import { withExactStrings } from './exactStrings';
 import type { EntitlementEntry } from './permix';
 import { hasNoValue, idField, recordId } from './recordId';
-import type { Anchor, Row } from './types';
+import type { Anchor, ResourcePermission, Row } from './types';
 
 /** A polymorphic model's discriminator: `field` names the kind, `fkMap` the columns each kind carries. */
 export type PolymorphicAxis = { field: string; fkMap: Partial<Record<string, readonly string[]>> };
@@ -29,20 +33,98 @@ export type PolymorphicAxis = { field: string; fkMap: Partial<Record<string, rea
 export type Polymorphism = Partial<Record<string, { axes: readonly PolymorphicAxis[] }>>;
 
 /**
- * The schema the checks walk: `resources` names the `fieldMap` model behind each resource, the
- * `fieldMap` (an `@inixiative/field-map` map) lists each model's relations and foreign keys,
- * `polymorphism` says which kind a relation makes a polymorphic record, and `supplied` the field maps
- * whose rows each check is given in its `data` (who is acting, for one), by prefix, with the bridges
- * between them: a `{ rule }` reads `<prefix>:<Model>.<column>` and on along their relations and
- * to-one bridges (`actor:User.sec:Device.risk`). Read once per map: lenses are built and cached per
- * map object.
+ * The map before it has rules: what the rule builders and every reader of the data shape take.
+ * `maps` are the field maps (`@inixiative/field-map`) of the records the app loads and walks,
+ * `supplied` those whose rows each check is given in its `data` (who is acting, for one), both by
+ * map name; `bridges` are json-rules bridges between their models; `polymorphism` says, by map name
+ * then model, which kind a relation makes a polymorphic record. A model goes by `map:Model`
+ * everywhere (`db:Inquiry`, `actor:User`): json-rules' endpoint key, the model spelled as its field
+ * map spells it.
  */
-export type SchemaMap<R extends string = string> = {
-  resources: Record<R, string>;
-  fieldMap: FieldMap;
-  polymorphism?: Polymorphism;
-  supplied?: FieldMapSet;
+export type SchemaMapWithoutPermissions = {
+  maps: Record<string, FieldMap>;
+  supplied?: Record<string, FieldMap>;
+  bridges?: Bridge[];
+  polymorphism?: Partial<Record<string, Polymorphism>>;
 };
+
+/** The schema the checks walk: the data shape and the rules, by resource (`map:Model`). Indexed once per map object. */
+export type SchemaMap<R extends string = string> = SchemaMapWithoutPermissions & {
+  permissions: Partial<Record<R, ResourcePermission>>;
+};
+
+const whyNameHasNoMap = (name: string): string | null =>
+  name.includes(':') ? null : `\`${name}\` names no map: a resource is \`map:Model\``;
+
+/** The map and model a name holds (`db:Inquiry`); a name with no map throws. */
+export const mapAndModelNamed = (name: string): { mapName: string; modelName: string } => {
+  const why = whyNameHasNoMap(name);
+  if (why) throw new Error(why);
+  return parseEndpointKey(name, '');
+};
+
+/** Whether `mapName` is one of the map's supplied maps, whose rows a check is given. */
+export const isSuppliedMap = (map: SchemaMapWithoutPermissions, mapName: string): boolean =>
+  Object.hasOwn(map.supplied ?? {}, mapName);
+
+/** The field map a record's resource is in, or undefined when its map is not in `maps`. */
+export const fieldMapOfResource = (
+  map: SchemaMapWithoutPermissions,
+  resource: string,
+): FieldMap | undefined => own(map.maps, parseEndpointKey(resource, '').mapName);
+
+/** A record's model entry, or undefined when the map has no field map or no such model for it. */
+export const modelOfResource = (
+  map: SchemaMapWithoutPermissions,
+  resource: string,
+): ModelEntry | undefined => {
+  const fieldMap = fieldMapOfResource(map, resource);
+  return fieldMap ? modelOf(fieldMap, parseEndpointKey(resource, '').modelName) : undefined;
+};
+
+/** A field of a record's model. */
+export const fieldOfResource = (
+  map: SchemaMapWithoutPermissions,
+  resource: string,
+  name: string,
+): FieldEntry | undefined => {
+  const fieldMap = fieldMapOfResource(map, resource);
+  return fieldMap ? fieldOf(fieldMap, parseEndpointKey(resource, '').modelName, name) : undefined;
+};
+
+/** Why `name` is not a resource of the map, or null: it names no map, or a model its map (in `maps` or `supplied`) does not have. A map in neither is not judged here. */
+export const whyNameIsNoModel = (map: SchemaMapWithoutPermissions, name: string): string | null => {
+  const { mapName, modelName } = parseEndpointKey(name, '');
+  const fieldMap = fieldMapOfResource(map, name) ?? own(map.supplied ?? {}, mapName);
+  return (
+    whyNameHasNoMap(name) ??
+    (fieldMap && !modelOf(fieldMap, modelName)
+      ? `\`${name}\` is not a model of the map \`${mapName}\``
+      : null)
+  );
+};
+
+/** The resource a relation field of `resource` leads to (json-rules' `relationTargetOf`, named `map:Model`). */
+const resourceLedToBy = (resource: string, field: RelationField): string => {
+  const led = relationTargetOf(field, parseEndpointKey(resource, '').mapName);
+  return endpointKey({ fieldMap: led?.mapName ?? '', model: led?.modelName ?? field.type });
+};
+
+const axesOfResource = (
+  map: SchemaMapWithoutPermissions,
+  resource: string,
+): readonly PolymorphicAxis[] => {
+  const { mapName, modelName } = parseEndpointKey(resource, '');
+  return map.polymorphism?.[mapName]?.[modelName]?.axes ?? [];
+};
+
+/** Every model of the given field maps, named `map:Model`. */
+export const modelsNamedIn = (
+  maps: Record<string, { readonly models: Readonly<Record<string, unknown>> }>,
+): string[] =>
+  Object.entries(maps).flatMap(([fieldMap, { models }]) =>
+    Object.keys(models).map((model) => endpointKey({ fieldMap, model })),
+  );
 
 /** A to-one relation the hydrator follows: where it leads, its key, and on a polymorphic record the kinds it admits. */
 export type Relation<R extends string = string> = {
@@ -64,7 +146,6 @@ export type ListRelation<R extends string = string> = {
 };
 
 type MapIndex = {
-  resources: Map<string, string>;
   relations: Map<string, Relation | string>;
   lists: Map<string, ListRelation>;
   marks: Map<string, ReadonlySet<string>>;
@@ -84,19 +165,34 @@ const annotationKeys = ['hydrate', 'down', 'place'];
 const placeableTypes = ['String', 'Int', 'Boolean'];
 const dottedPath = /^[A-Za-z_]\w*(\.[A-Za-z_]\w*)*$/;
 
-const indexes = new WeakMap<SchemaMap, MapIndex>();
+const indexes = new WeakMap<SchemaMapWithoutPermissions, MapIndex>();
 
-export const indexMap = (map: SchemaMap): MapIndex => {
+export const indexMap = (map: SchemaMapWithoutPermissions): MapIndex => {
   const known = indexes.get(map);
   if (known) return known;
-  const resources = new Map<string, string>();
-  for (const [resource, model] of Object.entries(map.resources)) {
-    if (resources.has(model))
-      throw new Error(`${model} is the model of two resources: give each resource its own model`);
-    resources.set(model, resource);
+  for (const mapName of [...Object.keys(map.maps), ...Object.keys(map.supplied ?? {})])
+    if (!mapName || mapName.includes(':'))
+      throw new Error(
+        `a map is named \`${mapName}\`: a map's name is the part of \`map:Model\` before the colon`,
+      );
+  for (const [mapName, models] of Object.entries(map.polymorphism ?? {})) {
+    const fieldMap = own(map.maps, mapName);
+    if (!fieldMap)
+      throw new Error(
+        `\`polymorphism\` names the map \`${mapName}\`, which is not in \`maps\`: it is keyed by map name, then model`,
+      );
+    for (const model of Object.keys(models ?? {}))
+      if (!modelOf(fieldMap, model))
+        throw new Error(
+          `\`polymorphism\` names \`${endpointKey({ fieldMap: mapName, model })}\`, which is not a model of the map \`${mapName}\``,
+        );
   }
+  for (const mapName of Object.keys(map.maps))
+    if (isSuppliedMap(map, mapName))
+      throw new Error(
+        `\`${mapName}\` is in both \`maps\` and \`supplied\`: a map is one or the other`,
+      );
   const index: MapIndex = {
-    resources,
     relations: new Map<string, Relation | string>(),
     lists: new Map(),
     marks: new Map(),
@@ -116,9 +212,10 @@ export const indexMap = (map: SchemaMap): MapIndex => {
 };
 
 // why: field-map keeps a malformed annotation value without complaint, so every one is read strictly here
-const indexAnnotations = (map: SchemaMap, index: MapIndex) => {
-  for (const [resource, model] of Object.entries(map.resources)) {
-    const fields = modelOf(map.fieldMap, model)?.fields ?? {};
+const indexAnnotations = (map: SchemaMapWithoutPermissions, index: MapIndex) => {
+  for (const resource of modelsNamedIn(map.maps)) {
+    const model = mapAndModelNamed(resource).modelName;
+    const fields = modelOfResource(map, resource)?.fields ?? {};
     const marks = new Set<string>();
     for (const [name, field] of Object.entries(fields)) {
       const annotation = permissionsAnnotation(field);
@@ -134,7 +231,7 @@ const indexAnnotations = (map: SchemaMap, index: MapIndex) => {
       if ('down' in annotation)
         index.lists.set(`${resource}\u0000${name}`, listFor(map, resource, name, annotation.down));
       if ('place' in annotation) {
-        const problem = placeProblem(map, model, fields, name, field, annotation.place);
+        const problem = placeProblem(map, resource, fields, name, field, annotation.place);
         if (problem) throw new Error(`${at}: \`place\` ${problem}`);
         marks.add(name);
       }
@@ -144,8 +241,8 @@ const indexAnnotations = (map: SchemaMap, index: MapIndex) => {
 };
 
 const placeProblem = (
-  map: SchemaMap,
-  model: string,
+  map: SchemaMapWithoutPermissions,
+  resource: string,
   fields: ModelEntry['fields'],
   name: string,
   field: FieldEntry,
@@ -161,22 +258,28 @@ const placeProblem = (
     )
   )
     return 'never marks a relation key: the path sets it';
-  if (map.polymorphism?.[model]?.axes.some((axis) => axis.field === name))
+  if (axesOfResource(map, resource).some((axis) => axis.field === name))
     return 'never marks a discriminator: the path sets the kind';
   if (field.kind === 'scalar' && !placeableTypes.includes(field.type))
     return `marks String, Int, Boolean or an enum, not ${field.type}`;
   return null;
 };
 
-const listFor = (map: SchemaMap, resource: string, name: string, down: unknown): ListRelation => {
-  const model = map.resources[resource] as string;
+const listFor = (
+  map: SchemaMapWithoutPermissions,
+  resource: string,
+  name: string,
+  down: unknown,
+): ListRelation => {
+  const model = mapAndModelNamed(resource).modelName;
   const at = `${model}.${name} @permissions`;
-  const field = fieldOf(map.fieldMap, model, name);
+  const field = fieldOfResource(map, resource, name);
   if (field?.kind !== 'object' || !field.isList)
     throw new Error(`${at}: \`down\` sits on a list relation`);
-  const item = resourceOf(map, field.type);
-  if (!item) throw new Error(`${at}: ${field.type} is not a resource in the map`);
-  const back = Object.entries(modelOf(map.fieldMap, field.type)?.fields ?? {}).filter(
+  const item = resourceLedToBy(resource, field);
+  if (!modelOfResource(map, item))
+    throw new Error(`${at}: ${field.type} is not a model of its map`);
+  const back = Object.entries(modelOfResource(map, item)?.fields ?? {}).filter(
     (entry): entry is [string, RelationField] => {
       const other = entry[1];
       return (
@@ -226,29 +329,26 @@ const listFor = (map: SchemaMap, resource: string, name: string, down: unknown):
 
 /** The declared list `segment` of `resource`, or null: an undeclared list is never crossed. */
 export const listOf = <R extends string>(
-  map: SchemaMap<R>,
+  map: SchemaMapWithoutPermissions,
   resource: R,
   segment: string,
 ): ListRelation<R> | null =>
-  (indexMap(map as SchemaMap).lists.get(`${resource}\u0000${segment}`) as
-    | ListRelation<R>
-    | undefined) ?? null;
+  (indexMap(map).lists.get(`${resource}\u0000${segment}`) as ListRelation<R> | undefined) ?? null;
 
 /** The declared lists of `resource`, by field name. */
 export const listsOf = <R extends string>(
-  map: SchemaMap<R>,
+  map: SchemaMapWithoutPermissions,
   resource: R,
 ): [string, ListRelation<R>][] =>
-  [...indexMap(map as SchemaMap).lists].flatMap(([key, list]) => {
+  [...indexMap(map).lists].flatMap(([key, list]) => {
     const [of, name] = key.split('\u0000') as [string, string];
     return of === resource ? [[name, list as ListRelation<R>] as [string, ListRelation<R>]] : [];
   });
 
-const marksOf = <R extends string>(map: SchemaMap<R>, resource: R): ReadonlySet<string> =>
-  indexMap(map as SchemaMap).marks.get(resource) ?? new Set();
-
-export const resourceOf = <R extends string>(map: SchemaMap<R>, model: string): R | null =>
-  (indexMap(map as SchemaMap).resources.get(model) as R | undefined) ?? null;
+const marksOf = <R extends string>(
+  map: SchemaMapWithoutPermissions,
+  resource: R,
+): ReadonlySet<string> => indexMap(map).marks.get(resource) ?? new Set();
 
 const kindsOf = (axes: readonly PolymorphicAxis[], columns: readonly string[]) => {
   for (const axis of axes) {
@@ -262,18 +362,18 @@ const kindsOf = (axes: readonly PolymorphicAxis[], columns: readonly string[]) =
 
 /** `segment` of `resource` as a relation the hydrator follows, or why it is not one. */
 export const followedToOneRelationOrWhyNot = <R extends string>(
-  map: SchemaMap<R>,
+  map: SchemaMapWithoutPermissions,
   resource: R,
   segment: string,
 ): Relation<R> | string => {
-  const cache = indexMap(map as SchemaMap).relations;
+  const cache = indexMap(map).relations;
   const key = `${resource}\u0000${segment}`;
   if (!cache.has(key)) cache.set(key, toOneFor(map, resource, segment));
   return cache.get(key) as Relation<R> | string;
 };
 
 export const relationOf = <R extends string>(
-  map: SchemaMap<R>,
+  map: SchemaMapWithoutPermissions,
   resource: R,
   segment: string,
 ): Relation<R> | null => {
@@ -282,23 +382,23 @@ export const relationOf = <R extends string>(
 };
 
 const toOneFor = <R extends string>(
-  map: SchemaMap<R>,
+  map: SchemaMapWithoutPermissions,
   resource: R,
   segment: string,
 ): Relation<R> | string => {
-  const field = fieldOf(map.fieldMap, map.resources[resource], segment);
+  const field = fieldOfResource(map, resource, segment);
   const at = `\`${resource}.${segment}\``;
   if (field?.kind !== 'object' || field.isList) return `${at} is not a to-one relation`;
+  const led = resourceLedToBy(resource, field);
   if (skipsHydration(field))
-    return `${at} is \`hydrate: false\`: nothing loads it; drop the annotation or read it from \`${field.type}\``;
+    return `${at} is \`hydrate: false\`: nothing loads it; drop the annotation or read it from \`${led}\``;
   if (!field.fromFields?.length)
-    return `${at} keeps its foreign key on \`${field.type}\`: nothing loads it; write the rule on \`${field.type}\`, or hold the key on this model`;
-  const target = resourceOf(map, field.type);
-  if (!target)
-    return `${at} leads to \`${field.type}\`, which is not a resource in the map: nothing loads it`;
-  const axes = map.polymorphism?.[map.resources[resource]]?.axes ?? [];
+    return `${at} keeps its foreign key on \`${led}\`: nothing loads it; write the rule on \`${led}\`, or hold the key on this model`;
+  if (!modelOfResource(map, led))
+    return `${at} leads to \`${led}\`, which is not a model of its map: nothing loads it`;
+  const axes = axesOfResource(map, resource);
   return {
-    resource: target,
+    resource: led as R,
     from: field.fromFields,
     to: field.toFields ?? [],
     kinds: kindsOf(axes, field.fromFields),
@@ -349,9 +449,13 @@ const statedAt = (leaves: Leaf[], prefix: string, accepts: (field: string) => bo
 };
 
 // why: an object or a list pinned onto a stand-in would be a relation or a list the walk then reads
-const pinned = <R extends string>(map: SchemaMap<R>, resource: R, leaves: Leaf[]): Row =>
+const pinned = <R extends string>(
+  map: SchemaMapWithoutPermissions,
+  resource: R,
+  leaves: Leaf[],
+): Row =>
   statedAt(leaves, '', (name) => {
-    const field = fieldOf(map.fieldMap, map.resources[resource], name);
+    const field = fieldOfResource(map, resource, name);
     return !name.includes('.') && (!field || (hasColumn(field) && !field.isList));
   });
 
@@ -379,13 +483,13 @@ export const keyFromResourceAndColumns = (resource: string, where: Row): string 
 // why: the engine id field is what the app loads by (Zealot's `uuid`), so it wins over the model's `isId`
 /** The columns that pick a row, with the values the row holds: the engine id field when the model has it and the row a value, else the model's id columns, else undefined. */
 export const identityColumnsOfRow = (
-  map: SchemaMap,
+  map: SchemaMapWithoutPermissions,
   resource: string,
   record: Row,
   field = idField(),
 ): Row | undefined => {
-  const model = modelOf(map.fieldMap, map.resources[resource] as string);
-  if (fieldOf(map.fieldMap, map.resources[resource] as string, field) && !hasNoValue(record[field]))
+  const model = modelOfResource(map, resource);
+  if (fieldOfResource(map, resource, field) && !hasNoValue(record[field]))
     return { [field]: record[field] };
   const { idColumns } = indexMap(map);
   if (!idColumns.has(resource)) {
@@ -407,7 +511,7 @@ export const identityColumnsOfRow = (
 // why: a key is text, so `5` and `'5'` are one row here while `load` is asked with the value as held
 /** A row's key (`identityColumnsOfRow`, each value as a string, encoded with its resource), or undefined (the object). */
 export const identityKeyOfRow = (
-  map: SchemaMap,
+  map: SchemaMapWithoutPermissions,
   resource: string,
   record: Row,
   field = idField(),
@@ -421,22 +525,22 @@ export const identityKeyOfRow = (
 
 /** `resource`'s polymorphic axis on `field`, from `map.polymorphism`. */
 export const axisOf = <R extends string>(
-  map: SchemaMap<R>,
+  map: SchemaMapWithoutPermissions,
   resource: R,
   field: string,
 ): PolymorphicAxis | undefined =>
-  map.polymorphism?.[map.resources[resource]]?.axes.find((axis) => axis.field === field);
+  axesOfResource(map, resource).find((axis) => axis.field === field);
 
 /** Every to-one relation of `resource` the hydrator follows, by field name. */
 export const followedToOneRelationsOf = <R extends string>(
-  map: SchemaMap<R>,
+  map: SchemaMapWithoutPermissions,
   resource: R,
 ): [string, Relation<R>][] => {
-  const { toOnes } = indexMap(map as SchemaMap);
+  const { toOnes } = indexMap(map);
   if (!toOnes.has(resource))
     toOnes.set(
       resource,
-      Object.keys(modelOf(map.fieldMap, map.resources[resource])?.fields ?? {}).flatMap((name) => {
+      Object.keys(modelOfResource(map, resource)?.fields ?? {}).flatMap((name) => {
         const relation = relationOf(map, resource, name);
         return relation ? [[name, relation] as [string, Relation]] : [];
       }),
@@ -445,7 +549,7 @@ export const followedToOneRelationsOf = <R extends string>(
 };
 
 export const ownerRelationOf = <R extends string>(
-  map: SchemaMap<R>,
+  map: SchemaMapWithoutPermissions,
   resource: R,
   field: string,
   value: string,
@@ -458,7 +562,7 @@ export const ownerRelationOf = <R extends string>(
 
 /** The rows `segments` reaches from `row` by followed to-ones, start included; it stops at a missing one (with `kinds`, a kind its step does not admit). */
 export const rowsAlongAnchorPath = <R extends string>(
-  map: SchemaMap<R>,
+  map: SchemaMapWithoutPermissions,
   resource: R,
   row: Row,
   segments: readonly string[],
@@ -483,7 +587,7 @@ export const rowsAlongAnchorPath = <R extends string>(
 
 /** The row `anchor` names, when `row`'s path along `anchor.path` reaches it (with `kinds`, each step one its relation admits); else undefined. */
 export const anchorRowReachedFrom = <R extends string>(
-  map: SchemaMap<R>,
+  map: SchemaMapWithoutPermissions,
   resource: R,
   row: Row,
   anchor: Anchor,
@@ -498,7 +602,7 @@ export const anchorRowReachedFrom = <R extends string>(
 };
 
 const chainOf = <R extends string>(
-  map: SchemaMap<R>,
+  map: SchemaMapWithoutPermissions,
   resource: R,
   row: Row,
   segments: string[],
@@ -508,7 +612,7 @@ const chainOf = <R extends string>(
   );
 
 const placeTowards = <R extends string>(
-  map: SchemaMap<R>,
+  map: SchemaMapWithoutPermissions,
   resource: R,
   chain: ReadonlyMap<R, Row>,
   depth: number,
@@ -531,7 +635,7 @@ const placeTowards = <R extends string>(
 
 /** The stand-in records of `resource` under the hydrated `anchor` along `path`, one per polymorphic kind the path admits (README, Granting one). */
 export const placeUnder = <R extends string>(
-  map: SchemaMap<R>,
+  map: SchemaMapWithoutPermissions,
   resource: R,
   path: string,
   anchorResource: R,
@@ -592,7 +696,7 @@ export const placeUnder = <R extends string>(
  * nothing; the writer must pass on every record.
  */
 export const placeEntitlement = <R extends string>(
-  map: SchemaMap<R>,
+  map: SchemaMapWithoutPermissions,
   entry: EntitlementEntry,
   anchor: Row,
 ): Row[] | null => {
@@ -612,7 +716,7 @@ export const placeEntitlement = <R extends string>(
 
 /** The hydrated rows above the records a granted entry reaches, by object; a self-anchored entry's own anchor left out. */
 export const rowsAbove = <R extends string>(
-  map: SchemaMap<R>,
+  map: SchemaMapWithoutPermissions,
   entry: EntitlementEntry,
   placed: Row,
 ): ReadonlySet<Row> => {

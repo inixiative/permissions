@@ -2,89 +2,92 @@ import { describe, expect, test } from 'bun:test';
 import { Operator } from '@inixiative/json-rules';
 import {
   type ActionRule,
-  createRebacCheck,
   makeKindRules,
   type PermixLike,
-  type RebacSchema,
   type Row,
   ruleFieldEqualsPath,
-  type SchemaMap,
+  type SchemaMapWithoutPermissions,
   validateSchema,
 } from '../index';
-import { actorData, actorMap, stringColumn } from './schemaMaps';
+import {
+  actorData,
+  actorMap,
+  checkWithRules,
+  mapWith,
+  type Rules,
+  stringColumn,
+} from './schemaMaps';
 
 const toOne = (type: string, key: string) =>
   ({ kind: 'object', type, isList: false, fromFields: [key], toFields: ['id'] }) as const;
 
 // A token owned by an organization, a space (with its organization), a user, or no one (`default`).
-const map: SchemaMap = {
-  resources: {
-    'db:token': 'Token',
-    'db:organization': 'Organization',
-    'db:space': 'Space',
-    'db:user': 'User',
-  },
-  fieldMap: {
-    models: {
-      Token: {
-        fields: {
-          id: stringColumn,
-          ownerModel: { kind: 'enum', type: 'TokenOwner' },
-          organizationId: stringColumn,
-          organization: toOne('Organization', 'organizationId'),
-          spaceId: stringColumn,
-          space: toOne('Space', 'spaceId'),
-          userId: stringColumn,
-          user: toOne('User', 'userId'),
-        },
-      },
-      Organization: { fields: { id: stringColumn } },
-      Space: { fields: { id: stringColumn } },
-      User: { fields: { id: stringColumn } },
-    },
-    enums: { TokenOwner: ['Organization', 'Space', 'User', 'default'] },
-  },
-  polymorphism: {
-    Token: {
-      axes: [
-        {
-          field: 'ownerModel',
-          fkMap: {
-            Organization: ['organizationId'],
-            Space: ['organizationId', 'spaceId'],
-            User: ['userId'],
-            default: [],
+const map: SchemaMapWithoutPermissions = {
+  maps: {
+    db: {
+      models: {
+        Token: {
+          fields: {
+            id: stringColumn,
+            ownerModel: { kind: 'enum', type: 'TokenOwner' },
+            organizationId: stringColumn,
+            organization: toOne('Organization', 'organizationId'),
+            spaceId: stringColumn,
+            space: toOne('Space', 'spaceId'),
+            userId: stringColumn,
+            user: toOne('User', 'userId'),
           },
         },
-      ],
+        Organization: { fields: { id: stringColumn } },
+        Space: { fields: { id: stringColumn } },
+        User: { fields: { id: stringColumn } },
+      },
+      enums: { TokenOwner: ['Organization', 'Space', 'User', 'default'] },
     },
   },
-  supplied: { maps: { actor: actorMap } },
+  polymorphism: {
+    db: {
+      Token: {
+        axes: [
+          {
+            field: 'ownerModel',
+            fkMap: {
+              Organization: ['organizationId'],
+              Space: ['organizationId', 'spaceId'],
+              User: ['userId'],
+              default: [],
+            },
+          },
+        ],
+      },
+    },
+  },
+  supplied: { actor: actorMap },
 };
 const kind = makeKindRules(map);
-const check = createRebacCheck(map);
+const check = checkWithRules(map);
 const permix: PermixLike = {
-  check: (resource, action) => resource === 'db:organization' && action === 'manage',
+  check: (resource, action) => resource === 'db:Organization' && action === 'manage',
 };
 const user = actorData('User', { id: 'u1' });
 const internal = actorData('Internal');
 const nobody = actorData(null);
-const schemaOf = (manage: ActionRule): RebacSchema => ({
+const schemaOf = (manage: ActionRule): Rules => ({
   permissions: {
-    'db:token': { actions: { manage } },
-    'db:organization': { actions: { manage: false } },
-    'db:space': { actions: { manage: false } },
-    'db:user': { actions: { manage: false } },
+    'db:Token': { actions: { manage } },
+    'db:Organization': { actions: { manage: false } },
+    'db:Space': { actions: { manage: false } },
+    'db:User': { actions: { manage: false } },
   },
 });
 const manage = (rule: ActionRule, data: Record<string, Row[]>, record: Row) =>
-  check(permix, schemaOf(rule), { resource: 'db:token', record, data }, 'manage');
+  check(permix, schemaOf(rule), { resource: 'db:Token', record, data }, 'manage');
 const isKind = (field: string, value: string): ActionRule => ({
   rule: { field, operator: Operator.equals, value },
 });
 
 describe('the fan-out: each branch checks its own kind first', () => {
-  const rule = kind.ruleForEachKind('db:token', 'ownerModel', {
+  const rule = kind.ruleForEachKind('db:Token', 'ownerModel', {
     Organization: { rel: 'organization', action: 'manage' },
     User: ruleFieldEqualsPath('userId', 'actor:User.id'),
     default: true,
@@ -112,7 +115,7 @@ describe('the fan-out: each branch checks its own kind first', () => {
         isKind('ownerModel', 'default'),
       ],
     });
-    expect(validateSchema(map, schemaOf(rule)).errors).toEqual([]);
+    expect(validateSchema(mapWith(map, schemaOf(rule))).errors).toEqual([]);
   });
 
   test("a branch holds only on its own kind: a space-owned row never takes the organization's branch", () => {
@@ -139,7 +142,7 @@ describe('the fan-out: each branch checks its own kind first', () => {
 
   test('the same action through each kind, from the registry: a kind with no relation is left out', () => {
     expect(
-      kind.ruleActionThroughEachKind('db:token', 'ownerModel', 'manage', [
+      kind.ruleActionThroughEachKind('db:Token', 'ownerModel', 'manage', [
         'Organization',
         'default',
       ]),
@@ -153,7 +156,7 @@ describe('the fan-out: each branch checks its own kind first', () => {
   });
 
   test("kind membership, on a resource's side and on a supplied model's enum, read the same way", () => {
-    expect(kind.ruleKindIsOneOf('db:token', 'ownerModel', ['Organization', 'Space'])).toEqual({
+    expect(kind.ruleKindIsOneOf('db:Token', 'ownerModel', ['Organization', 'Space'])).toEqual({
       rule: { field: 'ownerModel', operator: 'in', value: ['Organization', 'Space'] },
     });
     const userOrInternal = kind.ruleKindIsOneOf('actor:Acting', 'model', ['User', 'Internal']);
@@ -170,11 +173,11 @@ describe('the fan-out: each branch checks its own kind first', () => {
   });
 
   test('a kind the map does not have, or no kind at all, throws when the rule is built', () => {
-    expect(() => kind.ruleKindIsOneOf('db:token', 'ownerModel', ['Bogus'])).toThrow(
+    expect(() => kind.ruleKindIsOneOf('db:Token', 'ownerModel', ['Bogus'])).toThrow(
       'has no kind `Bogus`',
     );
-    expect(() => kind.ruleKindIsOneOf('db:token', 'ownerModel', [])).toThrow('names no kind');
-    expect(() => kind.ruleKindIsOneOf('db:token', 'nope', ['User'])).toThrow('no polymorphic axis');
+    expect(() => kind.ruleKindIsOneOf('db:Token', 'ownerModel', [])).toThrow('names no kind');
+    expect(() => kind.ruleKindIsOneOf('db:Token', 'nope', ['User'])).toThrow('no polymorphic axis');
     expect(() => kind.ruleKindIsOneOf('actor:Acting', 'model', ['Robot'])).toThrow(
       'has no kind `Robot`',
     );

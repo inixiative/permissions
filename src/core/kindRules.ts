@@ -1,6 +1,6 @@
 import { fieldOf } from '@inixiative/field-map';
 import { type Condition, declaredEnumValues, Operator } from '@inixiative/json-rules';
-import { axisOf, ownerRelationOf, type SchemaMap } from './schemaMap';
+import { axisOf, ownerRelationOf, type SchemaMapWithoutPermissions } from './schemaMap';
 import { suppliedModelAt } from './supplied';
 import type { ActionRule } from './types';
 
@@ -39,7 +39,7 @@ export const ruleFieldEqualsPath = (field: string, path: string): ActionRule => 
  * side is a resource and its polymorphic axis (`map.polymorphism`), or a supplied model and one of
  * its enum fields (`'actor:Acting'`, `'model'`), whose values are its kinds.
  */
-export const makeKindRules = <R extends string>(map: SchemaMap<R>) => {
+export const makeKindRules = <R extends string = string>(map: SchemaMapWithoutPermissions) => {
   const kindsOf = (side: string, field: string): string[] => {
     const supplied = suppliedModelAt(map, side);
     if (supplied) {

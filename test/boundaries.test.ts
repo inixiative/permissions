@@ -1,17 +1,14 @@
 import { describe, expect, test } from 'bun:test';
 import { Operator } from '@inixiative/json-rules';
 import {
-  createCanGrantEntitlement,
   createPermissions,
-  createRebacCheck,
   type EntitlementEntry,
   type PermissionEntry,
   type Permix,
   placeEntitlement,
-  type RebacSchema,
   type Row,
 } from '../index';
-import { mapOf } from './schemaMaps';
+import { canGrantWithRules, checkWithRules, mapOf, type Rules } from './schemaMaps';
 
 // Scenarios, not the template's schema: a distributor, organizations, products, orders, and an
 // org-to-org customer junction. Two kinds of junction reach a distributor:
@@ -26,7 +23,7 @@ const standard = (rel?: string) => ({
   read: rel ? { any: ['operate', { rel, action: 'read' }] } : 'operate',
 });
 
-const schema: RebacSchema = {
+const schema: Rules = {
   permissions: {
     'db:distributor': { actions: standard() },
     'db:product': {
@@ -81,8 +78,8 @@ const map = mapOf(
   },
   { 'db:product': ['line', 'color'] },
 );
-const check = createRebacCheck(map);
-const canGrant = createCanGrantEntitlement(map);
+const check = checkWithRules(map);
+const canGrant = canGrantWithRules(map);
 
 const table = async (...entries: PermissionEntry[]) => {
   const permix = createPermissions();

@@ -1,17 +1,17 @@
 import { describe, expect, spyOn, test } from 'bun:test';
 import { map, model, nobody, pool, schema } from '../bench/fixtures';
-import { createPermissions, createRebacCheck, createRebacPaths, type RebacSchema } from '../index';
+import { createPermissions } from '../index';
+import * as ruleReads from '../src/core/ruleReads';
 import * as schemaMap from '../src/core/schemaMap';
 import * as validateActionRule from '../src/core/validateActionRule';
-import * as validateSchema from '../src/core/validateSchema';
-import { mapOf } from './schemaMaps';
+import { checkWithRules, mapOf, pathsWithRules, type Rules } from './schemaMaps';
 
 // One check remembers what it computed (src/core/evaluate.ts, `WhatOneCheckRemembers`); nothing
 // it remembers outlives the check.
 
 describe('a row is identified once per row per check', () => {
   test('a denied read 6 hops down keys each of its 7 rows once, and again on the next check', async () => {
-    const check = createRebacCheck(map);
+    const check = checkWithRules(map);
     const permix = await nobody();
     const record = pool(6)[0] as never;
     const keyed = spyOn(schemaMap, 'identityKeyOfRow');
@@ -31,7 +31,7 @@ describe("a row's own rules are judged once per row per check", () => {
   // their walks from judging its rule again.
   const rowRuleCalls = async () => {
     const spaceMap = mapOf({ 'db:space': { organization: 'db:organization' } });
-    const spaceSchema: RebacSchema = {
+    const spaceSchema: Rules = {
       permissions: {
         'db:organization': { actions: { own: null } },
         'db:space': { actions: { view: null, read: null } },
@@ -49,10 +49,10 @@ describe("a row's own rules are judged once per row per check", () => {
       );
     const record = { id: 's1', organizationId: 'o1', permissionRules: { read: 'view' } };
     const judged = spyOn(validateActionRule, 'validateActionRule');
-    const lens = spyOn(validateSchema, 'issuesForRuleReadsOutsideLens');
+    const lens = spyOn(ruleReads, 'issuesForRuleReadsOutsideLens');
     try {
       expect(
-        createRebacPaths(spaceMap)(holder, spaceSchema, { resource: 'db:space', record }, 'read'),
+        pathsWithRules(spaceMap)(holder, spaceSchema, { resource: 'db:space', record }, 'read'),
       ).toEqual([]);
       return [judged.mock.calls.length, lens.mock.calls.length];
     } finally {

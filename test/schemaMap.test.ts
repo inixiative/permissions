@@ -2,18 +2,20 @@ import { describe, expect, test } from 'bun:test';
 import type { FieldMap } from '@inixiative/field-map';
 import {
   type Anchor,
-  createCanGrantEntitlement,
   createPermissions,
-  createRebacCheck,
   type EntitlementEntry,
   type PermissionEntry,
   placeEntitlement,
   placeUnder,
-  type RebacSchema,
   type Row,
-  type SchemaMap,
+  type SchemaMapWithoutPermissions,
 } from '../index';
-import { stringColumn as scalar } from './schemaMaps';
+import {
+  canGrantWithRules,
+  checkWithRules,
+  type Rules,
+  stringColumn as scalar,
+} from './schemaMaps';
 
 const toOne = (type: string, fromFields: string[], toFields: string[]) =>
   ({ kind: 'object', type, isList: false, fromFields, toFields }) as const;
@@ -62,45 +64,40 @@ const fieldMap: FieldMap = {
   },
 };
 
-const map: SchemaMap = {
-  resources: {
-    'db:organization': 'Organization',
-    'db:space': 'Space',
-    'db:integration': 'Integration',
-    'db:token': 'Token',
-    'db:inquiry': 'Inquiry',
-  },
-  fieldMap,
+const map: SchemaMapWithoutPermissions = {
+  maps: { db: fieldMap },
   polymorphism: {
-    Integration: {
-      axes: [
-        {
-          field: 'ownerModel',
-          fkMap: { Organization: ['organizationId'], Space: ['organizationId', 'spaceId'] },
-        },
-      ],
-    },
-    Token: { axes: [{ field: 'ownerModel', fkMap: { Integration: ['integrationId'] } }] },
-    Inquiry: {
-      axes: [
-        { field: 'sourceModel', fkMap: { Organization: ['sourceOrganizationId'] } },
-        { field: 'targetModel', fkMap: { Organization: ['targetOrganizationId'] } },
-      ],
+    db: {
+      Integration: {
+        axes: [
+          {
+            field: 'ownerModel',
+            fkMap: { Organization: ['organizationId'], Space: ['organizationId', 'spaceId'] },
+          },
+        ],
+      },
+      Token: { axes: [{ field: 'ownerModel', fkMap: { Integration: ['integrationId'] } }] },
+      Inquiry: {
+        axes: [
+          { field: 'sourceModel', fkMap: { Organization: ['sourceOrganizationId'] } },
+          { field: 'targetModel', fkMap: { Organization: ['targetOrganizationId'] } },
+        ],
+      },
     },
   },
 };
 
-const schema: RebacSchema = {
+const schema: Rules = {
   permissions: {
-    'db:organization': { actions: { own: null, manage: 'own', read: 'manage' } },
-    'db:space': {
+    'db:Organization': { actions: { own: null, manage: 'own', read: 'manage' } },
+    'db:Space': {
       actions: {
         own: { rel: 'organization', action: 'own' },
         manage: 'own',
         read: { any: ['manage', { rel: 'organization', action: 'read' }] },
       },
     },
-    'db:integration': {
+    'db:Integration': {
       actions: {
         manage: {
           any: [
@@ -120,8 +117,8 @@ const schema: RebacSchema = {
         },
       },
     },
-    'db:token': { actions: { delete: { rel: 'integration', action: 'manage' } } },
-    'db:inquiry': {
+    'db:Token': { actions: { delete: { rel: 'integration', action: 'manage' } } },
+    'db:Inquiry': {
       actions: {
         read: {
           any: [
@@ -134,8 +131,8 @@ const schema: RebacSchema = {
   },
 };
 
-const check = createRebacCheck(map);
-const canGrant = createCanGrantEntitlement(map);
+const check = checkWithRules(map);
+const canGrant = canGrantWithRules(map);
 
 const o1 = { id: 'o1' };
 const o2 = { id: 'o2' };
@@ -187,7 +184,7 @@ const entitlement = (resource: string, anchor: Anchor, action: string): Entitlem
 });
 const holderOf = async (entry: EntitlementEntry) => {
   const holder = createPermissions();
-  await holder.setup([entry], { owner: await table('db:organization', 'o1', ['own']) });
+  await holder.setup([entry], { owner: await table('db:Organization', 'o1', ['own']) });
   return holder;
 };
 const may = async (
@@ -202,43 +199,43 @@ const may = async (
 describe('the path names a kind at each polymorphic step: read time', () => {
   test('via organization: every kind that carries the organization (R81)', async () => {
     const holder = await holderOf(
-      entitlement('db:integration', at('db:organization', 'o1', 'organization'), 'manage'),
+      entitlement('db:Integration', at('db:Organization', 'o1', 'organization'), 'manage'),
     );
     const manages = (record: Row) =>
-      check(holder, schema, { resource: 'db:integration', record }, 'manage');
+      check(holder, schema, { resource: 'db:Integration', record }, 'manage');
     expect(manages(orgIntegration('i1', o1))).toBe(true);
     expect(manages(spaceIntegration('i2', s1))).toBe(true);
   });
 
   test("via space.organization: the spaces' integrations, not the organization's own", async () => {
     const holder = await holderOf(
-      entitlement('db:integration', at('db:organization', 'o1', 'space.organization'), 'manage'),
+      entitlement('db:Integration', at('db:Organization', 'o1', 'space.organization'), 'manage'),
     );
     const manages = (record: Row) =>
-      check(holder, schema, { resource: 'db:integration', record }, 'manage');
+      check(holder, schema, { resource: 'db:Integration', record }, 'manage');
     expect(manages(spaceIntegration('i2', s1))).toBe(true);
     expect(manages(orgIntegration('i1', o1))).toBe(false);
   });
 
   test('an inquiry: the side and its kind', async () => {
     const holder = await holderOf(
-      entitlement('db:inquiry', at('db:organization', 'o1', 'targetOrganization'), 'read'),
+      entitlement('db:Inquiry', at('db:Organization', 'o1', 'targetOrganization'), 'read'),
     );
     const reads = (record: Row) =>
-      check(holder, schema, { resource: 'db:inquiry', record }, 'read');
+      check(holder, schema, { resource: 'db:Inquiry', record }, 'read');
     expect(reads(inquiry('q1', o2, o1))).toBe(true);
     expect(reads(inquiry('q2', o1, o2))).toBe(false);
   });
 
   test('a list relation is not a path', async () => {
     const holder = await holderOf(
-      entitlement('db:organization', at('db:space', 's1', 'spaces'), 'read'),
+      entitlement('db:Organization', at('db:Space', 's1', 'spaces'), 'read'),
     );
     expect(
       check(
         holder,
         schema,
-        { resource: 'db:organization', record: { ...o1, spaces: [s1] } },
+        { resource: 'db:Organization', record: { ...o1, spaces: [s1] } },
         'read',
       ),
     ).toBe(false);
@@ -250,7 +247,7 @@ describe('placeEntitlement: the pseudo record, built from the anchor along the p
     expect(
       placeEntitlement(
         map,
-        entitlement('db:integration', at('db:organization', 'o1', 'organization'), 'manage'),
+        entitlement('db:Integration', at('db:Organization', 'o1', 'organization'), 'manage'),
         o1,
       ),
     ).toEqual([
@@ -268,7 +265,7 @@ describe('placeEntitlement: the pseudo record, built from the anchor along the p
     expect(
       placeEntitlement(
         map,
-        entitlement('db:integration', at('db:organization', 'o1', 'space.organization'), 'manage'),
+        entitlement('db:Integration', at('db:Organization', 'o1', 'space.organization'), 'manage'),
         o1,
       ),
     ).toEqual([
@@ -282,7 +279,7 @@ describe('placeEntitlement: the pseudo record, built from the anchor along the p
 
   test('the where pins exact values; the path wins over a pinned foreign key', () => {
     const entry = {
-      ...entitlement('db:integration', at('db:organization', 'o1', 'organization'), 'manage'),
+      ...entitlement('db:Integration', at('db:Organization', 'o1', 'organization'), 'manage'),
       where: {
         all: [
           { field: 'provider', operator: 'equals', value: 'slack' },
@@ -298,7 +295,7 @@ describe('placeEntitlement: the pseudo record, built from the anchor along the p
 
   test('a self anchor is the anchor itself', () => {
     expect(
-      placeEntitlement(map, entitlement('db:space', at('db:space', 's1'), 'read'), s1),
+      placeEntitlement(map, entitlement('db:Space', at('db:Space', 's1'), 'read'), s1),
     ).toEqual([s1]);
   });
 
@@ -306,14 +303,14 @@ describe('placeEntitlement: the pseudo record, built from the anchor along the p
     expect(
       placeEntitlement(
         map,
-        entitlement('db:integration', at('db:space', 's1', 'organization'), 'manage'),
+        entitlement('db:Integration', at('db:Space', 's1', 'organization'), 'manage'),
         s1,
       ),
     ).toBeNull();
     expect(
       placeEntitlement(
         map,
-        entitlement('db:organization', at('db:space', 's1', 'spaces'), 'read'),
+        entitlement('db:Organization', at('db:Space', 's1', 'spaces'), 'read'),
         s1,
       ),
     ).toBeNull();
@@ -322,10 +319,10 @@ describe('placeEntitlement: the pseudo record, built from the anchor along the p
 
 describe('the grant check on the placed record', () => {
   test('a manager of o1 grants its own integrations (narrowed), not every kind under it', async () => {
-    const manager = await table('db:organization', 'o1', ['manage']);
+    const manager = await table('db:Organization', 'o1', ['manage']);
     const integrations = entitlement(
-      'db:integration',
-      at('db:organization', 'o1', 'organization'),
+      'db:Integration',
+      at('db:Organization', 'o1', 'organization'),
       'manage',
     );
     expect(await may(manager, integrations, o1)).toBe(false);
@@ -342,28 +339,28 @@ describe('the grant check on the placed record', () => {
     expect(
       await may(
         manager,
-        entitlement('db:integration', at('db:organization', 'o1', 'space.organization'), 'manage'),
+        entitlement('db:Integration', at('db:Organization', 'o1', 'space.organization'), 'manage'),
         o1,
       ),
     ).toBe(false);
   });
 
   test('an owner of o1 grants both', async () => {
-    const owner = await table('db:organization', 'o1', ['own']);
+    const owner = await table('db:Organization', 'o1', ['own']);
     expect(
       await may(
         owner,
-        entitlement('db:integration', at('db:organization', 'o1', 'space.organization'), 'manage'),
+        entitlement('db:Integration', at('db:Organization', 'o1', 'space.organization'), 'manage'),
         o1,
       ),
     ).toBe(true);
   });
 
   test('a token through its integration: a kind at each step', async () => {
-    const owner = await table('db:organization', 'o1', ['own']);
+    const owner = await table('db:Organization', 'o1', ['own']);
     const tokens = entitlement(
-      'db:token',
-      at('db:organization', 'o1', 'integration.organization'),
+      'db:Token',
+      at('db:Organization', 'o1', 'integration.organization'),
       'delete',
     );
     expect(placeEntitlement(map, tokens, o1)?.map((token) => token.integration)).toEqual([
@@ -376,40 +373,32 @@ describe('the grant check on the placed record', () => {
       },
     ]);
     expect(await may(owner, tokens, o1)).toBe(true);
-    expect(await may(await table('db:organization', 'o2', ['own']), tokens, o1)).toBe(false);
-  });
-});
-
-describe('the map is indexed once', () => {
-  test('two resources on one model are refused when the check is built', () => {
-    expect(() =>
-      createRebacCheck({ ...map, resources: { ...map.resources, 'db:org': 'Organization' } }),
-    ).toThrow(/Organization/);
+    expect(await may(await table('db:Organization', 'o2', ['own']), tokens, o1)).toBe(false);
   });
 });
 
 describe('placeUnder: a record of a resource under an anchor, along a path', () => {
   test('the path decides the relation: its foreign keys, composite ones too, and its kind', () => {
-    expect(placeUnder(map, 'db:integration', 'space', 'db:space', s1)).toEqual([
+    expect(placeUnder(map, 'db:Integration', 'space', 'db:Space', s1)).toEqual([
       { ownerModel: 'Space', organizationId: 'o1', spaceId: 's1', space: s1 },
     ]);
   });
 
   test('a side: the inquiry an organization receives', () => {
-    expect(placeUnder(map, 'db:inquiry', 'targetOrganization', 'db:organization', o1)).toEqual([
+    expect(placeUnder(map, 'db:Inquiry', 'targetOrganization', 'db:Organization', o1)).toEqual([
       { targetModel: 'Organization', targetOrganizationId: 'o1', targetOrganization: o1 },
     ]);
   });
 
   test('a path that does not lead to the anchor places nothing', () => {
-    expect(placeUnder(map, 'db:integration', 'organization', 'db:space', s1)).toEqual([]);
+    expect(placeUnder(map, 'db:Integration', 'organization', 'db:Space', s1)).toEqual([]);
   });
 });
 
 describe('placeEntitlement refuses a malformed entry: the same rules setup applies', () => {
   const integrations = entitlement(
-    'db:integration',
-    at('db:organization', 'o1', 'organization'),
+    'db:Integration',
+    at('db:Organization', 'o1', 'organization'),
     'manage',
   );
 
@@ -417,7 +406,7 @@ describe('placeEntitlement refuses a malformed entry: the same rules setup appli
     expect(
       placeEntitlement(
         map,
-        entitlement('db:integration', at('db:organization', 'o1'), 'manage'),
+        entitlement('db:Integration', at('db:Organization', 'o1'), 'manage'),
         o1,
       ),
     ).toBeNull();

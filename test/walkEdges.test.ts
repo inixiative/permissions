@@ -1,20 +1,14 @@
 import { describe, expect, test } from 'bun:test';
 import { Operator } from '@inixiative/json-rules';
-import {
-  createPermissions,
-  createRebacCheck,
-  type EntitlementEntry,
-  type PermissionEntry,
-  type RebacSchema,
-} from '../index';
-import { mapOf } from './schemaMaps';
+import { createPermissions, type EntitlementEntry, type PermissionEntry } from '../index';
+import { checkWithRules, mapOf, type Rules } from './schemaMaps';
 
 const relations = {
   'db:space': { organization: 'db:organization' },
   'db:integration': { space: 'db:space' },
 };
 const flat = mapOf(relations, { 'db:space': ['label'], 'db:integration': ['label', 'priority'] });
-const schema: RebacSchema = {
+const schema: Rules = {
   permissions: {
     'db:organization': { actions: { own: null, manage: 'own' } },
     'db:space': {
@@ -47,7 +41,7 @@ const schema: RebacSchema = {
     },
   },
 };
-const check = createRebacCheck(flat);
+const check = checkWithRules(flat);
 const o1 = { id: 'o1' };
 const s1 = { id: 's1', organizationId: 'o1', organization: o1 };
 const manageS1: EntitlementEntry = {

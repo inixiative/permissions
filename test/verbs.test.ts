@@ -44,6 +44,16 @@ const RULES: { verb: string; pattern: RegExp; owners: string[] }[] = [
     owners: ['src/core/lens.ts'],
   },
   {
+    verb: 'name a model across maps (json-rules endpointKey)',
+    pattern: /`\$\{[^}`]*([mM]ap|fieldMap)[^}`]*\}:\$\{[^}`]+\}`/,
+    owners: [],
+  },
+  {
+    verb: 'say which bridges a rule reads and which a rel crosses',
+    pattern: /\.bridges\b/,
+    owners: ['src/core/supplied.ts', 'src/core/walker.ts'],
+  },
+  {
     verb: 'freeze, then judge once',
     pattern: /Object\.freeze\(/,
     owners: ['src/core/freezeThenJudgeOnce.ts'],

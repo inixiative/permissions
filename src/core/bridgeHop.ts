@@ -1,10 +1,10 @@
-import type { BridgeDictionary, JoinedBridge } from '@inixiative/json-rules';
+import {
+  type BridgeDictionary,
+  endpointKey,
+  type JoinedBridge,
+  parseEndpointKey,
+} from '@inixiative/json-rules';
 import type { Row } from './types';
-
-const splitResource = (resource: string): [string, string] => {
-  const i = resource.indexOf(':');
-  return i === -1 ? ['', resource] : [resource.slice(0, i), resource.slice(i + 1)];
-};
 
 type BridgeHop = {
   farResource: string;
@@ -21,11 +21,11 @@ export const bridgeHop = (
   resource: string,
   segment: string,
 ): BridgeHop | null => {
-  const [map, model] = splitResource(resource);
+  const { mapName: map, modelName: model } = parseEndpointKey(resource, '');
   for (const b of bridges ?? []) {
     const [a, c] = b.endpoints;
-    const aKey = `${a.fieldMap}:${a.model}`;
-    const cKey = `${c.fieldMap}:${c.model}`;
+    const aKey = endpointKey(a);
+    const cKey = endpointKey(c);
     // a → c. For `oneToMany`, c is the "many" side (endpoints[1]) — a single-record permission check
     // can't span a list, so this direction is NOT walkable; it would otherwise collapse to an
     // arbitrary `found[0]` (a non-deterministic wrong-allow). `oneToOne` is symmetric → walkable.
