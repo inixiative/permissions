@@ -1,19 +1,16 @@
 import { describe, expect, test } from 'bun:test';
 import {
   createPermissions,
-  createRebacCheck,
-  createRebacPaths,
   type EntitlementEntry,
   entitlementProblem,
   PathLimitError,
   type Permissions,
   type PermixLike,
   permixOf,
-  type RebacSchema,
 } from '../index';
-import { mapOf } from './schemaMaps';
+import { checkWithRules, mapOf, pathsWithRules, type Rules } from './schemaMaps';
 
-const schema: RebacSchema = {
+const schema: Rules = {
   permissions: {
     'db:space': { actions: { own: null, read: 'own' } },
     'db:project': { actions: { own: null, read: 'own' } },
@@ -30,8 +27,8 @@ const schema: RebacSchema = {
   },
 };
 const map = mapOf({ 'db:doc': { space: 'db:space', project: 'db:project' } });
-const check = createRebacCheck(map);
-const paths = createRebacPaths(map);
+const check = checkWithRules(map);
+const paths = pathsWithRules(map);
 
 const s1 = { id: 's1' };
 const p1 = { id: 'p1' };
@@ -117,7 +114,7 @@ describe('paths', () => {
       [reads('db:space', 's1', 'y'), c],
       [reads('db:space', 's1', 'z'), top],
     );
-    const limited = createRebacPaths(map, { limit: 2 });
+    const limited = pathsWithRules(map, { limit: 2 });
 
     expect(limited(two, schema, space, 'read')).toHaveLength(2);
     expect(() => limited(three, schema, space, 'read')).toThrow(PathLimitError);

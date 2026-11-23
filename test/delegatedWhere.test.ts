@@ -1,17 +1,14 @@
 import { describe, expect, test } from 'bun:test';
 import { type Condition, Operator } from '@inixiative/json-rules';
 import {
-  createCanGrantEntitlement,
   createPermissions,
-  createRebacCheck,
   delegatedWhere,
   type EntitlementEntry,
   type Permix,
   placeEntitlement,
-  type RebacSchema,
   type Row,
 } from '../index';
-import { mapOf } from './schemaMaps';
+import { canGrantWithRules, checkWithRules, mapOf, type Rules } from './schemaMaps';
 
 const is = (field: string, value: string): Condition => ({
   field,
@@ -40,7 +37,7 @@ describe('delegatedWhere', () => {
 });
 
 describe('the copy rule reads what delegatedWhere builds as narrowing the held where', () => {
-  const schema: RebacSchema = {
+  const schema: Rules = {
     permissions: {
       'db:space': { actions: { own: null } },
       'db:integration': { actions: { read: { rel: 'space', action: 'own' } } },
@@ -55,7 +52,7 @@ describe('the copy rule reads what delegatedWhere builds as narrowing the held w
       'db:space': ['hidden'],
     },
   );
-  const canGrant = createCanGrantEntitlement(map);
+  const canGrant = canGrantWithRules(map);
   const underS1 = (where?: Condition): EntitlementEntry => ({
     resource: 'db:integration',
     anchor: { resource: 'db:space', id: 's1', path: 'space' },
@@ -90,7 +87,7 @@ describe('the copy rule reads what delegatedWhere builds as narrowing the held w
 
 describe('a negated schema rule is refused in the grant walk too', () => {
   test('a negated rule on a field the placed record lacks throws instead of passing', async () => {
-    const schema: RebacSchema = {
+    const schema: Rules = {
       permissions: {
         'db:space': { actions: { own: null } },
         'db:doc': {
@@ -123,14 +120,14 @@ describe('a negated schema rule is refused in the grant walk too', () => {
     };
     const [placed] = placeEntitlement(map, entry, { id: 's1' }) as Row[];
 
-    expect(() => createCanGrantEntitlement(map)(writer, schema, entry, placed as Row)).toThrow(
+    expect(() => canGrantWithRules(map)(writer, schema, entry, placed as Row)).toThrow(
       'is not a well-formed positive rule',
     );
   });
 });
 
 describe('a list pin passes on at any depth: copies are judged by structure, the walk by the chain', () => {
-  const schema: RebacSchema = {
+  const schema: Rules = {
     permissions: {
       'db:space': { actions: { own: null } },
       'db:thread': { actions: { read: { rel: 'space', action: 'own' } } },
@@ -145,8 +142,8 @@ describe('a list pin passes on at any depth: copies are judged by structure, the
       'db:space': ['hidden'],
     },
   );
-  const canGrant = createCanGrantEntitlement(map);
-  const check = createRebacCheck(map);
+  const canGrant = canGrantWithRules(map);
+  const check = checkWithRules(map);
   const threads = (where: Condition): EntitlementEntry => ({
     resource: 'db:thread',
     anchor: { resource: 'db:space', id: 's1', path: 'space' },
@@ -194,7 +191,7 @@ describe('a list pin passes on at any depth: copies are judged by structure, the
 });
 
 describe('liveness asks the anchor and the action along the chain, never a where', () => {
-  const schema: RebacSchema = {
+  const schema: Rules = {
     permissions: {
       'db:space': { actions: { own: null } },
       'db:thread': { actions: { read: { rel: 'space', action: 'own' } } },
@@ -209,8 +206,8 @@ describe('liveness asks the anchor and the action along the chain, never a where
       'db:space': ['hidden'],
     },
   );
-  const canGrant = createCanGrantEntitlement(map);
-  const check = createRebacCheck(map);
+  const canGrant = canGrantWithRules(map);
+  const check = checkWithRules(map);
   const threads = (spaceId: string, where?: Condition): EntitlementEntry => ({
     resource: 'db:thread',
     anchor: { resource: 'db:space', id: spaceId, path: 'space' },
@@ -257,7 +254,7 @@ describe('liveness asks the anchor and the action along the chain, never a where
 
 describe('a negated schema rule throws for every caller', () => {
   test('a superadmin and a holder of a direct grant are refused the same as anyone', async () => {
-    const schema: RebacSchema = {
+    const schema: Rules = {
       permissions: {
         'db:space': {
           actions: {
@@ -266,7 +263,7 @@ describe('a negated schema rule throws for every caller', () => {
         },
       },
     };
-    const check = createRebacCheck(
+    const check = checkWithRules(
       mapOf(
         { 'db:space': {} },
         {

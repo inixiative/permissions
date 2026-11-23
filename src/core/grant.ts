@@ -6,12 +6,11 @@ import { whyEntitlementWhereLeavesLens } from './lens';
 import type { EntitlementEntry } from './permix';
 import { reachableFrom } from './reachableFrom';
 import { conjuncts, rowsAbove, type SchemaMap } from './schemaMap';
-import type { Anchor, CheckOptions, Entitlement, PermixLike, RebacSchema, Row } from './types';
+import type { Anchor, CheckOptions, Entitlement, PermixLike, Row } from './types';
 import { createWalker } from './walker';
 
-export type CanGrantEntitlement<R extends string = string> = (
+export type CanGrantEntitlement = (
   permix: PermixLike,
-  schema: RebacSchema<R>,
   entry: EntitlementEntry,
   placed: Row,
 ) => boolean;
@@ -37,11 +36,11 @@ const narrows = (held: Entitlement, entry: EntitlementEntry) => {
 export const createCanGrantEntitlement = <R extends string = string>(
   map: SchemaMap<R>,
   { additionalRules }: Pick<CheckOptions, 'additionalRules'> = {},
-): CanGrantEntitlement<R> => {
+): CanGrantEntitlement => {
   const check = createWalker(map, booleanAlgebra, false, additionalRules);
   const backs = createWalker(map, booleanAlgebra, true, additionalRules);
 
-  return (permix, schema, entry, placed) => {
+  return (permix, entry, placed) => {
     if (
       entitlementProblem(entry) !== null ||
       whyEntitlementWhereLeavesLens(map, entry.resource, entry.where)
@@ -54,10 +53,10 @@ export const createCanGrantEntitlement = <R extends string = string>(
     const table = asOwner(permix);
     const above = rowsAbove(map, entry, placed);
     const subject = { resource, record: placed };
-    if (actions.every((action) => check(table, schema, subject, action, above))) return true;
+    if (actions.every((action) => check(table, subject, action, above))) return true;
     const reached = actions.map((action) => ({
       action,
-      implying: reachableFrom(schema, resource, action),
+      implying: reachableFrom(map, resource, action),
     }));
     const candidates = [...(reached[0]?.implying ?? [])].flatMap(
       (action) => permix.entitlements?.(resource, action) ?? [],
@@ -66,7 +65,7 @@ export const createCanGrantEntitlement = <R extends string = string>(
       const lowers = (up: ReadonlySet<string>) =>
         [...up].some((action) => held.actions[action] === true);
       const owner = asOwner(held.owner);
-      const backed = (action: string) => backs(owner, schema, { resource, record: placed }, action);
+      const backed = (action: string) => backs(owner, { resource, record: placed }, action);
       return (
         narrows(held, entry) &&
         reached.every(({ action, implying }) => lowers(implying) && backed(action))

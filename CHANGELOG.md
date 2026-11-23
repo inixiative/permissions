@@ -1,3 +1,53 @@
+## 0.28.0 — one schema map; a resource is `map:Model`; one call validates a stored rule
+
+Breaking, with no compatibility path (no users).
+
+Why: an app held two objects, the schema map and the rebac schema, and the library needed both for
+almost anything, so they could be mismatched and every entry point took both. Aron, 2026-11-23,
+reviewing template #324: "I don't like having to pass these as separate objects. They should all
+just be part of the schema map." The map also carried a `resources` table whose only job was to
+rename `db:inquiry` to the model `Inquiry` ("That seems like an absolutely useless thing… make the
+whole system use the same casing… whatever we're using in relations"), its supplied maps sat in a
+second set beside a lone `fieldMap`, and bridges lived in two lists. A stored rule took two calls to
+validate (`validateActionRule`, then `issuesForRuleReadsOutsideLens`), a pairing the check itself
+repeated and template wrapped.
+
+- **One object.** `SchemaMap = { maps, supplied?, bridges?, polymorphism?, permissions }`: the field
+  maps of the records the app loads (`maps`), the field maps whose rows a check is given
+  (`supplied`), both by map name; one list of json-rules `bridges`; `polymorphism` by map name then
+  model; and the rules (`permissions`). `RebacSchema`, `resources`, `fieldMap` and the nested
+  `supplied: { maps, bridges }` are gone. `SchemaMapWithoutPermissions` is the map before it has
+  rules, which `makeKindRules` and every reader of the data shape take.
+- **A resource is named `map:Model`**, json-rules' endpoint key, the model spelled as its field map
+  spells it (`db:Inquiry`, `actor:User`): in `permissions` keys, `subject.resource`, anchors,
+  entries, `data` keys and bridge endpoints. No renaming table. A name with no `map:` throws; a
+  name whose map has no such model is a `validateSchema` error (it used to pass as a resource with
+  no lens), and as a check's `subject.resource` it throws. A relation leads to the model of its own
+  map.
+- **Every model of a map in `maps` is a resource.** With the table gone, a model is no longer left
+  out by not listing it: a relation to it is followed, loaded and inside the lens. A relation the
+  app does not want loaded says so on the field, `/// @permissions(hydrate: false)`, as before.
+- `polymorphism` naming a map not in `maps`, or a model its map does not have, throws when the map
+  is first used (an entry keyed the old way, by model alone, is caught by this).
+- **Every entry point takes the one map**: `createRebacCheck(map)(permix, subject, action)`,
+  `createRebacPaths`, `createCanGrantEntitlement(map)(permix, entry, placed)`, `validateSchema(map)`,
+  `schemaRuleIssues(map)`, `relationHopsFrom(map, at, walked?)`, `reachableFrom`, `capAtRole` and
+  `delegate` (each `map` first).
+- **`validateActionRule(rule, { map, resource, action?, rowRules?, additionalRules? })` answers what
+  a check refuses in one call**: shape and positivity, a delegation back to its own action, and
+  every read outside the lens at the resource. `issuesForRuleReadsOutsideLens` is no longer
+  exported: a rule kept outside the map (a transition's permission side, a draft) is the same call
+  with no `action`. `validateSchema` still reports more than a check refuses (a rule naming an
+  action that does not exist, an operator that does not fit its field), each once.
+- **One list of bridges, classified by its ends.** Both ends in supplied maps: read by a `{ rule }`
+  from a supplied row. Neither end supplied: crossed by a `rel` from a record, and joined. One end
+  supplied: refused on first use and by `validateSchema`, joined or not, so no chain leads from a
+  supplied row into the records (before, only the stitch refused it).
+- A supplied map goes by any name (the reserved `app` is gone); a map name in both `maps` and
+  `supplied` throws.
+- The first check freezes `permissions` and `bridges`, not the field maps, which are the app's.
+- A stored rule's refusal now reads "stored outside the map is refused".
+
 ## 0.27.0 — a null check beside its row's key
 
 Why: 0.26.0 refused every null check, so a schema could not say "a token with no role" or "a

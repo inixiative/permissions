@@ -2,18 +2,21 @@ import type { Condition } from '@inixiative/json-rules';
 import {
   type ActionRule,
   type Admission,
-  createCanGrantEntitlement,
   createPermissions,
-  createRebacCheck,
-  createRebacPaths,
   type EntitlementEntry,
   type PermissionEntry,
   type Permix,
-  type RebacSchema,
   type Row,
-  type SchemaMap,
+  type SchemaMapWithoutPermissions,
 } from '../../index';
-import { actorData, mapOf } from '../schemaMaps';
+import {
+  actorData,
+  canGrantWithRules,
+  checkWithRules,
+  mapOf,
+  pathsWithRules,
+  type Rules,
+} from '../schemaMaps';
 
 // A walk case in the form a differential fuzzer of two builds writes: resources, row objects and
 // tables of grants and entitlements, each by index; one row may be several objects. Each resource has
@@ -61,7 +64,7 @@ export type WalkCase = {
 const resourceNameIn = (walkCase: WalkCase) => (index: number) =>
   walkCase.names?.[index] ?? `db:r${index}`;
 
-const mapOfCase = (walkCase: WalkCase): SchemaMap => {
+const mapOfCase = (walkCase: WalkCase): SchemaMapWithoutPermissions => {
   const resourceName = resourceNameIn(walkCase);
   const names = walkCase.resources.map((_, i) => resourceName(i));
   const byResource = <V>(of: (resource: WalkCase['resources'][number]) => [string, V][]) =>
@@ -79,7 +82,7 @@ const mapOfCase = (walkCase: WalkCase): SchemaMap => {
   );
 };
 
-const schemaOfCase = (walkCase: WalkCase): RebacSchema => ({
+const schemaOfCase = (walkCase: WalkCase): Rules => ({
   permissions: Object.fromEntries(
     Object.entries(walkCase.schema).map(([index, actions]) => [
       resourceNameIn(walkCase)(Number(index)),
@@ -191,10 +194,10 @@ export const outcomesOfWalkCase = async (walkCase: WalkCase) => {
   const action = structuredClone(walkCase.query.action);
   const placed = rows[walkCase.grant.placed] ?? record;
   return {
-    check: outcome(() => createRebacCheck(map)(holder, schema, subject, action)),
-    paths: outcome(() => createRebacPaths(map, { limit: 2 })(holder, schema, subject, action)),
+    check: outcome(() => checkWithRules(map)(holder, schema, subject, action)),
+    paths: outcome(() => pathsWithRules(map, { limit: 2 })(holder, schema, subject, action)),
     grant: outcome(() =>
-      createCanGrantEntitlement(map)(
+      canGrantWithRules(map)(
         holder,
         schema,
         entryOfCase(walkCase, { ...walkCase.grant.ent, ref: '' }),

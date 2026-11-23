@@ -3,12 +3,11 @@ import {
   type EntitlementEntry,
   type PermissionEntry,
   type Permix,
-  type RebacSchema,
 } from '../index';
-import { mapOf } from '../test/schemaMaps';
+import { mapOf, type Rules } from '../test/schemaMaps';
 
 const DEPTH = 6;
-export const model = (i: number) => `m${i}`;
+export const model = (i: number) => `db:m${i}`;
 
 const standard = (parent: boolean) => ({
   own: parent ? { rel: 'parent', action: 'own' } : null,
@@ -17,7 +16,7 @@ const standard = (parent: boolean) => ({
   read: parent ? { any: ['operate', { rel: 'parent', action: 'read' }] } : 'operate',
 });
 
-export const schema: RebacSchema = {
+export const schema: Rules = {
   permissions: Object.fromEntries(
     Array.from({ length: DEPTH + 1 }, (_, i) => [model(i), { actions: standard(i > 0) }]),
   ),
@@ -47,7 +46,7 @@ export const table = async (...entries: PermissionEntry[]): Promise<Permix> => {
 
 /** A table whose only grant is on a resource the bench never checks. */
 export const nobody = () =>
-  table({ resource: 'elsewhere', id: 'x', actions: { own: true } } as PermissionEntry);
+  table({ resource: 'db:elsewhere', id: 'x', actions: { own: true } } as PermissionEntry);
 
 export const rootOwner = () =>
   table({ resource: model(0), id: 'root', actions: { own: true } } as PermissionEntry);

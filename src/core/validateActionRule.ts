@@ -7,7 +7,9 @@ import {
 import { isPlainObject } from 'lodash-es';
 import { allDelegates, delegationReach } from './reachableFrom';
 import { idField } from './recordId';
-import type { RebacSchema } from './types';
+import { issuesForRuleReadsOutsideLens } from './ruleReads';
+import type { SchemaMap } from './schemaMap';
+import type { ActionRule } from './types';
 
 const hasOnly = (node: Record<string, unknown>, keys: string[]): boolean =>
   Object.keys(node).every((key) => keys.includes(key));
@@ -69,20 +71,25 @@ const issues = (rule: unknown, path: string): ValidationIssue[] => {
   return [{ path, code: 'actionRule', message: 'not an action rule' }];
 };
 
+/** Where a rule sits: the map, the resource, the action it is the rule of (none for a rule asked inline), and the other rule sets that reach the same record (`action → rule`). */
 export type ActionRuleContext = {
-  schema: RebacSchema;
+  map: SchemaMap;
   resource: string;
-  action: string;
+  action?: string;
   rowRules?: Record<string, unknown> | null;
-  /** The other rule sets that reach the same record (`action → rule`). */
   additionalRules?: readonly (Record<string, unknown> | null | undefined)[];
+};
+
+type PlaceOfActionRule = Omit<ActionRuleContext, 'map' | 'action'> & {
+  map: Pick<SchemaMap, 'permissions'>;
+  action: string;
 };
 
 const cycles = (
   rule: unknown,
-  { schema, resource, action, rowRules, additionalRules = [] }: ActionRuleContext,
+  { map, resource, action, rowRules, additionalRules = [] }: PlaceOfActionRule,
 ) => {
-  const actions = schema.permissions[resource]?.actions ?? {};
+  const actions = map.permissions[resource]?.actions ?? {};
   const reached = delegationReach(
     allDelegates(rule),
     (next) => [actions[next], rowRules?.[next], ...additionalRules.map((rules) => rules?.[next])],
@@ -93,16 +100,35 @@ const cycles = (
     : [];
 };
 
+// A rule's shape and positivity; only a well-formed rule is judged further.
+const issuesOfShapeOrElse = (rule: unknown, more: () => ValidationIssue[]): ValidationIssue[] => {
+  const shape = issues(rule, '$');
+  return shape.length ? shape : more();
+};
+
+/** A rule's shape and positivity, then a cycle back to its own action; no reads. */
+export const issuesOfShapeAndCycle = (rule: unknown, place: PlaceOfActionRule): ValidationIssue[] =>
+  issuesOfShapeOrElse(rule, () => cycles(rule, place));
+
 /**
- * An action rule's shape, and every `{ rule }` in it a positive json-rules condition. Given where
- * the rule sits (`context`), also refuses a rule that delegates back to its own action on the same
- * record, through the schema, the record's other rules or the additional rule sets.
+ * What a check refuses in an action rule: its shape, and every `{ rule }` in it a positive
+ * json-rules condition. Given where the rule sits (`context`), also a rule that delegates back to
+ * its own action on the same record (through the map's rules, the record's other rules or the
+ * additional rule sets) and every read outside the lens at its resource.
  */
 export const validateActionRule = (
   rule: unknown,
   context?: ActionRuleContext,
 ): ValidationResult => {
-  const shape = issues(rule, '$');
-  const errors = shape.length || !context ? shape : cycles(rule, context);
+  const errors = issuesOfShapeOrElse(rule, () =>
+    context
+      ? [
+          ...(context.action === undefined
+            ? []
+            : cycles(rule, { ...context, action: context.action })),
+          ...issuesForRuleReadsOutsideLens(context.map, context.resource, rule as ActionRule),
+        ]
+      : [],
+  );
   return { ok: errors.length === 0, errors };
 };

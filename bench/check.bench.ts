@@ -1,5 +1,6 @@
-import { createRebacCheck, type EntitlementEntry } from '../index';
+import type { EntitlementEntry } from '../index';
 import { withExactStrings } from '../src/core/exactStrings';
+import { checkWithRules } from '../test/schemaMaps';
 import {
   entitlement,
   map,
@@ -11,7 +12,7 @@ import {
 } from './fixtures';
 import { measure, report } from './harness';
 
-const check = createRebacCheck(map);
+const check = checkWithRules(map);
 const on = (depth: number) => {
   const records = pool(depth);
   return (permix: Parameters<typeof check>[0], action: string) => (i: number) =>
@@ -43,8 +44,8 @@ const s2 = async () => {
     const owner = await rootOwner();
     const variants: Record<string, (k: number) => EntitlementEntry> = {
       'a: other resources': (k: number) => ({
-        resource: 'elsewhere',
-        anchor: { resource: 'elsewhere', id: `e${k}` },
+        resource: 'db:elsewhere',
+        anchor: { resource: 'db:elsewhere', id: `e${k}` },
         actions: { read: true },
       }),
       'b: same resource, anchor missed': (k: number) =>

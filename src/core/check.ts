@@ -1,23 +1,24 @@
 import { type Admission, booleanAlgebra, pathsAlgebra } from './algebra';
 import type { SchemaMap } from './schemaMap';
-import type { ActionRule, CheckOptions, PermixLike, RebacSchema, Subject } from './types';
+import type { ActionRule, CheckOptions, PermixLike, Subject } from './types';
 import { createWalker } from './walker';
 
 export type RebacCheck<R extends string = string> = (
   permix: PermixLike,
-  schema: RebacSchema<R>,
   subject: Subject<R>,
   actionOrRule: ActionRule,
 ) => boolean;
 
 /**
- * Build the rebac check, bound to the app's schema map.
+ * Build the rebac check over the app's schema map: its field maps, supplied maps, bridges,
+ * polymorphism and rules, in the one object.
  *
- * A `rel` hop reads the relation field from `map` (its `fieldMap` model, the resource it leads to);
- * a path's polymorphic kinds come from `map.polymorphism`. Cross-source `rel` hops are resolved by the engine from
- * `schema.bridges`: the join-key scalar on the record looks the far row up in a `BridgeDictionary`
- * the engine builds from `subject.data`; a far row absent there denies the walk. `string` delegates
- * (rbac via permix or schema), `{ rule }` is an ABAC predicate over the record and the supplied rows
+ * A `rel` hop reads the relation field from the resource's model in `map.maps` and lands on the
+ * model it leads to, in the same map; a path's polymorphic kinds come from `map.polymorphism`.
+ * Cross-source `rel` hops cross the map's joined bridges that have no end supplied: the join-key
+ * scalar on the record looks the far row up in a `BridgeDictionary` the engine builds from
+ * `subject.data`; a far row absent there denies the walk. `string` delegates (rbac via permix or
+ * the map's rules), `{ rule }` is an ABAC predicate over the record and the supplied rows
  * `subject.data` gives (`actor:<Model>.<column>`), `any`/`all` compose. A loop through a relation
  * denies; a rule naming itself on one record throws.
  */
@@ -26,12 +27,11 @@ export const createRebacCheck = <R extends string = string>(
   { additionalRules }: CheckOptions = {},
 ): RebacCheck<R> => {
   const walker = createWalker(map, booleanAlgebra, false, additionalRules);
-  return (permix, schema, subject, actionOrRule) => walker(permix, schema, subject, actionOrRule);
+  return (permix, subject, actionOrRule) => walker(permix, subject, actionOrRule);
 };
 
 export type RebacPaths<R extends string = string> = (
   permix: PermixLike,
-  schema: RebacSchema<R>,
   subject: Subject<R>,
   actionOrRule: ActionRule,
 ) => Admission[];
@@ -50,7 +50,7 @@ export const createRebacPaths = <R extends string = string>(
   { limit = 20, additionalRules }: PathsOptions = {},
 ): RebacPaths<R> => {
   const walker = createWalker(map, pathsAlgebra(limit), false, additionalRules);
-  return (permix, schema, subject, actionOrRule) => walker(permix, schema, subject, actionOrRule);
+  return (permix, subject, actionOrRule) => walker(permix, subject, actionOrRule);
 };
 
 export { type Admission, type Chain, PathLimitError } from './algebra';

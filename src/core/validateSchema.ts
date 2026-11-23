@@ -1,73 +1,22 @@
-import { modelOf } from '@inixiative/field-map';
-import type { ValidationIssue, ValidationResult } from '@inixiative/json-rules';
+import { endpointKey, type ValidationIssue, type ValidationResult } from '@inixiative/json-rules';
 import { bridgeHop } from './bridgeHop';
 import {
   countRelationsOneRowHydrates,
-  issueRefusesTheRead,
-  issuesForReadsOutsideLens,
-  issuesOfSuppliedListArm,
   type LensesAtRow,
-  lensesAtListItem,
   lensesAtRow,
   relationLensLimits,
-  whyRelationPathCannotBeWalked,
 } from './lens';
-import { listsOf, relationOf, type SchemaMap } from './schemaMap';
-import { suppliedModelAt } from './supplied';
-import type { ActionRule, RebacSchema } from './types';
-import { validateActionRule } from './validateActionRule';
-
-/** Walk a `{ rel }` path from `at` as a check hops it: the lenses where it lands, or why it cannot be walked. */
-const walkRelationPath = (
-  map: SchemaMap,
-  schema: RebacSchema,
-  at: LensesAtRow,
-  rel: string,
-  path: string,
-): { landed: LensesAtRow } | { issues: ValidationIssue[] } => {
-  const { under } = at;
-  let from = at;
-  let run: string[] = [];
-  let current = at.resource;
-  const judge = (): ValidationIssue[] => {
-    const problem = whyRelationPathCannotBeWalked(map, from, run.join('.'));
-    return problem
-      ? [{ path, code: problem.code === 'down' ? 'down' : 'relation', message: problem.message }]
-      : [];
-  };
-  for (const segment of rel.split('.')) {
-    const hop = bridgeHop(schema.bridges, current, segment);
-    if (!hop) {
-      run.push(segment);
-      const next = relationOf(map, current, segment);
-      if (!next) return { issues: judge() };
-      current = next.resource;
-      continue;
-    }
-    if (under)
-      return {
-        issues: [
-          {
-            path,
-            code: 'down',
-            message: `\`${segment}\` is a bridge under an item of \`${under.list}\`: a walk under an item stays on the declared relations`,
-          },
-        ],
-      };
-    const missed = judge();
-    if (missed.length) return { issues: missed };
-    current = hop.farResource;
-    from = lensesAtRow(map, current);
-    run = [];
-  }
-  const missed = judge();
-  if (missed.length) return { issues: missed };
-  return {
-    landed: from.under
-      ? lensesAtRow(map, current, { ...from.under, prefix: [...from.under.prefix, ...run] })
-      : lensesAtRow(map, current),
-  };
-};
+import { isRefusedByACheck, relIssues, walkRelationPath } from './ruleReads';
+import {
+  listsOf,
+  modelOfResource,
+  relationOf,
+  type SchemaMap,
+  type SchemaMapWithoutPermissions,
+  whyNameIsNoModel,
+} from './schemaMap';
+import { bridgeProblems, bridgesWalkedFromRecords } from './supplied';
+import { issuesOfShapeAndCycle, validateActionRule } from './validateActionRule';
 
 /** A segment a `{ rel }` may take next, and the resource it lands on. */
 export type RelationHop = { segment: string; resource: string; bridge: boolean };
@@ -78,178 +27,93 @@ export type RelationHop = { segment: string; resource: string; bridge: boolean }
  * For an editor that offers only the hops a check takes.
  */
 export const relationHopsFrom = (
-  map: SchemaMap,
-  schema: RebacSchema,
+  map: SchemaMapWithoutPermissions,
   at: LensesAtRow,
   walked = '',
 ): RelationHop[] => {
   const prefix = walked ? walked.split('.') : [];
-  const reached = prefix.length ? walkRelationPath(map, schema, at, walked, '$') : { landed: at };
+  const reached = prefix.length ? walkRelationPath(map, at, walked, '$') : { landed: at };
   if ('issues' in reached && reached.issues.length) return [];
   const current = 'landed' in reached ? reached.landed.resource : at.resource;
-  const fields = Object.keys(modelOf(map.fieldMap, map.resources[current])?.fields ?? {});
-  const bridgeEnds = (schema.bridges ?? []).flatMap((bridge) =>
-    bridge.endpoints.map((end) => `${end.fieldMap}:${end.model}`),
-  );
+  const fields = Object.keys(modelOfResource(map, current)?.fields ?? {});
+  const crossed = bridgesWalkedFromRecords(map);
+  const bridgeEnds = crossed.flatMap((bridge) => bridge.endpoints.map(endpointKey));
   const candidates = [
     ...fields
       .filter((field) => relationOf(map, current, field))
       .map((segment) => ({ segment, bridge: false })),
     ...[...new Set(bridgeEnds)]
-      .filter((end) => bridgeHop(schema.bridges, current, end))
+      .filter((end) => bridgeHop(crossed, current, end))
       .map((segment) => ({ segment, bridge: true })),
   ];
   return candidates.flatMap(({ segment, bridge }) => {
-    const next = walkRelationPath(map, schema, at, [...prefix, segment].join('.'), '$');
+    const next = walkRelationPath(map, at, [...prefix, segment].join('.'), '$');
     return 'landed' in next ? [{ segment, resource: next.landed.resource, bridge }] : [];
   });
 };
 
 /** The fields of `resource` that are declared lists (`/// @permissions(down: [...])`), which a list arm may cross. */
-export const declaredListsOf = (map: SchemaMap, resource: string): string[] =>
+export const declaredListsOf = (map: SchemaMapWithoutPermissions, resource: string): string[] =>
   listsOf(map, resource).map(([field]) => field);
 
-const relIssues = (
-  map: SchemaMap,
-  schema: RebacSchema,
-  at: LensesAtRow,
-  rule: ActionRule,
-  path: string,
-  seen?: Set<string>,
-): ValidationIssue[] => {
-  const { resource, under } = at;
-  const follow = (landed: LensesAtRow, action: string): ValidationIssue[] => {
-    const key = `${landed.resource}\u0000${action}\u0000${landed.under?.prefix.join('.')}`;
-    if (!seen || seen.has(key)) return [];
-    seen.add(key);
-    return relIssues(
-      map,
-      schema,
-      landed,
-      schema.permissions[landed.resource]?.actions[action] ?? null,
-      path,
-      seen,
-    );
-  };
-  if (rule === null || typeof rule !== 'object') {
-    if (typeof rule !== 'string') return [];
-    if (!(rule in (schema.permissions[resource]?.actions ?? {})))
-      return [{ path, code: 'action', message: `\`${resource}\` has no action \`${rule}\`` }];
-    return under ? follow(at, rule) : [];
-  }
-  if ('any' in rule)
-    return rule.any.flatMap((child, i) =>
-      relIssues(map, schema, at, child, `${path}.any[${i}]`, seen),
-    );
-  if ('all' in rule)
-    return rule.all.flatMap((child, i) =>
-      relIssues(map, schema, at, child, `${path}.all[${i}]`, seen),
-    );
-  if ('rule' in rule)
-    return issuesForReadsOutsideLens(map, at, rule.rule, path, { supplied: true });
-  if ('arrayOperator' in rule) {
-    if (under)
-      return [
-        {
-          path,
-          code: 'down',
-          message: `\`${resource}.${rule.rel}\` is a second list under an item of \`${under.list}\`: one list per walk`,
-        },
-      ];
-    if (suppliedModelAt(map, rule.rel.split('.')[0] ?? ''))
-      return issuesOfSuppliedListArm(map, rule.rel, rule.condition, path);
-    const item = lensesAtListItem(map, resource, rule.rel);
-    if (!item)
-      return [
-        {
-          path,
-          code: 'down',
-          message: `\`${resource}.${rule.rel}\` is not a declared list: mark the list field \`/// @permissions(down: [...])\``,
-        },
-      ];
-    return relIssues(map, schema, item, rule.condition, `${path}.condition`, new Set());
-  }
-  const walked = walkRelationPath(map, schema, at, rule.rel, path);
-  if ('issues' in walked) return walked.issues;
-  if (!(rule.action in (schema.permissions[walked.landed.resource]?.actions ?? {})))
-    return [
-      {
-        path,
-        code: 'action',
-        message: `\`${walked.landed.resource}\` has no action \`${rule.action}\``,
-      },
-    ];
-  const landed = walked.landed;
-  return under ? follow(landed, rule.action) : [];
-};
-
 const issuesOfEveryActionRule = (
-  schema: RebacSchema,
-  judgedInItsSchema: boolean,
+  map: Pick<SchemaMap, 'permissions'>,
+  judgedInItsMap: boolean,
 ): ValidationIssue[] =>
-  Object.entries(schema.permissions).flatMap(([resource, permission]) =>
+  Object.entries(map.permissions).flatMap(([resource, permission]) =>
     Object.entries(permission?.actions ?? {}).flatMap(([action, rule]) =>
-      validateActionRule(
-        rule,
-        judgedInItsSchema ? { schema, resource, action } : undefined,
-      ).errors.map((issue) => ({ ...issue, path: `${resource}.${action}${issue.path.slice(1)}` })),
+      (judgedInItsMap
+        ? issuesOfShapeAndCycle(rule, { map, resource, action })
+        : validateActionRule(rule).errors
+      ).map((issue) => ({ ...issue, path: `${resource}.${action}${issue.path.slice(1)}` })),
     ),
   );
 
-/** Every action rule of a schema that is not well formed and positive, by `resource.action`. */
-export const schemaRuleIssues = (schema: RebacSchema): ValidationIssue[] =>
-  issuesOfEveryActionRule(schema, false);
+/** Every action rule of a map that is not well formed and positive, by `resource.action`. */
+export const schemaRuleIssues = (map: Pick<SchemaMap, 'permissions'>): ValidationIssue[] =>
+  issuesOfEveryActionRule(map, false);
 
-/** Every read of a well-formed action rule at `resource` outside the lens. */
-export const issuesForRuleReadsOutsideLens = (
-  map: SchemaMap,
-  schema: RebacSchema,
-  resource: string,
-  rule: ActionRule,
-  at = '$',
-): ValidationIssue[] =>
-  relIssues(map, schema, lensesAtRow(map, resource), rule, at).filter(
-    (issue) => issue.code !== 'action' && issueRefusesTheRead(issue),
-  );
-
-// why: a resource with no model in the map has no lens, so nothing it reads could be refused
-const unmapped = (map: SchemaMap, schema: RebacSchema): ValidationIssue[] => {
+// why: a name that is no model has no lens, so nothing its rules read could be refused
+const issuesOfNamesAndBridges = (map: SchemaMap): ValidationIssue[] => {
   const far = new Set(
-    (schema.bridges ?? []).flatMap((bridge) =>
-      bridge.endpoints.map((end) => `${end.fieldMap}:${end.model}`),
-    ),
+    bridgesWalkedFromRecords(map).flatMap(({ endpoints }) => endpoints.map(endpointKey)),
   );
-  return Object.keys(schema.permissions)
-    .filter((resource) => !map.resources[resource] && !far.has(resource))
-    .map((resource) => ({
-      path: resource,
-      code: 'lens',
-      message: `\`${resource}\` is not a resource in the map: add it to \`resources\`, or nothing it reads is checked`,
-    }));
+  const lens = (path: string, message: string) => ({ path, code: 'lens', message });
+  return [
+    ...bridgeProblems(map).map((message) => lens('bridges', message)),
+    ...Object.keys(map.permissions).flatMap((resource) => {
+      const why = whyNameIsNoModel(map, resource);
+      if (why) return [lens(resource, why)];
+      if (modelOfResource(map, resource) || far.has(resource)) return [];
+      return [
+        lens(
+          resource,
+          `\`${resource}\` is not a model of a map in \`maps\`, nor the far end of a bridge from one: nothing its rules read is checked`,
+        ),
+      ];
+    }),
+  ];
 };
 
-// Every read, action and operator issue of a schema's well-formed rules, by `resource.action`.
-const readIssues = (map: SchemaMap, schema: RebacSchema): ValidationIssue[] => [
-  ...unmapped(map, schema),
-  ...Object.entries(schema.permissions).flatMap(([resource, permission]) =>
+// Every read, action and operator issue of a map's well-formed rules, by `resource.action`.
+const readIssues = (map: SchemaMap): ValidationIssue[] => [
+  ...issuesOfNamesAndBridges(map),
+  ...Object.entries(map.permissions).flatMap(([resource, permission]) =>
     Object.entries(permission?.actions ?? {}).flatMap(([action, rule]) =>
       validateActionRule(rule).ok
-        ? relIssues(map, schema, lensesAtRow(map, resource), rule, `${resource}.${action}`)
+        ? relIssues(map, lensesAtRow(map, resource), rule, `${resource}.${action}`)
         : [],
     ),
   ),
 ];
 
-/** Every read of a schema's action rules outside the lens, by `resource.action`. */
-export const schemaIssuesRefusedOnFirstUse = (
-  map: SchemaMap,
-  schema: RebacSchema,
-): ValidationIssue[] =>
-  readIssues(map, schema).filter((issue) => issue.code !== 'action' && issueRefusesTheRead(issue));
+/** Every issue of a map's rules, names and bridges that a check refuses on first use, by `resource.action`. */
+export const schemaIssuesRefusedOnFirstUse = (map: SchemaMap): ValidationIssue[] =>
+  readIssues(map).filter(isRefusedByACheck);
 
 // why: a row that hydrates this much is doing too much; it is reported, not refused
-const lensWarnings = (map: SchemaMap, schema: RebacSchema): ValidationIssue[] =>
-  Object.keys(schema.permissions).flatMap((resource) => {
+const lensWarnings = (map: SchemaMap): ValidationIssue[] =>
+  Object.keys(map.permissions).flatMap((resource) => {
     const size = countRelationsOneRowHydrates(map, resource);
     return size > relationLensLimits.report
       ? [
@@ -263,13 +127,13 @@ const lensWarnings = (map: SchemaMap, schema: RebacSchema): ValidationIssue[] =>
   });
 
 /**
- * A whole schema against the map, for a test or boot: well formed, positive, inside the lens,
- * every action defined (`errors`), and every resource whose row hydrates too much (`warnings`).
+ * A whole map, for a test or boot: its names and bridges, every rule well formed, positive and
+ * inside the lens, every action defined (`errors`), and every resource whose row hydrates too much
+ * (`warnings`).
  */
 export const validateSchema = (
   map: SchemaMap,
-  schema: RebacSchema,
 ): ValidationResult & { warnings: ValidationIssue[] } => {
-  const errors = [...issuesOfEveryActionRule(schema, true), ...readIssues(map, schema)];
-  return { ok: errors.length === 0, errors, warnings: lensWarnings(map, schema) };
+  const errors = [...issuesOfEveryActionRule(map, true), ...readIssues(map)];
+  return { ok: errors.length === 0, errors, warnings: lensWarnings(map) };
 };

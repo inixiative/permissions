@@ -10,7 +10,7 @@ One check, over your own data, that covers:
 - **RuBAC:** rules as data: every condition is a serializable [`@inixiative/json-rules`](https://github.com/inixiative/json-rules) rule, positive by design (`validateActionRule` refuses the rest), the same AST everywhere it appears.
 - **Delegation (entitlements):** attenuated grants a holder passes on (copied, narrowed, lowered, never widened), each re-checked live at every link of its chain and at every tenant boundary it crosses.
 
-It decides on your own records: the checks walk them through the schema map you pass (which model each resource is, its relations and foreign keys, and its polymorphic models' kinds; an [`@inixiative/field-map`](https://github.com/inixiative/field-map) map), reached through a `load` you provide. There is no separate authorization store and no relationship tuples to sync. Nothing in it imports a database layer: the `createHydrator` helper walks the schema map and calls your `load`, which is also where caching goes. The core is small enough to read, and it depends only on json-rules, field-map and lodash-es; the optional helpers for delegation and hydration sit outside it. MIT licensed.
+It decides on your own records: the checks walk them through the one schema map you pass (your models' relations and foreign keys as [`@inixiative/field-map`](https://github.com/inixiative/field-map) maps, the polymorphic models' kinds, and the rules), reached through a `load` you provide. There is no separate authorization store and no relationship tuples to sync. Nothing in it imports a database layer: the `createHydrator` helper walks the schema map and calls your `load`, which is also where caching goes. The core is small enough to read, and it depends only on json-rules, field-map and lodash-es; the optional helpers for delegation and hydration sit outside it. MIT licensed.
 
 Everything you configure it with is plain JSON: the schema's rules, role grants, entitlements, `Permissions`. So
 they can live in your database, be composed like any other data, and be authored at runtime. A
@@ -56,9 +56,10 @@ The nouns are below. The verbs, one per operation with the name that says the ac
 
 | Word | Means |
 |---|---|
-| **resource** | a model name in your schema (`db:organization`); a record is one row of it |
+| **resource** | a model of one of your field maps, named `map:Model` with the model spelled as its field map spells it (`db:Organization`, `actor:User`); a record is one row of it. Every model of a map in `maps` is a resource: nothing lists them, and a relation the app does not want loaded says so on the field (`/// @permissions(hydrate: false)`) |
 | **action** | a verb on a resource, defined by the schema (`own`, `manage`, `operate`, `read`, or your own) |
-| **schema** | per resource, the rule (`ActionRule`) that decides each action: a grant, a relation walk, a condition, or a combination |
+| **schema map** | the one object every entry point takes: the field maps (`maps`, `supplied`), the `bridges`, the `polymorphism`, and the rules (`permissions`) |
+| **schema** | the rules of the schema map (`permissions`): per resource, the rule (`ActionRule`) that decides each action: a grant, a relation walk, a condition, or a combination |
 | **grant** | an entry a role gives: actions on a resource or one record (`{ resource, id?, actions }`); the grants a permix holds are its table |
 | **entitlement** | an entry given beyond a role: actions on a resource, from an anchor, with an optional `where`, backed by whoever granted it |
 | **anchor** | the record an entitlement acts from, reached from the entitled record along `path` |
@@ -67,7 +68,7 @@ The nouns are below. The verbs, one per operation with the name that says the ac
 | **delegate** | a token or integration that acts from its owner's permissions: `full`, capped at a ceiling, entitlements, or a mix |
 | **full** | the owner's permissions, whole and live |
 | **ceiling** | the action a delegate's role maps to; the owner's grants are kept at it (`capAtRole`) |
-| **supplied map** | a field map whose rows each check is given in its `data` (an app's `actor` map: who is acting), read by rules as `<prefix>:<Model>` |
+| **supplied map** | a field map in the schema map's `supplied`, whose rows each check is given in its `data` (an app's `actor` map: who is acting), read by rules as `<map>:<Model>` |
 | **permix** | the installed form of a holder's permissions that `check` reads |
 | **pseudo record** | the would-be row a create or a grant is checked on; the rows built for it below the anchor, with keys and parents but no ids, are **stand-ins** |
 
@@ -85,37 +86,54 @@ type ActionRule =
   | null;                        // terminal deny, as is an action the schema does not name
 ```
 
-A `RebacSchema` is `{ bridges?, permissions }`. `permissions` maps a (map-qualified) **resource**,
-e.g. `db:User`, to `{ actions: { name → ActionRule } }`; `bridges` are the cross-source edges a `rel`
-walk may cross (see [Bridges](#bridges-cross-source-rel-walks)). A single-source schema omits
-`bridges` and can use bare resource keys.
+A `SchemaMap` is `{ maps, supplied?, bridges?, polymorphism?, permissions }`, one object, so the
+data shape and the rules cannot be passed mismatched:
+
+- `maps`: the field maps of the records the app loads and walks, by map name (`{ db: prismaMap }`).
+- `supplied`: the field maps whose rows each check is given in its `data`, by map name (see
+  [Supplied maps](#supplied-maps-data-the-call-gives-who-is-acting-for-one)). A map name in both
+  `maps` and `supplied` throws.
+- `bridges`: one list of json-rules bridges between models of different maps (see
+  [Bridges](#bridges-cross-source-rel-walks)).
+- `polymorphism`: by map name, then model, the axes of each false-polymorphic model (see
+  [Polymorphic rules](#polymorphic-rules-the-fan-out)).
+- `permissions`: the schema, mapping a **resource** to `{ actions: { name → ActionRule } }`.
+
+A resource is named `map:Model` everywhere: in `permissions` keys, `subject.resource`, grants,
+anchors, entitlements, `data` keys and bridge endpoints. It is json-rules' endpoint key, the model
+spelled as its field map spells it (`db:User`, `actor:User`), so there is no table renaming a
+resource to its model. A name with no `map:` throws. A relation leads to the model of its own map:
+`db:User` and `actor:User` are two models.
 
 ## Writing a schema
 
 Action names are **yours**: the engine imposes no vocabulary. The `own`/`manage`/`read` chain below
-is illustrative; use whatever your roles grant.
+is illustrative; use whatever your roles grant. The map holds the field maps, then the rules:
 
 ```ts
 import { Operator } from '@inixiative/json-rules';
-import type { RebacSchema } from '@inixiative/permissions';
+import type { SchemaMap } from '@inixiative/permissions';
+// written by `bunx field-map generate` after `prisma generate`
+import { prismaMap } from './generated/prismaMap.gen';
 
-const schema: RebacSchema = {
+const map: SchemaMap = {
+  maps: { db: prismaMap },
   permissions: {
-    organization: {
+    'db:Organization': {
       actions: {
         own: null, //         terminal: granted only via permix (roles) or row rules
-        manage: 'own', //     delegation chain — own ⊇ manage ⊇ read
+        manage: 'own', //     delegation chain: own ⊇ manage ⊇ read
         read: 'manage',
       },
     },
-    membership: {
+    'db:Membership': {
       actions: {
         read: { any: [{ rel: 'user', action: 'read' }, { rel: 'organization', action: 'read' }] },
         leave: { rel: 'user', action: 'operate' }, // your own row: a walk to your own user entry
         manage: { rel: 'organization', action: 'manage' },
       },
     },
-    document: {
+    'db:Document': {
       actions: {
         read: {
           any: [
@@ -133,13 +151,18 @@ const schema: RebacSchema = {
 `rel` accepts dot-paths for multi-hop walks: `{ rel: 'space.organization', action: 'own' }` chains
 through `record.space.organization`, resolving each hop's model from the schema map.
 
+Rules built from the data shape (the kind rules of a polymorphic model) need the map before it has
+rules, so such a map is built in two steps; see [Polymorphic rules](#polymorphic-rules-the-fan-out).
+
 Records may also carry a `permissionRules` JSON field (`action → ActionRule`): a per-record rule (a
 condition, a relation walk or both), so one record can take a rule its model's schema doesn't. `check` merges a row
 rule **additively** (OR) with the schema rule, so per-record overrides can widen but never revoke.
 `check` validates a row rule before merging it: one that isn't positive, that delegates back to
 its own action (a cycle), or that reads outside the [relation lens](#what-a-rule-may-read-the-relation-lens),
-widens nothing. Validate a stored row rule with `validateActionRule`
-before persisting it too, so the author hears about it.
+makes the check throw: a stored rule that is refused is a fault to fix, not a rule to skip. Validate
+a stored row rule with `validateActionRule(rule, { map, resource, action, rowRules })` before
+persisting it, so the author hears about it then: that one call reports everything the check
+refuses.
 
 ### More rules for a record: `additionalRules`
 
@@ -156,7 +179,19 @@ Each entry is a rule set shaped like `permissionRules` (`action → ActionRule`)
 asked for every record the walk reaches. `check` ORs each rule with the schema rule and the record's
 own rule, so it only widens, and it cannot add an action the schema lacks. Each rule is validated
 before it is merged, exactly as a row rule is. `createRebacPaths` and `createCanGrantEntitlement`
-take the same option. Validate each rule with `validateActionRule` before the app saves it.
+take the same option. Validate each rule with `validateActionRule` before the app saves it, giving
+the other rule sets that reach the record so a cycle through them is caught:
+
+```ts
+validateActionRule(rule, {
+  map,
+  resource: 'db:Document',
+  action: 'read',
+  rowRules: document.permissionRules,
+  additionalRules: [tenantRules], // each a rule set, `action → ActionRule`
+});
+// { ok, errors }: the shape and positivity, a delegation back to `read`, and every read outside the lens
+```
 
 ## Crossing a list: some item passes
 
@@ -164,7 +199,7 @@ A `{ rel, action }` walk is to-one and never crosses a list. A rule that turns o
 (you may chat when you are one of the conversation's participants) uses its own arm:
 
 ```ts
-conversation: {
+'db:Conversation': {
   actions: {
     isParticipant: {
       rel: 'participants', //   one list relation of this resource, no dots
@@ -182,13 +217,13 @@ conversation: {
     chat: { all: ['create', 'isParticipant'] },
   },
 },
-message: { actions: { read: { rel: 'conversation', action: 'isParticipant' } } },
+'db:Message': { actions: { read: { rel: 'conversation', action: 'isParticipant' } } },
 ```
 
 The arm passes when `condition` passes on some item. Inside `condition` a string is an action on
 the item's resource, `rel` walks from the item, and `{ rule }` reads the item, so the item's model
 is a resource in the map (it needs no actions of its own). A record below the list reaches it by
-delegating, as `message.read` does; `rel` in the arm is the list field alone.
+delegating, as `db:Message.read` does; `rel` in the arm is the list field alone.
 
 **When to reach for it.** Whenever access to a record turns on one of its child rows, and the
 record holds no key to walk up:
@@ -206,14 +241,14 @@ record holds no key to walk up:
   ```
 
   ```ts
-  integrationResource: {
+  'db:IntegrationResource': {
     actions: {
       read: { rel: 'projects', arrayOperator: 'any', condition: { rel: 'project', action: 'read' } },
     },
   },
   ```
 
-  `project.read` walks on to the organization here, so the declared path is `project.organization`.
+  `db:Project.read` walks on to the organization here, so the declared path is `project.organization`.
 
 When the record holds the key itself (a message's `conversationId`), use a plain `rel`; this arm
 is only for the direction a to-one walk cannot go.
@@ -283,7 +318,7 @@ so the leaves are `member.fanUser.user` and `member.staffUser.user`: three segme
 Why the stricter reading. With only `member.fanUser` declared, the walk still passes for a person
 whose table holds an id-keyed grant of `operate` on their own membership row, because the table
 answers before the rule is walked. It denies for a person whose `operate` comes through the rule
-(`user.own`), and for a grantor judged the same way, although the same action on the same row
+(`db:User.own`), and for a grantor judged the same way, although the same action on the same row
 passes when the row is hydrated from above. One action answering two ways by how its row was
 reached is the under-hydration the hydrator exists to remove, and the library cannot see tables
 from a schema. So the declaration follows the rule. To load less, say less in the rule: an action
@@ -299,17 +334,20 @@ Rules outside the schema are judged against the declaration too: see
 import { engineGlobals } from '@inixiative/json-rules';
 import { createRebacCheck, type SchemaMap } from '@inixiative/permissions';
 
-// the schema the walk reads: which fieldMap model each resource is, its relations and foreign keys
-// (an @inixiative/field-map FieldMap, as `field-map generate` writes it), and the polymorphic models' kinds
-const map: SchemaMap = { resources, fieldMap: prismaMap, polymorphism };
+// the one map the walk reads: the models' relations and foreign keys (an @inixiative/field-map
+// FieldMap, as `field-map generate` writes it), the polymorphic models' kinds, and the rules
+const map: SchemaMap = { maps: { db: prismaMap }, polymorphism: { db: polymorphism }, permissions };
 // the field a record's grants are keyed by: `id` unless set (`uuid`, `_id`, `ID`…), once, at boot
 engineGlobals.set('permissions.idField', 'uuid');
 const check = createRebacCheck(map);
 
-check(permix, schema, { resource: 'membership', record }, 'manage');
-// string → permix grant or schema delegation; { rel } walks `record.organization` (or a bridge —
+check(permix, { resource: 'db:Membership', record }, 'manage');
+// string → permix grant or schema delegation; { rel } walks `record.organization` (or a bridge,
 // see below); { rule } evals json-rules over the record and its supplied rows (actor:<Model>); any/all compose. A data loop denies; a rule naming itself throws.
 ```
+
+The first check judges the map whole and freezes `permissions` and `bridges`, so the answer it
+gave holds for every later check; the field maps are the app's and are not frozen.
 
 **There is no `self` arm. Identity lives in the table.** The actor's table holds grants on its own
 user row like any other, so acting on your own row is `{ rel: 'user', action }`: the walk reaches the hydrated
@@ -319,15 +357,15 @@ user) fails a write arm on its own row; a row without its `user` loaded is denie
 from the foreign key. `validateActionRule` rejects `self`.
 
 The check takes a **subject**, `{ resource, record, data? }`, rather than a bare record; `data` is the
-supplemental rows that back cross-source bridge hops (below). `resources` gives each resource its own model (`createRebacCheck` refuses two resources on one
-model). `createRebacCheck` is generic over the
-resource key (default `string`). Pass your resource union and the schema, `subject.resource`, and
-map all enforce it, so your own types need no casts:
+supplemental rows that back cross-source bridge hops and the supplied rows (below). A
+`subject.resource` with no `map:` throws. `createRebacCheck` is generic over the resource key
+(default `string`). Pass your resource union and the map's `permissions` keys and
+`subject.resource` both enforce it, so your own types need no casts:
 
 ```ts
-type Resource = 'organization' | 'membership' | 'document';
+type Resource = 'db:Organization' | 'db:Membership' | 'db:Document';
 const check = createRebacCheck<Resource>(map); // map: SchemaMap<Resource>
-// now `schema: RebacSchema<Resource>`, `subject.resource: Resource` — a typo is a compile error.
+// now `map.permissions` is keyed by Resource, and `subject.resource: Resource`: a typo is a compile error.
 ```
 
 Cycle detection knows a row by its key (`identityKeyOfRow`: the engine id field, else the model's
@@ -347,7 +385,7 @@ stopping:
 
 ```ts
 const paths = createRebacPaths(map, { limit: 20 });
-paths(permix, schema, { resource: 'db:space', record: space }, 'read');
+paths(permix, { resource: 'db:Space', record: space }, 'read');
 // [[['d-from-b', 'b']], [['d-from-c', 'c']]]
 ```
 
@@ -371,10 +409,10 @@ reported.
 
 ## Supplied maps: data the call gives (who is acting, for one)
 
-The library has no notion of an actor. A map declares **supplied** maps: a json-rules field-map set
-(`{ maps, bridges }`), each map by prefix, whose rows each check is given in its `data`, keyed
-`<prefix>:<Model>` as the joined bridges' far rows are. A `{ rule }` at any resource reads them as
-`<prefix>:<Model>.<column>`, and on along their relations and to-one bridges
+The library has no notion of an actor. The schema map declares **supplied** maps in `supplied`:
+field maps by map name, any name, whose rows each check is given in its `data`, keyed
+`<map>:<Model>` as the joined bridges' far rows are. A `{ rule }` at any resource reads them as
+`<map>:<Model>.<column>`, and on along their relations and to-one bridges
 (`actor:User.org.plan`, `actor:User.sec:Posture.managed`). An app with no supplied maps reads none;
 an app with several reads them all alike.
 
@@ -389,18 +427,20 @@ const actor: FieldMap = {
 };
 // a security tool's devices, joined to the actor by its id
 const sec: FieldMap = { models: { Device: { fields: { userId: str, risk: str } } } };
-const supplied: FieldMapSet = {
-  maps: { actor, sec },
+const map: SchemaMap = {
+  maps: { db: prismaMap },
+  supplied: { actor, sec },
   bridges: [{
     endpoints: [{ fieldMap: 'actor', model: 'User', on: 'id' }, { fieldMap: 'sec', model: 'Device', on: 'userId' }],
     cardinality: 'oneToMany',
   }],
+  polymorphism: { db: polymorphism },
+  permissions,
 };
-const map: SchemaMap = { resources, fieldMap: prismaMap, polymorphism, supplied };
 
-check(permix, schema, {
-  resource: 'db:Doc',
-  record: doc,
+check(permix, {
+  resource: 'db:Document',
+  record: document,
   data: { 'actor:Acting': [{ model: 'User' }], 'actor:User': [user], 'sec:Device': devices },
 }, 'read');
 ```
@@ -412,8 +452,9 @@ check(permix, schema, {
   json-rules' `recordWithBridgeData`, with the joined rows indexed once per check: any key a row
   carries naming a supplied model is dropped, on the record and every row reached from it, and the
   rows from `data` are put on. Nothing in `data` for a model means it is not there, and a rule
-  reading it fails. A supplied bridge has its endpoints among the supplied maps: one into the map of
-  resources has no endpoint and throws, so no chain leads back to a record.
+  reading it fails. A bridge a rule reads along has both ends in supplied maps; one with a single
+  end supplied is refused (see [Bridges](#bridges-cross-source-rel-walks)), so no chain leads from
+  a supplied row back to a record.
 - **A list on a supplied row is crossed with the list arm**: `{ rel: 'actor:User.sec:Device',
   arrayOperator: 'any', condition }`, its own list relations too (`actor:User.groups`). An item is a
   supplied row with no actions, so its condition holds `{ rule }`s in `any` and `all`, read in the
@@ -462,25 +503,48 @@ row of its own.
 The standard shape of a polymorphic check (R-2026-11-19-15): fan out over the kinds, each branch
 checking its own kind first, every rule positive, every match checking its field exists. A kind with no row
 (`default`, `Internal`) is named by its kind alone. `makeKindRules(map)` builds them, reading the
-kinds from the map: a resource's polymorphic axis (`map.polymorphism`), or a supplied model's enum
-field (`'actor:Acting'`, `'model'`). A kind the map does not have throws when the rule is built.
+kinds from the map: a resource's polymorphic axis (`map.polymorphism`, by map name then model), or
+a supplied model's enum field (`'actor:Acting'`, `'model'`). A kind the map does not have throws
+when the rule is built.
+
+The builders read the data shape, so they take the map before it has rules
+(`SchemaMapWithoutPermissions`); the rules they return then go into `permissions`:
 
 ```ts
-const kind = makeKindRules(map);
+import {
+  makeKindRules,
+  ruleFieldEqualsPath,
+  type SchemaMap,
+  type SchemaMapWithoutPermissions,
+} from '@inixiative/permissions';
+
+const shape: SchemaMapWithoutPermissions = {
+  maps: { db: prismaMap },
+  supplied: { actor },
+  polymorphism: { db: polymorphism }, // your false-polymorphism registry, by model
+};
+const kind = makeKindRules(shape);
 
 // one branch per kind of a side, each checking its own kind first; a kind left out denies
-kind.ruleForEachKind('db:token', 'ownerModel', {
+kind.ruleForEachKind('db:Token', 'ownerModel', {
   Organization: { rel: 'organization', action: 'manage' },
   User: ruleFieldEqualsPath('userId', 'actor:User.id'),
   default: true, // a kind with no row: its kind check is the whole branch
 });
 // the same action through each kind's own relation (the registry's foreign key)
-kind.ruleActionThroughEachKind('db:token', 'ownerModel', 'manage');
+kind.ruleActionThroughEachKind('db:Token', 'ownerModel', 'manage');
 // kind membership, on a resource's side and on a supplied model
-kind.ruleKindIsOneOf('db:token', 'ownerModel', ['Organization', 'Space']);
+kind.ruleKindIsOneOf('db:Token', 'ownerModel', ['Organization', 'Space']);
 kind.ruleKindIsOneOf('actor:Acting', 'model', ['Token', 'User']);
 // a fan-out over who is acting
 kind.ruleForEachKind('actor:Acting', 'model', { Internal: true, User: ruleFieldEqualsPath('ownerId', 'actor:User.id') });
+
+const map: SchemaMap = {
+  ...shape,
+  permissions: {
+    'db:Token': { actions: { manage: kind.ruleActionThroughEachKind('db:Token', 'ownerModel', 'manage') } },
+  },
+};
 ```
 
 A resource's side takes an optional path prefix (`'integration.'`) for a side on a related row.
@@ -490,12 +554,22 @@ its organization, and only an explicit branch says which kinds may walk it.
 
 ## Bridges (cross-source `rel` walks)
 
-A `rel` can cross a **bridge**: a cross-source edge between two fieldMaps (see
-[`@inixiative/json-rules`](https://github.com/inixiative/json-rules)). Declare them on the schema;
-both ends are map-qualified resources:
+A `rel` can cross a **bridge**: a cross-source edge between two field maps (see
+[`@inixiative/json-rules`](https://github.com/inixiative/json-rules)). The map holds one list of
+bridges, and each is classified by its ends:
+
+- **Neither end supplied:** crossed by a `rel` from a record. It must be joined (each endpoint
+  names its key with `on`); one with no join is refused.
+- **Both ends supplied:** read by a `{ rule }` from a supplied row
+  (see [Supplied maps](#supplied-maps-data-the-call-gives-who-is-acting-for-one)).
+- **One end supplied:** refused on first use and by `validateSchema`, joined or not, so no chain
+  leads from a supplied row into the records.
+
+Both ends of a crossed bridge are resources, named `map:Model`:
 
 ```ts
-const schema: RebacSchema = {
+const map: SchemaMap = {
+  maps: { db: prismaMap },
   bridges: [{
     endpoints: [
       { fieldMap: 'crm', model: 'Account', on: 'id' },
@@ -511,12 +585,13 @@ const schema: RebacSchema = {
 ```
 
 Bridges **don't hydrate** (they aren't FK relations). The join key is a scalar on the record
-(`User.accountId`); pass the far rows as `subject.data` (keyed `map:model`, the `indexBridges`
-shape) and the engine builds the lookup itself. A far row absent from `subject.data` denies the
-walk, whatever the far action is, an rbac grant on the far id included:
+(`User.accountId`); pass the far rows as `subject.data` (keyed `map:Model`, the `indexBridges`
+shape) and the engine builds the lookup itself. A resource whose map is not in `maps` is allowed in
+`permissions` only as the far end of such a bridge, and nothing its rules read is checked. A far
+row absent from `subject.data` denies the walk, whatever the far action is, an rbac grant on the far id included:
 
 ```ts
-check(permix, schema, {
+check(permix, {
   resource: 'db:User',
   record: { id: 'u1', accountId: 'acc1' },
   data: { 'crm:Account': [{ id: 'acc1', tier: 'gold' }] },
@@ -529,8 +604,8 @@ check(permix, schema, {
 import { createPermissions } from '@inixiative/permissions';
 
 const permix = createPermissions<'read' | 'manage' | 'own'>();
-await permix.setup([{ resource: 'organization', id: 'o1', actions: { own: true } }]);
-permix.check('organization', 'own', 'o1'); // true
+await permix.setup([{ resource: 'db:Organization', id: 'o1', actions: { own: true } }]);
+permix.check('db:Organization', 'own', 'o1'); // true
 ```
 
 Holds the holder's role-derived grants (keyed by `resource` / `resource:id`), its entitlements and a
@@ -546,16 +621,16 @@ call because the grantor is on the holder's row, never in the entitlement:
 
 ```ts
 const o1 = createPermissions();
-await o1.setup({ resource: 'db:organization', id: 'o1', actions: { own: true } });
+await o1.setup({ resource: 'db:Organization', id: 'o1', actions: { own: true } });
 
 await permix.setup(
   [
     // manage space s1 (and what is under it)
-    { resource: 'db:space', anchor: { resource: 'db:space', id: 's1' }, actions: { manage: true } },
+    { resource: 'db:Space', anchor: { resource: 'db:Space', id: 's1' }, actions: { manage: true } },
     // manage the slack integrations of s1
     {
-      resource: 'db:integration',
-      anchor: { resource: 'db:space', id: 's1', path: 'space' },
+      resource: 'db:Integration',
+      anchor: { resource: 'db:Space', id: 's1', path: 'space' },
       where: { field: 'provider', operator: Operator.equals, value: 'slack' },
       actions: { manage: true },
     },
@@ -616,13 +691,13 @@ check with the same map as the rebac check, place the entry on the hydrated anch
 const canGrantEntitlement = createCanGrantEntitlement(map);
 
 const entry = {
-  resource: 'db:integration',
-  anchor: { resource: 'db:space', id: 's1', path: 'space' },
+  resource: 'db:Integration',
+  anchor: { resource: 'db:Space', id: 's1', path: 'space' },
   where: { field: 'provider', operator: 'equals', value: 'slack' },
   actions: { manage: true },
 };
-const placed = placeEntitlement(map, entry, await hydrate('Space', space)); // null: malformed
-placed?.every((record) => canGrantEntitlement(writer, schema, entry, record)); // every Slack integration of s1?
+const placed = placeEntitlement(map, entry, await hydrate('db:Space', space)); // null: malformed
+placed?.every((record) => canGrantEntitlement(writer, entry, record)); // every Slack integration of s1?
 ```
 
 **Passing on a held entitlement narrowed.** A delegated grant keeps every condition of the held
@@ -772,7 +847,7 @@ could pass on only a copy of `manage` on s1).
   grant check's first pass reads it. `setup` keeps it, a marked row and its
   unmarked twin are two rows, and neither makes the other redundant.
 
-`reachableFrom(schema, resource, action)` is that pure-delegation walk: the actions on `resource`
+`reachableFrom(map, resource, action)` is that pure-delegation walk: the actions on `resource`
 whose holding grants `action` (itself included). `capAtRole` keeps a delegate's entries at its
 ceiling by it.
 
@@ -796,8 +871,8 @@ assign: {
 }
 // An admin (manage) grants assign; its holder assigns member-role records, never owners.
 
-// token.create: { all: [{ rule: { field: 'actor:User.id', operator: 'exists' } }, 'operate'] }
-// No one grants token.create: the grant check has no actor, so the person-only rule never passes.
+// db:Token.create: { all: [{ rule: { field: 'actor:User.id', operator: 'exists' } }, 'operate'] }
+// No one grants db:Token.create: the grant check has no actor, so the person-only rule never passes.
 ```
 
 ## Helper: delegation, full or specified
@@ -819,7 +894,7 @@ reuse the object: two delegates of one owner, or the two sides of a diamond, the
 owner reached again while it is still being built is a loop in the data; that edge backs nothing.
 
 ```ts
-const permissions = delegate(schema, ownerPermissions, {
+const permissions = delegate(map, ownerPermissions, {
   full: row.full,
   ceiling: row.ceiling,
   entitlements: wellFormedEntitlements(row.entitlements),
@@ -830,7 +905,7 @@ const permix = await permixOf(permissions);
 - **`full` is the only way through whole.** A full delegate's permissions are its owner's, the
   owner's own entitlements included.
 - **A ceiling never carries entitlements.** Without `full`, the owner's role grants are kept
-  at the ceiling and its entitlement groups are dropped. `capAtRole(schema, entry, ceiling)` keeps
+  at the ceiling and its entitlement groups are dropped. `capAtRole(map, entry, ceiling)` keeps
   action `x` on the entry's resource when the ceiling (the action the delegate's role maps to)
   reaches `x` by pure delegation (`reachableFrom`) and the entry holds something that does: `own`
   at `operate` keeps `operate` and `read` where `read` delegates to `operate` and `operate` to
@@ -841,7 +916,7 @@ const permix = await permixOf(permissions);
   any other: an owner that loses the action takes the entitlement with it.
 - **Silence never widens.** No `full`, no ceiling and no entitlements is the empty permissions.
 
-Delegates chain: a token on an integration of a member is `delegate(schema, delegate(schema,
+Delegates chain: a token on an integration of a member is `delegate(map, delegate(map,
 member, integration), token)`. A full token on a full integration is the member's permissions; a
 ceiling anywhere on the chain caps what is below it and drops the entitlements above it; a token's
 entitlements are backed by the integration's permissions, whatever that resolved to.
@@ -865,7 +940,7 @@ The library has no notion of a tenant. A boundary is whatever junction rows your
 tables, and there are two kinds:
 
 - **Acting for a tenant (membership).** A member of an organization holds a role *at* the
-  organization: table entries on `db:organization`, installed from the membership row. Whatever the
+  organization: table entries on `db:Organization`, installed from the membership row. Whatever the
   schema lets the organization's role reach, the member reaches.
 - **A tenant passing on actions on its own resources (delegation, licensing).** A distributor that
   licenses its products to an organization does not give the organization a role at the
@@ -912,15 +987,16 @@ lists included) are always readable, so ABAC is untouched; bridges are their own
   key the model does not have, at the root too, wherever the rule came from (a rule passed to
   `check` included): a value a rule reads is a field in the map. Codes: `lens`, `relation` (a `{ rel }` hop), `down`.
 - **From the row a hop lands on.** A rule is judged from the row it is read on: a schema rule at
-  its own resource, so `org.read` reading `creator.name` is judged at the org, however the walk
+  its own resource, so `db:Organization.read` reading `creator.name` is judged at the organization, however the walk
   got there. One `{ rel }` hop lands on any row the hydrator loads, a self-relation too
   (`{ rel: 'parent' }`); a longer one is one path in the lens. Under a list item the lens is the
   rest of the declared `down` paths at each landing.
-- **The actor.** In a `{ rule }`, `actor:<Model>` is each declared actor's own columns at the row
-  the rule is read on (see [The actor](#the-actor)). A `where` reads the record alone, so an
-  `actor:` path there is refused.
+- **The actor.** In a `{ rule }`, `actor:<Model>` is each supplied model's own columns at the row
+  the rule is read on (see [Supplied maps](#supplied-maps-data-the-call-gives-who-is-acting-for-one)).
+  A `where` reads the record alone, so an `actor:` path there is refused.
 
-**Where it runs.** A schema on first use: it throws, and the schema is frozen so it is judged once;
+**Where it runs.** A schema on first use: it throws, and `permissions` and `bridges` are frozen so
+the map is judged once;
 the list arm's `condition` and the actions it follows are judged against the declared `down`
 paths. A rule passed to `check`: it throws (judged once per rule object). A row's
 `permissionRules` and an entitlement's `where` are judged at their own resource, as when the row is
@@ -928,8 +1004,11 @@ reached directly: one that reads outside the lens widens nothing, or never holds
 frozen when first judged; `whyEntitlementWhereLeavesLens(map, resource, where)` says why, for an app that
 validates a row before saving it, as Kingdom's `validateEntitlementGrants` can). On a list item
 only the declared paths are loaded, so an arm reading anything else is unknown there and its
-siblings still decide. A schema resource missing from `resources` (and not a bridge's far end) is
-refused. `validateSchema` also reports an operator json-rules' gate finds unfit for its field
+siblings still decide. A `permissions` key that names no map, names a model its map does not
+have, or sits in a map that is not in `maps` without being the far end of a bridge from one, is
+refused: a name that is no model has no lens, so nothing its rules read could be refused.
+`validateActionRule` with `{ map, resource }` reports what a check refuses in a stored rule, in one
+call (see [Also exported](#also-exported)). `validateSchema` also reports an operator json-rules' gate finds unfit for its field
 (`operator_kind_mismatch`). `setup` and `wellFormedEntitlements` have no map, so they cannot.
 `check()` reads the hydrated row itself.
 
@@ -947,7 +1026,8 @@ per-action include shapes. Then a missing relation can only mean the key is null
 loading artifact.
 
 `createHydrator` is that pattern over the **same schema map** the checks walk, so the two can't drift.
-Give it the map and `load`, one read of a resource's record by its target columns (`{ id }`, or every
+Give it the map (it reads the data shape alone, so a `SchemaMapWithoutPermissions` serves) and
+`load`, one read of a resource's record by its target columns (`{ id }`, or every
 column of a composite key). `load` is the cache seam: the hydrator de-duplicates loads within one
 hydration, your wrapper caches across calls.
 
@@ -964,32 +1044,37 @@ include). Return the row with every list on it:
   fails loudly instead of denying everyone.
 
 ```ts
+import { parseEndpointKey } from '@inixiative/json-rules';
 import {
   createHydrator,
   createRebacCheck,
   prismaIncludeOfDown,
   type SchemaMap,
 } from '@inixiative/permissions';
+import { lowerFirst } from 'lodash-es';
 // written by `bunx field-map generate` after `prisma generate`
 import { prismaMap } from './generated/prismaMap.gen';
 
 const map: SchemaMap = {
-  resources: { document: 'Document', team: 'Team' },
-  fieldMap: prismaMap,
-  polymorphism, // your false-polymorphism registry, if you have one
+  maps: { db: prismaMap },
+  polymorphism: { db: polymorphism }, // your false-polymorphism registry, if you have one
+  permissions,
 };
+
+// `db:Document` is read through `prisma.document`
+const delegateOf = (resource: string) => prisma[lowerFirst(parseEndpointKey(resource, '').modelName)];
 
 const check = createRebacCheck(map);
 const hydrate = createHydrator({
   map,
   load: (resource, where, down) =>
     cached(resource, where, () =>
-      db[resource].findFirst({ where, include: prismaIncludeOfDown(down) }),
+      delegateOf(resource).findFirst({ where, include: prismaIncludeOfDown(down) }),
     ),
 });
 
-const doc = await hydrate('document', await db.document.findFirstOrThrow({ where: { id } }));
-check(permix, schema, { resource: 'document', record: doc }, 'manage');
+const document = await hydrate('db:Document', await prisma.document.findFirstOrThrow({ where: { id } }));
+check(permix, { resource: 'db:Document', record: document }, 'manage');
 ```
 
 Because the row carries its lists, a cache behind `load` clears the parent's entry when an item,
@@ -1002,7 +1087,7 @@ or a row under one, changes.
 - **It owns what it follows.** A followed to-one relation holds the row the hydrator loaded, or
   nothing, and a declared list holds the items of a row `load` returned: a value the record
   already carried there is dropped. A request body spread into a record
-  (`hydrate('message', { ...body })`) can therefore not bring its own `conversation` with a
+  (`hydrate('db:Message', { ...body })`) can therefore not bring its own `conversation` with a
   participant list in it. For the record you pass, the hydrator reads that record's own stored
   row once, by its identity, and takes the lists from it; a record with no key yet, or one `load`
   does not return has `[]`. Everything else is left as given (a holder's
@@ -1013,9 +1098,9 @@ or a row under one, changes.
   dropped, whatever `load` returned, and a list arm met there denies.
 - **The budget counts rows.** `hydrationLimits.loads` is the most rows one hydration takes in:
   each `load`, each item of a list and each row under it, counted wherever it appears.
-- **Check the schema against the map:** `validateSchema(map, schema)` returns every read outside
+- **Check the schema against the map:** `validateSchema(map)` returns every read outside
   the lens and every action named where it isn't defined, which would otherwise deny forever,
-  along with every rule `validateActionRule` refuses. Run it in a test or at boot.
+  along with every rule `validateActionRule` refuses and every bridge or name the map refuses. Run it in a test or at boot.
 - **Composite keys and non-id targets** load by every column the target names (`toFields`); a key with
   one column null loads nothing.
 - **Polymorphic records** get every relation whose columns are set, whatever the kind: hydration does
@@ -1039,27 +1124,31 @@ and declare in the map any computed value a rule reads.
 
 - `validateActionRule(rule, context?)` checks a serialized `ActionRule` (tenant/row overrides)
   the way json-rules `validateRule` checks a condition, and returns the same `{ ok, errors }`: the
-  shape, and every `{ rule }` a positive json-rules condition. Given `{ schema, resource, action,
-  rowRules? }`, it also refuses a rule that delegates back to its own action through the schema or
-  the record's other rules. No schema library involved.
-- `validateSchema(map, schema)` checks a whole schema against the map, for a test or boot: every
-  rule as `validateActionRule` checks it (cycles included), every read inside the lens, and every
-  action a rule names defined where it lands. Same `{ ok, errors }`, each issue's `path` starting
-  `resource.action`. `whyEntitlementWhereLeavesLens(map, resource, where)` is the lens check of one
-  entitlement `where`, for an app that validates a row before saving it.
+  shape, and every `{ rule }` a positive json-rules condition. Given where the rule sits,
+  `{ map, resource, action?, rowRules?, additionalRules? }`, it reports everything a check refuses
+  in one call: also every read outside the lens at `resource`, and, given `action`, a rule that
+  delegates back to its own action through the map's rules, the record's other rules or the
+  additional rule sets. A rule kept outside the map (a transition's permission side, a draft) is
+  the same call with no `action`. An action that does not exist is not reported, since a check
+  denies it rather than refusing. No schema library involved.
+- `validateSchema(map)` checks a whole map, for a test or boot: its names and bridges, every rule
+  as `validateActionRule` checks it (cycles included), every read inside the lens, and every
+  action a rule names defined where it lands, each issue reported once. Same `{ ok, errors }`, each
+  issue's `path` starting `resource.action`, plus `warnings`.
+  `whyEntitlementWhereLeavesLens(map, resource, where)` is the lens check of one entitlement
+  `where`, for an app that validates a row before saving it.
 - `lensesAtRow(map, resource)` returns the json-rules lenses a read is judged in at one row: `rule`
-  (with the actor, `actor:Acting` and `actor:<Model>`) for a `{ rule }`, `lens` for a `where` or a path. `lensesAtListItem(map,
+  (with the supplied maps, `actor:Acting` and `actor:<Model>`) for a `{ rule }`, `lens` for a `where` or a path. `lensesAtListItem(map,
   resource, field)` returns them at an item of a declared list (what its `down` paths load), or
   null when `field` is not a declared list. An editor authors rules in them, so it offers exactly
   what `validateSchema` accepts (rules-builder's permission builder does).
-- `relationHopsFrom(map, schema, at, walked?)` returns the segments a `{ rel }` may take next from
-  `at` after the dotted `walked` path: each followed to-one relation and bridge whose walk
-  `validateSchema` accepts, with the resource it lands on. `declaredListsOf(map, resource)` returns
-  the fields a list arm may cross. `issuesForRuleReadsOutsideLens(map, schema, resource, rule)`
-  judges one rule that is not in the schema (a transition's permission side, a draft).
-- `schemaRuleIssues(schema)` returns the issues of every schema rule that is not well formed and
-  positive, without the map or the cycle check. It is the test a check runs on a schema's first use
-  before it throws.
+- `relationHopsFrom(map, at, walked?)` returns the segments a `{ rel }` may take next from the
+  row `at` (a `lensesAtRow` or `lensesAtListItem` result) after the dotted `walked` path: each
+  followed to-one relation and bridge whose walk `validateSchema` accepts, with the resource it
+  lands on. `declaredListsOf(map, resource)` returns the fields a list arm may cross.
+- `schemaRuleIssues(map)` returns the issues of every rule in `map.permissions` that is not well
+  formed and positive, without the field maps or the cycle check. It is the test a check runs on
+  a map's first use before it throws for a negated rule.
 - `PermissionsEngineGlobals` types the engine setting this package registers,
   `permissions.idField` (see [The check engine](#the-check-engine)), so
   `engineGlobals.set('permissions.idField', 'uuid')` typechecks without redeclaring it.
@@ -1104,7 +1193,7 @@ offers, so its cost grows with depth and with the entitlements held on the resou
 The core owns wrapping, checking, grant placement and validation. The helpers resolve a delegate's
 permissions and hydrate a record through your `load`. Fetching rows, mapping roles to grants, and
 naming actions and roles stay in your app (e.g. [`@template/permissions`](https://github.com/inixiative/template)
-passes its prisma map, polymorphism registry, `rebacSchema` and role mappings). The core makes no
+passes one schema map, its prisma map, polymorphism registry and rules, and its role mappings). The core makes no
 assumptions about what actions or roles are called.
 
 ## License

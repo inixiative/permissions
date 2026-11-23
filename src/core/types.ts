@@ -1,4 +1,4 @@
-import type { Condition, JoinedBridge, Row } from '@inixiative/json-rules';
+import type { Condition, Row } from '@inixiative/json-rules';
 
 export type { Row };
 
@@ -25,17 +25,6 @@ export type ActionRule =
 
 /** One resource's permission entry: `actions: { name → ActionRule }`. */
 export type ResourcePermission = { actions: Record<string, ActionRule> };
-
-/**
- * The permission schema. `permissions` maps a (map-qualified) resource — e.g. `db:User` — to its
- * actions; `bridges` are the cross-source edges (json-rules joined bridges) a `rel` walk may traverse.
- * Generic over the resource key: defaults to `string`, or pass a narrow union (e.g. a map-qualified
- * AccessorName) and the schema, `subject.resource`, and resolver all enforce it.
- */
-export type RebacSchema<R extends string = string> = {
-  bridges?: JoinedBridge[];
-  permissions: Partial<Record<R, ResourcePermission>>;
-};
 
 /**
  * What the check evaluates against: the `record`, its (map-qualified) `resource`, and `data` — the

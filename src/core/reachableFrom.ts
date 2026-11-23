@@ -1,6 +1,6 @@
 import { isPlainObject } from 'lodash-es';
 import { answerOnce } from './freezeThenJudgeOnce';
-import type { RebacSchema } from './types';
+import type { SchemaMap } from './schemaMap';
 
 type Delegates = (rule: unknown) => string[];
 
@@ -41,20 +41,20 @@ export const delegationReach = (
   return reached;
 };
 
-const reached = new WeakMap<RebacSchema, Map<string, ReadonlySet<string>>>();
+const reached = new WeakMap<object, Map<string, ReadonlySet<string>>>();
 
-// why: a schema is frozen on first use, so what an action is implied by never changes
+// why: the rules are frozen on first use, so what an action is implied by never changes
 export const reachableFrom = (
-  schema: RebacSchema,
+  { permissions }: Pick<SchemaMap, 'permissions'>,
   resource: string,
   action: string,
 ): ReadonlySet<string> => {
-  const actions = schema.permissions[resource]?.actions ?? {};
+  const actions = permissions[resource]?.actions ?? {};
   return answerOnce(
     reached,
-    schema,
+    permissions,
     `${resource}\u0000${action}`,
     () => delegationReach([action], (next) => [actions[next]], pureDelegates),
-    Object.isFrozen(schema),
+    Object.isFrozen(permissions),
   );
 };

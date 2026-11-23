@@ -3,21 +3,17 @@ import { Operator } from '@inixiative/json-rules';
 import { map as chainMap, schema as chainSchema, model, nobody, pool } from '../bench/fixtures';
 import {
   type ActionRule,
-  createCanGrantEntitlement,
   createHydrator,
   createPermissions,
-  createRebacCheck,
-  createRebacPaths,
   type EntitlementEntry,
   PathLimitError,
   type PermissionEntry,
   type PermixLike,
   placeEntitlement,
-  type RebacSchema,
   type Row,
 } from '../index';
 import { outcomesOfWalkCase, type WalkCase, walkCase } from './fixtures/walkCases';
-import { mapOf } from './schemaMaps';
+import { canGrantWithRules, checkWithRules, mapOf, pathsWithRules, type Rules } from './schemaMaps';
 
 // One check answers each node reached after a hop once (src/core/evaluate.ts, `walkAction`): a
 // node is its table, its row object, its resource and action, in one walk mode. An answer is kept
@@ -42,7 +38,7 @@ const counting = (permix: PermixLike) => {
 
 describe('a denial walks each node once', () => {
   test("on the bench chain at 0, 2, 4 and 6 hops: the starting row's 4 nodes once each, plus one computation per distinct node above it (8, 16, 24), and the answer is false", async () => {
-    const check = createRebacCheck(chainMap);
+    const check = checkWithRules(chainMap);
     const permix = await nobody();
     const walked = [];
     for (const depth of [0, 2, 4, 6]) {
@@ -63,7 +59,7 @@ describe('a denial walks each node once', () => {
 
 describe('only a node reached after a hop is remembered', () => {
   // `own` is reached twice from `read`: through `view` and through `edit`.
-  const diamondOnOneRow: RebacSchema = {
+  const diamondOnOneRow: Rules = {
     permissions: {
       'db:organization': {
         actions: { own: null, view: 'own', edit: 'own', read: { any: ['view', 'edit'] } },
@@ -75,7 +71,7 @@ describe('only a node reached after a hop is remembered', () => {
   const o1 = { id: 'o1' };
   const ownCalls = async (resource: string, record: Row) => {
     const { counted, calls } = counting(await nobody());
-    createRebacCheck(oneRowMap)(counted, diamondOnOneRow, { resource, record }, 'read');
+    checkWithRules(oneRowMap)(counted, diamondOnOneRow, { resource, record }, 'read');
     return calls.get('db:organization:own:o1');
   };
 
@@ -114,14 +110,14 @@ describe('a node reached while an ancestor of it is on the path is not kept', ()
         flagged('y'),
       ]))
         for (const q of orders<ActionRule>(['read', { rel: 'organization', action: 'read' }])) {
-          const schema: RebacSchema = {
+          const schema: Rules = {
             permissions: {
               'db:space': { actions: { read: { any: spaceRead }, q: { all: q } } },
               'db:organization': { actions: { read: { any: organizationRead } } },
             },
           };
           answers.push(
-            createRebacCheck(map)(
+            checkWithRules(map)(
               createPermissions(),
               schema,
               { resource: 'db:space', record: loopRecord() },
@@ -135,13 +131,13 @@ describe('a node reached while an ancestor of it is on the path is not kept', ()
   test('with no hop, a rule naming itself throws, in every order', () => {
     for (const read of orders<ActionRule>([false, 'manage']))
       for (const manage of orders<ActionRule>(['read', false])) {
-        const schema: RebacSchema = {
+        const schema: Rules = {
           permissions: {
             'db:space': { actions: { read: { any: read }, manage: { any: manage } } },
           },
         };
         expect(() =>
-          createRebacCheck(map)(
+          checkWithRules(map)(
             createPermissions(),
             schema,
             { resource: 'db:space', record: loopRecord() },
@@ -171,7 +167,7 @@ const twoHeld = async () => {
   return { holder: counting(holder), owner: ownerCounted };
 };
 const diamondMap = mapOf({ 'db:space': { organization: 'db:organization' } });
-const diamond: RebacSchema = {
+const diamond: Rules = {
   permissions: {
     'db:organization': { actions: { own: null, read: 'own', view: 'read' } },
     'db:space': {
@@ -195,11 +191,11 @@ describe('createRebacPaths with a reused answer', () => {
     const { holder } = await twoHeld();
     const subject = { resource: 'db:space', record: s1 };
     expect(
-      paths(createRebacPaths(diamondMap, { limit: 2 })(holder.counted, diamond, subject, 'read')),
+      paths(pathsWithRules(diamondMap, { limit: 2 })(holder.counted, diamond, subject, 'read')),
     ).toEqual([['e1'], ['e2']]);
     expect(holder.calls.get('db:organization:read:o1')).toBe(1);
     expect(() =>
-      createRebacPaths(diamondMap, { limit: 1 })(holder.counted, diamond, subject, 'read'),
+      pathsWithRules(diamondMap, { limit: 1 })(holder.counted, diamond, subject, 'read'),
     ).toThrow(PathLimitError);
   });
 });
@@ -208,12 +204,12 @@ describe("an entitlement owner's walk reuses the owner's answers, never the hold
   test("the owner walks o1 once for both entitlements; the holder's own read on o1 denies", async () => {
     const { holder, owner } = await twoHeld();
     const subject = { resource: 'db:space', record: s1 };
-    expect(paths(createRebacPaths(diamondMap)(holder.counted, diamond, subject, 'read'))).toEqual([
+    expect(paths(pathsWithRules(diamondMap)(holder.counted, diamond, subject, 'read'))).toEqual([
       ['e1'],
       ['e2'],
     ]);
     expect(owner.calls.get('db:organization:read:o1')).toBe(1);
-    expect(createRebacCheck(diamondMap)(createPermissions(), diamond, subject, 'read')).toBe(false);
+    expect(checkWithRules(diamondMap)(createPermissions(), diamond, subject, 'read')).toBe(false);
   });
 });
 
@@ -226,7 +222,7 @@ describe("the grant check's two passes share no answers", () => {
       { 'db:space': { organization: 'db:organization' } },
       { 'db:organization': ['name'] },
     );
-    const schema: RebacSchema = {
+    const schema: Rules = {
       permissions: {
         'db:organization': { actions: { own: null, read: 'own' } },
         'db:space': { actions: { read: { rel: 'organization', action: 'read' } } },
@@ -263,7 +259,7 @@ describe("the grant check's two passes share no answers", () => {
       { owner },
     );
     const [placed] = placeEntitlement(map, spacesOfO1, { id: 'o1', name: 'acme' }) ?? [];
-    expect(createCanGrantEntitlement(map)(writer, schema, spacesOfO1, placed as Row)).toBe(true);
+    expect(canGrantWithRules(map)(writer, schema, spacesOfO1, placed as Row)).toBe(true);
   });
 });
 
@@ -309,7 +305,7 @@ describe('walk modes', () => {
       {},
       { 'db:organization': { members: { item: 'db:member', down: ['user', 'brand.user'] } } },
     );
-    const schema: RebacSchema = {
+    const schema: Rules = {
       permissions: {
         'db:organization': {
           actions: { read: { rel: 'members', arrayOperator: 'any', condition: 'read' } },
@@ -339,7 +335,7 @@ describe('walk modes', () => {
     };
     const { counted, calls } = counting(await nobody());
     expect(
-      createRebacCheck(map)(
+      checkWithRules(map)(
         counted,
         schema,
         { resource: 'db:organization', record: { id: 'o1', members: [member] } },
@@ -359,7 +355,7 @@ describe('two objects of one row', () => {
       },
       { 'db:organization': ['public'] },
     );
-    const schema: RebacSchema = {
+    const schema: Rules = {
       permissions: {
         'db:organization': {
           actions: { read: { rule: { field: 'public', operator: Operator.equals, value: true } } },
@@ -385,7 +381,7 @@ describe('two objects of one row', () => {
       project: { id: 'p1', organizationId: 'o1', organization: { id: 'o1' } },
     };
     expect(
-      createRebacCheck(map)(
+      checkWithRules(map)(
         createPermissions(),
         schema,
         { resource: 'db:space', record: space },
@@ -432,7 +428,7 @@ describe('two objects of one row', () => {
   };
 
   test("the grant check's first pass never counts a grantsBelow entitlement at the granted row, even at its hydrated repeat", async () => {
-    const schema: RebacSchema = {
+    const schema: Rules = {
       permissions: {
         'db:organization': {
           actions: {
@@ -446,13 +442,13 @@ describe('two objects of one row', () => {
     };
     const anchor = await hydratedO1();
     expect(placeEntitlement(loopMap, readOnO1, anchor)).toEqual([anchor]);
-    expect(
-      createCanGrantEntitlement(loopMap)(await writerHolding('view'), schema, readOnO1, anchor),
-    ).toBe(false);
+    expect(canGrantWithRules(loopMap)(await writerHolding('view'), schema, readOnO1, anchor)).toBe(
+      false,
+    );
   });
 
   test("the first pass's repeat of the granted row, met again while the granted row is on the path, denies", async () => {
-    const schema: RebacSchema = {
+    const schema: Rules = {
       permissions: {
         'db:organization': {
           actions: {
@@ -466,12 +462,7 @@ describe('two objects of one row', () => {
       },
     };
     expect(
-      createCanGrantEntitlement(loopMap)(
-        await writerHolding('y'),
-        schema,
-        readOnO1,
-        await hydratedO1(),
-      ),
+      canGrantWithRules(loopMap)(await writerHolding('y'), schema, readOnO1, await hydratedO1()),
     ).toBe(false);
   });
 });

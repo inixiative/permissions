@@ -8,16 +8,14 @@ import { permixId, rowId } from './identity';
 import type { PositionUnderListItem } from './lens';
 import { recordId } from './recordId';
 import { identityKeyOfRow, listOf, relationOf, type SchemaMap } from './schemaMap';
-import { recordWithSuppliedData, suppliedModelAt } from './supplied';
-import type { ActionRule, AdditionalRules, PermixLike, RebacSchema, Row } from './types';
+import { bridgesWalkedFromRecords, recordWithSuppliedData, suppliedModelAt } from './supplied';
+import type { ActionRule, AdditionalRules, PermixLike, Row } from './types';
 import { validateActionRule } from './validateActionRule';
-import { issuesForRuleReadsOutsideLens } from './validateSchema';
 
 // One walk: the app's schema map, the schema, the bridge dictionary built on first use, and how
 // what it finds combines (a boolean for `check`, every admission for `paths`).
 export type Walk<R extends string, T = boolean> = {
   map: SchemaMap<R>;
-  schema: RebacSchema<R>;
   getDict: () => BridgeDictionary | undefined;
   /** The supplied maps' joined bridges' rows, indexed once per check. */
   suppliedDictionary: () => BridgeDictionary | undefined;
@@ -221,26 +219,23 @@ const walkActionRules = <R extends string, T>(
   actionOrRule: string,
   visited: Visited,
 ): T => {
-  const schemaRule = walk.schema.permissions[resource]?.actions[actionOrRule] ?? null;
+  const schemaRule = walk.map.permissions[resource]?.actions[actionOrRule] ?? null;
   const rowRules = record.permissionRules as Record<string, ActionRule> | null | undefined;
   const additionalRules = (walk.additionalRules?.(resource, record) ?? []).filter(
     (rules): rules is Record<string, ActionRule> => isPlainObject(rules),
   );
-  // why: a stored or additional rule is judged as the schema's is: one that is not positive, loops or reads outside the lens throws
+  // why: a stored or additional rule is judged as the map's own are: one that is not positive, loops or reads outside the lens throws
   const holds = (rule: ActionRule) => {
-    const [problem] = [
-      ...validateActionRule(rule, {
-        schema: walk.schema,
-        resource,
-        action: actionOrRule,
-        rowRules,
-        additionalRules,
-      }).errors,
-      ...issuesForRuleReadsOutsideLens(walk.map, walk.schema, resource, rule),
-    ];
+    const [problem] = validateActionRule(rule, {
+      map: walk.map,
+      resource,
+      action: actionOrRule,
+      rowRules,
+      additionalRules,
+    }).errors;
     if (problem)
       throw new Error(
-        `a rule for \`${resource}.${actionOrRule}\` beside the schema's is refused: \`${problem.path}\`: ${problem.message}`,
+        `a rule for \`${resource}.${actionOrRule}\` stored outside the map is refused: \`${problem.path}\`: ${problem.message}`,
       );
     return true;
   };
@@ -291,7 +286,7 @@ const walkRule = <R extends string, T>(
     if (suppliedModelAt(walk.map, pathSegments(rule.rel)[0] ?? '')) {
       const filled = recordWithSuppliedData(
         walk.map,
-        walk.map.resources[resource],
+        resource,
         record,
         walk.data,
         walk.suppliedDictionary(),
@@ -326,7 +321,7 @@ const walkRule = <R extends string, T>(
     let current: Row = record;
     const walked: string[] = [];
     for (const segment of segments) {
-      const hop = bridgeHop(walk.schema.bridges, currentResource, segment);
+      const hop = bridgeHop(bridgesWalkedFromRecords(walk.map), currentResource, segment);
       if (hop) {
         if (walk.under) return algebra.none;
         const farId = current[hop.localOn];
@@ -351,10 +346,9 @@ const walkRule = <R extends string, T>(
   }
 
   if ('rule' in rule) {
-    const model = walk.map.resources[resource];
     const filled = recordWithSuppliedData(
       walk.map,
-      model,
+      resource,
       record,
       walk.data,
       walk.suppliedDictionary(),

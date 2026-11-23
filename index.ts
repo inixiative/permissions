@@ -25,12 +25,12 @@ export {
   placeEntitlement,
   placeUnder,
   type SchemaMap,
+  type SchemaMapWithoutPermissions,
 } from './src/core/schemaMap';
 export type * from './src/core/types';
-export * from './src/core/validateActionRule';
+export { type ActionRuleContext, validateActionRule } from './src/core/validateActionRule';
 export {
   declaredListsOf,
-  issuesForRuleReadsOutsideLens,
   type RelationHop,
   relationHopsFrom,
   schemaRuleIssues,

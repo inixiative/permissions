@@ -2,14 +2,12 @@ import { describe, expect, test } from 'bun:test';
 import { Operator } from '@inixiative/json-rules';
 import {
   createPermissions,
-  createRebacCheck,
   type EntitlementEntry,
   type PermissionEntry,
   type Permix,
-  type RebacSchema,
   type Row,
 } from '../index';
-import { mapOf } from './schemaMaps';
+import { checkWithRules, mapOf, type Rules } from './schemaMaps';
 
 const verbs = (on: string) => ({
   resell: { rel: on, action: 'resell' },
@@ -17,7 +15,7 @@ const verbs = (on: string) => ({
   read: { any: ['order', { rel: on, action: 'read' }] },
 });
 
-const schema: RebacSchema = {
+const schema: Rules = {
   permissions: {
     'db:distributor': {
       actions: { own: null, resell: 'own', order: 'resell', read: 'order' },
@@ -64,7 +62,7 @@ const schema: RebacSchema = {
     },
   },
 };
-const check = createRebacCheck(
+const check = checkWithRules(
   mapOf(
     {
       'db:product': { distributor: 'db:distributor' },

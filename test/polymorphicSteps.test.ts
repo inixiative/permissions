@@ -2,16 +2,18 @@ import { describe, expect, test } from 'bun:test';
 import type { FieldMap } from '@inixiative/field-map';
 import { Operator } from '@inixiative/json-rules';
 import {
-  createCanGrantEntitlement,
   createPermissions,
-  createRebacCheck,
   type EntitlementEntry,
   type PermissionEntry,
   placeEntitlement,
-  type RebacSchema,
-  type SchemaMap,
+  type SchemaMapWithoutPermissions,
 } from '../index';
-import { stringColumn as scalar } from './schemaMaps';
+import {
+  canGrantWithRules,
+  checkWithRules,
+  type Rules,
+  stringColumn as scalar,
+} from './schemaMaps';
 
 const toOne = (type: string, fromFields: string[], toFields: string[]) =>
   ({ kind: 'object', type, isList: false, fromFields, toFields }) as const;
@@ -47,41 +49,37 @@ const fieldMap: FieldMap = {
     },
   },
 };
-const map: SchemaMap = {
-  resources: {
-    'db:organization': 'Organization',
-    'db:space': 'Space',
-    'db:integration': 'Integration',
-    'db:webhook': 'Webhook',
-  },
-  fieldMap,
+const map: SchemaMapWithoutPermissions = {
+  maps: { db: fieldMap },
   polymorphism: {
-    Integration: {
-      axes: [
-        {
-          field: 'ownerModel',
-          fkMap: { Organization: ['organizationId'], Space: ['organizationId', 'spaceId'] },
-        },
-      ],
-    },
-    Webhook: {
-      axes: [
-        {
-          field: 'ownerModel',
-          fkMap: { Integration: ['integrationId'], Organization: ['organizationId'] },
-        },
-      ],
+    db: {
+      Integration: {
+        axes: [
+          {
+            field: 'ownerModel',
+            fkMap: { Organization: ['organizationId'], Space: ['organizationId', 'spaceId'] },
+          },
+        ],
+      },
+      Webhook: {
+        axes: [
+          {
+            field: 'ownerModel',
+            fkMap: { Integration: ['integrationId'], Organization: ['organizationId'] },
+          },
+        ],
+      },
     },
   },
 };
 const kindIs = (value: string) => ({
   rule: { field: 'ownerModel', operator: Operator.equals, value },
 });
-const schema: RebacSchema = {
+const schema: Rules = {
   permissions: {
-    'db:organization': { actions: { own: null, manage: 'own' } },
-    'db:space': { actions: { own: { rel: 'organization', action: 'own' }, manage: 'own' } },
-    'db:integration': {
+    'db:Organization': { actions: { own: null, manage: 'own' } },
+    'db:Space': { actions: { own: { rel: 'organization', action: 'own' }, manage: 'own' } },
+    'db:Integration': {
       actions: {
         manage: {
           any: [
@@ -91,7 +89,7 @@ const schema: RebacSchema = {
         },
       },
     },
-    'db:webhook': {
+    'db:Webhook': {
       actions: {
         manage: {
           any: [
@@ -103,14 +101,14 @@ const schema: RebacSchema = {
     },
   },
 };
-const check = createRebacCheck(map);
-const canGrant = createCanGrantEntitlement(map);
+const check = checkWithRules(map);
+const canGrant = canGrantWithRules(map);
 const o1 = { id: 'o1' };
 const s1 = { id: 's1', organizationId: 'o1', organization: o1 };
 const o1Owner = async () => {
   const p = createPermissions();
   await p.setup({
-    resource: 'db:organization',
+    resource: 'db:Organization',
     id: 'o1',
     actions: { own: true },
   } as PermissionEntry);
@@ -123,8 +121,8 @@ describe('polymorphic steps', () => {
     await holder.setup(
       [
         {
-          resource: 'db:integration',
-          anchor: { resource: 'db:space', id: 's1', path: 'space' },
+          resource: 'db:Integration',
+          anchor: { resource: 'db:Space', id: 's1', path: 'space' },
           actions: { manage: true },
         },
       ],
@@ -138,11 +136,11 @@ describe('polymorphic steps', () => {
       spaceId: 's1',
       space: s1,
     };
-    expect(check(holder, schema, { resource: 'db:integration', record: orgKind }, 'manage')).toBe(
+    expect(check(holder, schema, { resource: 'db:Integration', record: orgKind }, 'manage')).toBe(
       false,
     );
     const spaceKind = { ...orgKind, ownerModel: 'Space' };
-    expect(check(holder, schema, { resource: 'db:integration', record: spaceKind }, 'manage')).toBe(
+    expect(check(holder, schema, { resource: 'db:Integration', record: spaceKind }, 'manage')).toBe(
       true,
     );
   });
@@ -151,8 +149,8 @@ describe('polymorphic steps', () => {
     await writer.setup(
       [
         {
-          resource: 'db:integration',
-          anchor: { resource: 'db:organization', id: 'o1', path: 'organization' },
+          resource: 'db:Integration',
+          anchor: { resource: 'db:Organization', id: 'o1', path: 'organization' },
           where: { field: 'ownerModel', operator: 'equals', value: 'Organization' } as never,
           actions: { manage: true },
         },
@@ -160,8 +158,8 @@ describe('polymorphic steps', () => {
       { owner: await o1Owner() },
     );
     const entry = {
-      resource: 'db:webhook',
-      anchor: { resource: 'db:organization', id: 'o1', path: 'integration.organization' },
+      resource: 'db:Webhook',
+      anchor: { resource: 'db:Organization', id: 'o1', path: 'integration.organization' },
       where: { field: 'ownerModel', operator: 'in', value: ['Integration', 'Organization'] },
       actions: { manage: true },
     } as EntitlementEntry;

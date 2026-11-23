@@ -1,16 +1,14 @@
 import { describe, expect, test } from 'bun:test';
 import {
   createPermissions,
-  createRebacCheck,
   installPermissions,
   type Permissions,
   permixOf,
-  type RebacSchema,
   type Row,
 } from '../index';
-import { mapOf } from './schemaMaps';
+import { checkWithRules, mapOf, type Rules } from './schemaMaps';
 
-const schema: RebacSchema = {
+const schema: Rules = {
   permissions: {
     'db:organization': { actions: { own: null, manage: 'own', read: 'manage' } },
     'db:space': {
@@ -22,7 +20,7 @@ const schema: RebacSchema = {
     },
   },
 };
-const check = createRebacCheck(mapOf({ 'db:space': { organization: 'db:organization' } }));
+const check = checkWithRules(mapOf({ 'db:space': { organization: 'db:organization' } }));
 
 const o1 = { id: 'o1' };
 const s1 = { id: 's1', organizationId: 'o1', organization: o1 };

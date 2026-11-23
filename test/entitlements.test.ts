@@ -3,15 +3,13 @@ import { type Condition, Operator } from '@inixiative/json-rules';
 import {
   type Anchor,
   createPermissions,
-  createRebacCheck,
   type EntitlementEntry,
   type PermissionEntry,
   type Permix,
   type PermixLike,
-  type RebacSchema,
   type Row,
 } from '../index';
-import { actorData, mapOf } from './schemaMaps';
+import { actorData, checkWithRules, mapOf, type Rules } from './schemaMaps';
 
 // An entitlement: an action, on a model, FROM an anchor on the record's chain, with an optional
 // `where` over the record. The owner (who granted it) is bound once per setup call, from the row.
@@ -26,7 +24,7 @@ const is = (field: string, value: string): Condition => ({
 
 const inPerson: Condition = { field: 'actor:User.id', operator: Operator.exists };
 
-const schema: RebacSchema = {
+const schema: Rules = {
   permissions: {
     'db:organization': { actions: { own: null, manage: 'own', read: 'manage' } },
     'db:user': { actions: { own: null, 'token.create': { all: [{ rule: inPerson }, 'own'] } } },
@@ -63,7 +61,7 @@ const relations: Record<string, Record<string, string>> = {
   'db:integration': { space: 'db:space', replacedBy: 'db:integration' },
   'db:contact': { space: 'db:space' },
 };
-const check = createRebacCheck(
+const check = checkWithRules(
   mapOf(relations, {
     'db:user': [],
     'db:space': ['name', 'defaultProvider', 'archivedAt'],

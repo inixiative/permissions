@@ -1,8 +1,9 @@
 import { describe, expect, test } from 'bun:test';
-import { capAtRole, type PermissionEntry, type RebacSchema } from '../index';
+import { capAtRole, type PermissionEntry } from '../index';
+import type { Rules } from './schemaMaps';
 
 // own ⊇ manage ⊇ operate ⊇ read on each tenant; a user has no operate.
-const schema: RebacSchema = {
+const schema: Rules = {
   permissions: {
     'db:organization': {
       actions: { own: null, manage: 'own', operate: 'manage', read: 'operate' },

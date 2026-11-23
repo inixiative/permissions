@@ -13,7 +13,7 @@ what.
 
 | Verb | Name | What it does |
 | --- | --- | --- |
-| check | `createRebacCheck` | Build the check for a schema map: may these permissions take this action on this record. |
+| check | `createRebacCheck` | Build the check for a schema map (the field maps, the supplied maps, the bridges, the polymorphism and the rules, in one object): may these permissions take this action on this record. |
 | check | `createRebacPaths` | Build the same walk returning every path that admits the action, for attribution; throws `PathLimitError` past its limit. |
 | check a grant | `createCanGrantEntitlement` | Build the grant check: may this writer hand out this entitlement on this placed record. |
 | install | `createPermissions` | Create a permix: the installed form of one holder's grants and entitlements that a check reads. |
@@ -25,7 +25,7 @@ what.
 | place | `placeEntitlement`, `placeUnder` | Build the stand-in records a grant is checked on, below its hydrated anchor along the entry's path. |
 | hydrate | `createHydrator` | Build the loader that puts on a record every relation the lens follows, so a check never reads a relation that was not loaded; `hydrationLimits` is its load budget. |
 | build an include | `prismaIncludeOfDown` | Turn the `down` that `load` is given into a Prisma `include` for the read of the row; undefined when the resource declares no list. The hydrator itself knows no ORM. |
-| validate | `validateActionRule` | Whether one action rule is well formed and positive, and does not delegate back to its own action. |
+| validate | `validateActionRule` | What a check refuses in one action rule: not well formed or positive; given where it sits (`{ map, resource, action?, rowRules?, additionalRules? }`), also a delegation back to its own action and every read outside the lens at its resource. The one call for a stored rule, a draft, or a rule kept outside the map (a transition's permission side). |
 | validate | `validateSchema`, `schemaRuleIssues` | Every issue in a schema against its map (shape, cycles, reads outside the lens, undefined actions); the shape issues alone, without the map. |
 | validate | `entitlementProblem`, `wellFormedEntitlements` | Why one entitlement entry is malformed, or null; the well-formed entries of a list. |
 | validate | `whyEntitlementWhereLeavesLens` | Why an entitlement's `where` reads something the lens does not load, or null, for an app that validates a row before saving it. |
@@ -33,7 +33,6 @@ what.
 | match | `ruleFieldEqualsPath` | A field equals what a path reads, the field checked to exist first, since two missing values match. |
 | lens | `lensesAtRow`, `lensesAtListItem` | The json-rules lenses a read is judged in at one row (`lens` for a `where` or a path, `rule` with the supplied maps for a `{ rule }`); at an item of a declared list, or null for a list that is not declared. For an editor that authors rules in the lens they are judged in. |
 | offer | `relationHopsFrom`, `declaredListsOf` | The segments a `{ rel }` may take next from a row (to-one relations and bridges whose walk `validateSchema` accepts), each with the resource it lands on; the declared lists a list arm may cross. |
-| validate | `issuesForRuleReadsOutsideLens` | Every read of one well-formed action rule at a resource outside the lens, for a rule not in the schema (a transition's permission side, a draft). |
 | compare | `coversEntitlement`, `withoutRedundantEntitlements` | Whether one entitlement covers another; a list without the entries another one covers. |
 
 `PathLimitError` is thrown by `createRebacPaths` when more paths admit an action than its limit.
@@ -43,6 +42,8 @@ what.
 | Verb | Owner | Rule (`test/verbs.test.ts`) |
 | --- | --- | --- |
 | read a model or a field of the schema map | `@inixiative/field-map` (`modelOf`, `fieldOf`; kind tests `hasColumn`, `isScalarField`) | No `.models[...]` or `.fields[...]` index read in `src`: every read is own-property, through field-map's readers. |
+| name a model across maps | json-rules `endpointKey` / `parseEndpointKey` / `relationTargetOf` (`map:Model`); `src/core/schemaMap.ts` (`mapAndModelNamed`, `isSuppliedMap`, `fieldMapOfResource`, `modelOfResource`, `fieldOfResource`, `modelsNamedIn`, `whyNameIsNoModel`) | No `${map}:${model}` built by hand in `src`; whether a name holds a map, and whether a map is supplied, are each decided in `schemaMap.ts` alone; no renaming table between a resource and its model. |
+| say which bridges a rule reads and which a `rel` crosses | `src/core/supplied.ts` (`bridgesBetweenSuppliedMaps`, `bridgesWalkedFromRecords`, `bridgeProblems`) | `.bridges` read nowhere else in `src`, but for the walker freezing it with the rules. |
 | decide which relations hydration follows | `src/core/schemaMap.ts` (`followedToOneRelationOrWhyNot`, `followedToOneRelationsOf`, `listOf`) | No `.fromFields` read elsewhere: an owning key is classified once. |
 | read a `@permissions(...)` annotation | `src/core/schemaMap.ts` (`permissionsAnnotation`) | No `annotations.permissions` read elsewhere. |
 | build a json-rules lens and judge a path against it | `src/core/lens.ts` | `validateRuleInLens` and `walkLensPath` are called nowhere else. |
@@ -66,7 +67,7 @@ words its refusals:
 | Name | What it does |
 | --- | --- |
 | `spellEveryFollowedRelationChain` | From a resource, spell under `root.relations` every chain of relations hydration follows, never entering the same model twice on one chain; throws past `relationLensLimits`. |
-| `lensAnchoredAtModel` | The json-rules lens for one model with a spelled relation tree; the rule form also carries the supplied maps. |
+| `lensAnchoredAtResource` | The json-rules lens for one resource (`map:Model`) with a spelled relation tree; the rule form also carries the supplied maps. |
 | `lensesAtRow` | The lenses a read is judged in at one row: the resource's, or under a list item what remains of the list's declared `down` paths. |
 | `lensesBuiltOnceAt` | The lens and the rule lens at one key (a resource, or a landing under an item), built once per map. |
 | `countRelationsOneRowHydrates` | The relations one row of a resource hydrates, one kind of each false-polymorphic model counted. |
