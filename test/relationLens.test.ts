@@ -7,7 +7,7 @@ import {
   type EntitlementEntry,
   entitlementProblem,
   type PermixLike,
-  placeEntitlement,
+  pseudoRecordsOfEntitlement,
   type Row,
   type SchemaMap,
   validateSchema,
@@ -409,7 +409,7 @@ describe('a loop made by data denies; a schema that names itself throws', () => 
       actions: { read: true },
     };
     const grants = (writer: PermixLike, anchor: Row) =>
-      (placeEntitlement(map, entry, anchor) ?? []).every((placed) =>
+      (pseudoRecordsOfEntitlement(map, entry, anchor) ?? []).every((placed) =>
         canGrantWithRules(map)(writer, walks, entry, placed),
       );
     const orgReader: PermixLike = { check: (resource) => resource === 'db:Org' };
@@ -845,7 +845,7 @@ describe('the starting record: a row is known by resource and id', () => {
       actions: { x: true },
     };
     const grants = (writer: PermixLike, user: Row) =>
-      (placeEntitlement(map, entry, user) ?? []).every((placed) =>
+      (pseudoRecordsOfEntitlement(map, entry, user) ?? []).every((placed) =>
         canGrantWithRules(map)(writer, schema, entry, placed),
       );
     const u1 = await counting('db:User', db['db:User']?.u1 as Row);
@@ -974,8 +974,8 @@ describe('the starting record: a row is known by resource and id', () => {
       actions: { act: true },
     };
     const [a, b] = [
-      placeEntitlement(map, entry, db['db:Conversation']?.c1 as Row),
-      placeEntitlement(map, entry, db['db:Conversation']?.c1 as Row),
+      pseudoRecordsOfEntitlement(map, entry, db['db:Conversation']?.c1 as Row),
+      pseudoRecordsOfEntitlement(map, entry, db['db:Conversation']?.c1 as Row),
     ];
     expect(a?.[0]).not.toBe(b?.[0]);
     const walk: Rules = {

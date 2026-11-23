@@ -11,7 +11,7 @@ import {
   type Permix,
   type PermixLike,
   permixOf,
-  placeEntitlement,
+  pseudoRecordsOfEntitlement,
   type Row,
   type SchemaMap,
   wellFormedEntitlements,
@@ -194,7 +194,7 @@ describe('the member case: operate on M, anchored at M, no where, backed by the 
   ];
 
   const grants = (permix: Permix, granted: EntitlementEntry, anchor: Row) => {
-    const placed = placeEntitlement(map, granted, anchor);
+    const placed = pseudoRecordsOfEntitlement(map, granted, anchor);
     return placed?.every((record) => canGrant(permix, schema, granted, record)) === true;
   };
   const uses = (permix: Permix) =>
@@ -297,7 +297,7 @@ describe('the member case: operate on M, anchored at M, no where, backed by the 
       ['manage'],
       { all: [eq('ownerModel', 'OrganizationUser'), eq('organizationUser', { id: 'm1' })] },
     );
-    const placed = placeEntitlement(map, forged, o1);
+    const placed = pseudoRecordsOfEntitlement(map, forged, o1);
     expect(placed?.[0]).not.toHaveProperty('organizationUser');
     expect(grants(await permixOf(memberP), forged, o1)).toBe(false);
     // the same pin under M itself, where the user is a row above
@@ -397,7 +397,7 @@ const holding = (entries: EntitlementEntry[], owner: Permissions = root): Permis
 ];
 const grants = async (writer: Permissions, granted: EntitlementEntry, anchor: Row) => {
   const permix = await permixOf(writer);
-  const placed = placeEntitlement(map, granted, anchor);
+  const placed = pseudoRecordsOfEntitlement(map, granted, anchor);
   return placed?.every((record) => canGrant(permix, schema, granted, record)) === true;
 };
 const manages = async (holder: Permissions, space: Row) =>
@@ -582,7 +582,7 @@ describe('the mark: a row without grantsBelow never counts in the first pass', (
     ] as unknown as EntitlementEntry[];
     for (const bad of wrong) {
       expect(entitlementProblem(bad)).toBe('`grantsBelow` is true or absent');
-      expect(placeEntitlement(map, bad, s1)).toBeNull();
+      expect(pseudoRecordsOfEntitlement(map, bad, s1)).toBeNull();
     }
     const conditional = { ...manageS1, where: draft };
     expect(entitlementProblem(conditional)).toBe(
@@ -828,12 +828,12 @@ describe('refused: an entitlement met below the anchor, on a placed record', () 
       entry('db:integration', { resource: 'db:integration', id: 'i7' }, ['manage']),
     );
     const pinned = integrationsOfS1(['manage'], eq('id', 'i7'));
-    expect(placeEntitlement(map, pinned, s1)?.[0]).not.toHaveProperty('id');
+    expect(pseudoRecordsOfEntitlement(map, pinned, s1)?.[0]).not.toHaveProperty('id');
     expect(await grants(holding([manageI7]), pinned, s1)).toBe(false);
   });
 
   // The row at the end of the entry's path is taken as the anchor when its id is the entry's: the
-  // caller hands in what `placeEntitlement` built, the same contract the table pass has on main.
+  // caller hands in what `pseudoRecordsOfEntitlement` built, the same contract the table pass has on main.
   test('the anchor is the row the placed record holds at the end of the path, by resource and id', async () => {
     const permix = await permixOf(holding([manageS1]));
     const lookAlike = { spaceId: 's1', space: { ...s1 } };
@@ -887,7 +887,7 @@ describe('what counts as above: rows the anchor holds under a to-one relation th
     const byRole = await permixOf([{ entries: [grant('db:profile', 'p1', ['manage'])] }]);
     const on = (lib: SchemaMap, permix: Permix) => {
       const check = canGrantWithRules(lib);
-      const placed = placeEntitlement(lib, row, space);
+      const placed = pseudoRecordsOfEntitlement(lib, row, space);
       return placed?.every((record) => check(permix, profiled, row, record)) === true;
     };
     expect(on(owning, byEntitlement)).toBe(true);
@@ -924,7 +924,7 @@ describe('what counts as above: rows the anchor holds under a to-one relation th
     ]);
     expect(checkWithRules(lib)(writer, bridged, { ...subject, data }, 'manage')).toBe(true);
     const row = entry('db:integration', underS1, ['manage']);
-    const placed = placeEntitlement(lib, row, space);
+    const placed = pseudoRecordsOfEntitlement(lib, row, space);
     expect(placed).not.toBeNull();
     const check = canGrantWithRules(lib);
     expect(placed?.every((record) => check(writer, bridged, row, record))).toBe(false);
@@ -1005,7 +1005,7 @@ describe('what counts as above: rows the anchor holds under a to-one relation th
     );
     const check = canGrantWithRules(lib);
     const on = (integration: Row) => {
-      const placed = placeEntitlement(lib, threads, integration);
+      const placed = pseudoRecordsOfEntitlement(lib, threads, integration);
       return placed?.every((record) => check(writer, owned, threads, record)) === true;
     };
     const ofOrganization = {

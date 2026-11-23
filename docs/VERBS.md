@@ -15,14 +15,14 @@ what.
 | --- | --- | --- |
 | check | `createRebacCheck` | Build the check for a schema map (the field maps, the supplied maps, the bridges, the polymorphism and the rules, in one object): may these permissions take this action on this record. |
 | check | `createRebacPaths` | Build the same walk returning every path that admits the action, for attribution; throws `PathLimitError` past its limit. |
-| check a grant | `createCanGrantEntitlement` | Build the grant check: may this writer hand out this entitlement on this placed record. |
+| check a grant | `createCanGrantEntitlement` | Build the grant check: may this writer hand out this entitlement on one pseudo record. |
 | install | `createPermissions` | Create a permix: the installed form of one holder's grants and entitlements that a check reads. |
 | install | `installPermissions`, `permixOf` | Install a `Permissions` value (groups of entries, each backed by its owner) into a permix; build the permix of one group. |
 | delegate | `delegate` | The entries a token or integration acts from: its owner's in full, capped at a ceiling, or its own entitlements. |
 | cap | `capAtRole` | Keep a delegate's entries at the action its role maps to. |
 | reach | `reachableFrom` | The actions on a resource whose holding grants an action by pure delegation, itself included. |
 | narrow a grant | `delegatedWhere` | The `where` of a grant passed on from a held one: the added conditions, then the held `where`'s conjuncts, flat. |
-| place | `placeEntitlement`, `placeUnder` | Build the stand-in records a grant is checked on, below its hydrated anchor along the entry's path. |
+| build pseudo records | `pseudoRecordsOfEntitlement`, `pseudoRecordsBelowAnchor` | The pseudo records a grant is checked on, built below its hydrated anchor along the entry's path; the first for an entitlement entry, the second for a record about to be created. |
 | hydrate | `createHydrator` | Build the loader that puts on a record every relation the lens follows, so a check never reads a relation that was not loaded; `hydrationLimits` is its load budget. |
 | build an include | `prismaIncludeOfDown` | Turn the `down` that `load` is given into a Prisma `include` for the read of the row; undefined when the resource declares no list. The hydrator itself knows no ORM. |
 | validate | `validateActionRule` | What a check refuses in one action rule: not well formed or positive; given where it sits (`{ map, resource, action?, rowRules?, additionalRules? }`), also a delegation back to its own action and every read outside the lens at its resource. The one call for a stored rule, a draft, or a rule kept outside the map (a transition's permission side). |
@@ -56,7 +56,7 @@ what.
 | hop to a related row | `src/core/evaluate.ts` (`{ rel }` and the list arm), `src/core/bridgeHop.ts` (a bridge) | — |
 | remember a node's answer for one check | `src/core/evaluate.ts` (`walkAction`; `isNodeOnPath` is the counted test for a node on the path, `entitled`'s owner test included; a remembered answer's footprint is read against `visited` uncounted; the per-check state is `WhatOneCheckRemembers`) | — (a node reached after a hop: kept when no test in its walk found a node on the path, reused while no answer in its footprint is on the path; nothing outlives the check) |
 | consult an entitlement | `src/core/entitled.ts` (`entitled`) | — |
-| walk an anchor path on a record | `src/core/placement.ts` (`rowsAlongAnchorPath`; `anchorRowReachedFrom`, whether it reaches the anchor) | — (used by `entitled`, `rowsAbove` and placement) |
+| walk an anchor path on a record | `src/core/anchorPath.ts` (`rowsAlongAnchorPath`; `anchorRowReachedFrom`, whether it reaches the anchor; `rowsAbove`, the rows above a granted record) | — (used by `entitled`, the grant check and `pseudoRecords.ts`) |
 | walk the delegation graph | `src/core/reachableFrom.ts` (`delegationReach`) | — (used by `reachableFrom` and `validateActionRule`'s cycle test) |
 | identify a row | `src/core/rowKeys.ts` (`identityColumnsOfRow`, `identityKeyOfRow`, `keyFromResourceAndColumns`), `src/core/recordId.ts` (`recordId`, `hasNoValue`: null, undefined or `''` is no value); on a walk, `src/core/evaluate.ts` (`identifyRowOncePerCheck`, once per row and resource in one check) | — (the hydrator and loop detection share one key) |
 | load a row | `src/helpers/hydration/hydrate.ts` | — (the app's `load` is called nowhere else; it is given `down` and brings the resource's declared lists with the row) |

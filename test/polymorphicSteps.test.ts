@@ -5,7 +5,7 @@ import {
   createPermissions,
   type EntitlementEntry,
   type PermissionEntry,
-  placeEntitlement,
+  pseudoRecordsOfEntitlement,
   type SchemaMap,
 } from '../index';
 import {
@@ -164,7 +164,7 @@ describe('polymorphic steps', () => {
       where: { field: 'ownerModel', operator: 'in', value: ['Integration', 'Organization'] },
       actions: { manage: true },
     } as EntitlementEntry;
-    const placed = placeEntitlement(map, entry, o1);
+    const placed = pseudoRecordsOfEntitlement(map, entry, o1);
     expect(placed?.map((r) => (r.integration as { ownerModel: string }).ownerModel).sort()).toEqual(
       ['Organization', 'Space'],
     );

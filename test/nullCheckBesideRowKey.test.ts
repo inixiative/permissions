@@ -7,7 +7,7 @@ import {
   type EntitlementEntry,
   entitlementProblem,
   type PermissionEntry,
-  placeEntitlement,
+  pseudoRecordsOfEntitlement,
   type Row,
   type SchemaMap,
   validateSchema,
@@ -124,7 +124,7 @@ describe('a null check beside its row key', () => {
       ...(where ? { where } : {}),
     });
     const granted = (entry: EntitlementEntry) =>
-      (placeEntitlement(map, entry, o1) ?? [{}]).every((placed) =>
+      (pseudoRecordsOfEntitlement(map, entry, o1) ?? [{}]).every((placed) =>
         canGrantEntitlement(writer, schema, entry, placed),
       );
     expect(granted(overTheOrganization())).toBe(false);
@@ -133,7 +133,7 @@ describe('a null check beside its row key', () => {
       false,
     );
     const pinsTheKey = overTheOrganization({ field: 'id', operator: Operator.equals, value: 'x' });
-    expect(placeEntitlement(map, pinsTheKey, o1)).toEqual([
+    expect(pseudoRecordsOfEntitlement(map, pinsTheKey, o1)).toEqual([
       { organizationId: 'o1', organization: o1 },
     ]);
     expect(granted(pinsTheKey)).toBe(false);
@@ -193,7 +193,7 @@ describe('a null check beside its row key', () => {
       anchor: { resource: 'db:organization', id: 'o1', path: 'organization' },
       actions: { manage: true },
     };
-    const placed = placeEntitlement(profiles, entry, o1) ?? [];
+    const placed = pseudoRecordsOfEntitlement(profiles, entry, o1) ?? [];
     expect(placed.length).toBe(1);
     for (const record of placed) expect(record).not.toHaveProperty('id');
     const writer = await manager();

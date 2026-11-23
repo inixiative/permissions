@@ -92,7 +92,10 @@ const indexAnnotations = (map: SchemaMap, index: MapIndex) => {
       if ('down' in annotation && annotation.hydrate === false)
         throw new Error(`${at}: \`down\` loads the list, \`hydrate: false\` says not to`);
       if ('down' in annotation)
-        index.lists.set(`${resource}\u0000${name}`, listFor(map, resource, name, annotation.down));
+        index.lists.set(
+          `${resource}\u0000${name}`,
+          listDeclaredByDownOrThrow(map, resource, name, annotation.down),
+        );
       if ('place' in annotation) {
         const problem = whyFieldTakesNoPlaceMark(map, resource, name, annotation.place);
         if (problem) throw new Error(`${at}: \`place\` ${problem}`);
@@ -103,7 +106,12 @@ const indexAnnotations = (map: SchemaMap, index: MapIndex) => {
   }
 };
 
-const listFor = (map: SchemaMap, resource: string, name: string, down: unknown): ListRelation => {
+const listDeclaredByDownOrThrow = (
+  map: SchemaMap,
+  resource: string,
+  name: string,
+  down: unknown,
+): ListRelation => {
   const model = mapAndModelNamed(resource).modelName;
   const at = `${model}.${name} @permissions`;
   const field = fieldOfResource(map, resource, name);
@@ -181,7 +189,7 @@ export const listsOf = <R extends string>(
 export const marksOf = <R extends string>(map: SchemaMap, resource: R): ReadonlySet<string> =>
   indexMap(map).marks.get(resource) ?? new Set();
 
-const kindsOf = (axes: readonly PolymorphicAxis[], columns: readonly string[]) => {
+const kindsWhoseForeignKeysAre = (axes: readonly PolymorphicAxis[], columns: readonly string[]) => {
   for (const axis of axes) {
     const values = Object.entries(axis.fkMap)
       .filter(([, fks]) => fks?.length && columns.every((column) => fks.includes(column)))
@@ -199,7 +207,8 @@ export const followedToOneRelationOrWhyNot = <R extends string>(
 ): Relation<R> | string => {
   const cache = indexMap(map).relations;
   const key = `${resource}\u0000${segment}`;
-  if (!cache.has(key)) cache.set(key, toOneFor(map, resource, segment));
+  if (!cache.has(key))
+    cache.set(key, followedToOneRelationOrWhyNotUncached(map, resource, segment));
   return cache.get(key) as Relation<R> | string;
 };
 
@@ -212,7 +221,7 @@ export const relationOf = <R extends string>(
   return typeof relation === 'string' ? null : relation;
 };
 
-const toOneFor = <R extends string>(
+const followedToOneRelationOrWhyNotUncached = <R extends string>(
   map: SchemaMap,
   resource: R,
   segment: string,
@@ -232,7 +241,7 @@ const toOneFor = <R extends string>(
     resource: led as R,
     from: field.fromFields,
     to: field.toFields ?? [],
-    kinds: kindsOf(axes, field.fromFields),
+    kinds: kindsWhoseForeignKeysAre(axes, field.fromFields),
   };
 };
 

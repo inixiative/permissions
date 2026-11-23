@@ -17,7 +17,7 @@ export {
   whyEntitlementWhereLeavesLens,
 } from './src/core/lens';
 export * from './src/core/permix';
-export { placeEntitlement, placeUnder } from './src/core/placement';
+export { pseudoRecordsBelowAnchor, pseudoRecordsOfEntitlement } from './src/core/pseudoRecords';
 export { reachableFrom } from './src/core/reachableFrom';
 export * from './src/core/redundantEntitlements';
 export type {

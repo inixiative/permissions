@@ -1,10 +1,10 @@
 import { isEqual } from 'lodash-es';
 import { booleanAlgebra } from './algebra';
+import { rowsAbove } from './anchorPath';
 import { entitlementProblem } from './entitlementProblem';
 import { asOwner } from './identity';
 import { whyEntitlementWhereLeavesLens } from './lens';
 import type { EntitlementEntry } from './permix';
-import { rowsAbove } from './placement';
 import { reachableFrom } from './reachableFrom';
 import type { SchemaMap } from './schemaMap';
 import type { Anchor, CheckOptions, Entitlement, PermixLike, Row } from './types';
@@ -14,7 +14,7 @@ import { conjuncts } from './whereConjuncts';
 export type CanGrantEntitlement = (
   permix: PermixLike,
   entry: EntitlementEntry,
-  placed: Row,
+  pseudoRecord: Row,
 ) => boolean;
 
 const sameAnchor = (a: Anchor, b: Anchor) =>
@@ -30,10 +30,10 @@ const narrows = (held: Entitlement, entry: EntitlementEntry) => {
 
 /**
  * Build the grant check (README, Granting one). First pass: the writer's table, given no `data`,
- * takes every action `entry` names on `placed`, counting an entitlement
+ * takes every action `entry` names on `pseudoRecord`, counting an entitlement
  * only on a row above the granted record (`rowsAbove`), marked `grantsBelow`, without a `where`.
  * Failing that, the entry narrows one entitlement the writer holds, and its granter still takes
- * each action on `placed` in a walk that counts every `where` as holding.
+ * each action on `pseudoRecord` in a walk that counts every `where` as holding.
  */
 export const createCanGrantEntitlement = <R extends string = string>(
   map: SchemaMap<R>,
@@ -42,7 +42,7 @@ export const createCanGrantEntitlement = <R extends string = string>(
   const check = createWalker(map, booleanAlgebra, false, additionalRules);
   const backs = createWalker(map, booleanAlgebra, true, additionalRules);
 
-  return (permix, entry, placed) => {
+  return (permix, entry, pseudoRecord) => {
     if (
       entitlementProblem(entry) !== null ||
       whyEntitlementWhereLeavesLens(map, entry.resource, entry.where)
@@ -53,8 +53,8 @@ export const createCanGrantEntitlement = <R extends string = string>(
       .filter(([, held]) => held === true)
       .map(([action]) => action);
     const table = asOwner(permix);
-    const above = rowsAbove(map, entry, placed);
-    const subject = { resource, record: placed };
+    const above = rowsAbove(map, entry, pseudoRecord);
+    const subject = { resource, record: pseudoRecord };
     if (actions.every((action) => check(table, subject, action, above))) return true;
     const reached = actions.map((action) => ({
       action,
@@ -67,7 +67,7 @@ export const createCanGrantEntitlement = <R extends string = string>(
       const lowers = (up: ReadonlySet<string>) =>
         [...up].some((action) => held.actions[action] === true);
       const owner = asOwner(held.owner);
-      const backed = (action: string) => backs(owner, { resource, record: placed }, action);
+      const backed = (action: string) => backs(owner, { resource, record: pseudoRecord }, action);
       return (
         narrows(held, entry) &&
         reached.every(({ action, implying }) => lowers(implying) && backed(action))

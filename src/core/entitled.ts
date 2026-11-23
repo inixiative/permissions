@@ -1,4 +1,5 @@
 import { type Condition, check as checkRule } from '@inixiative/json-rules';
+import { anchorRowReachedFrom } from './anchorPath';
 import {
   evaluate,
   identifyRowOncePerCheck,
@@ -8,7 +9,6 @@ import {
 } from './evaluate';
 import { asOwner, permixId } from './identity';
 import { whyEntitlementWhereLeavesLens } from './lens';
-import { anchorRowReachedFrom } from './placement';
 import { reachableFrom } from './reachableFrom';
 import type { PermixLike, Row } from './types';
 

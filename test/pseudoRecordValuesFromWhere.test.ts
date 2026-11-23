@@ -4,7 +4,7 @@ import {
   createPermissions,
   type EntitlementEntry,
   type PermissionEntry,
-  placeEntitlement,
+  pseudoRecordsOfEntitlement,
 } from '../index';
 import { canGrantWithRules, checkWithRules, mapOf, type Rules } from './schemaMaps';
 
@@ -54,13 +54,13 @@ const o2 = { id: 'o2' };
 const s1 = { id: 's1', organizationId: 'o1', organization: o1 };
 
 describe('what a grant pins onto its pseudo records', () => {
-  test('placeEntitlement is null for an anchor row that is not the entry’s', () => {
+  test('pseudoRecordsOfEntitlement is null for an anchor row that is not the entry’s', () => {
     const e: EntitlementEntry = {
       resource: 'db:space',
       anchor: { resource: 'db:organization', id: 'o1', path: 'organization' },
       actions: { manage: true },
     };
-    expect(placeEntitlement(flat, e, o2)).toBeNull();
+    expect(pseudoRecordsOfEntitlement(flat, e, o2)).toBeNull();
   });
   test('a non-equals leaf pins nothing: the writer must cover every value it admits', () => {
     const e = {
@@ -69,7 +69,7 @@ describe('what a grant pins onto its pseudo records', () => {
       where: { field: 'priority', operator: 'greaterThan', value: 5 },
       actions: { manage: true },
     } as EntitlementEntry;
-    const placed = placeEntitlement(flat, e, s1) ?? [];
+    const placed = pseudoRecordsOfEntitlement(flat, e, s1) ?? [];
     expect(placed.every((r) => !('priority' in r))).toBe(true);
     const reader = createPermissions();
     return reader
@@ -85,7 +85,7 @@ describe('what a grant pins onto its pseudo records', () => {
       where: { field: 'label', operator: 'equals', value: 'Ops', caseInsensitive: true },
       actions: { label: true },
     } as EntitlementEntry;
-    const placed = placeEntitlement(flat, e, s1) ?? [];
+    const placed = pseudoRecordsOfEntitlement(flat, e, s1) ?? [];
     const reader = createPermissions();
     await reader.setup({
       resource: 'db:space',
@@ -101,7 +101,7 @@ describe('what a grant pins onto its pseudo records', () => {
       where: { field: 'space.name', operator: 'equals', value: 'x' },
       actions: { manage: true },
     } as EntitlementEntry;
-    expect(placeEntitlement(flat, e, s1)?.every((r) => !('space.name' in r))).toBe(true);
+    expect(pseudoRecordsOfEntitlement(flat, e, s1)?.every((r) => !('space.name' in r))).toBe(true);
   });
 });
 
@@ -122,7 +122,7 @@ describe("the app's json-rules string settings never reach permissions (R99)", (
         where: { field: 'label', operator: 'equals', value: 'Ops' },
         actions: { label: true },
       } as EntitlementEntry;
-      const placed = placeEntitlement(flat, ops, s1) ?? [];
+      const placed = pseudoRecordsOfEntitlement(flat, ops, s1) ?? [];
       expect(placed.map((record) => record.label)).toEqual(['Ops']);
       const check = checkWithRules(flat);
       expect(

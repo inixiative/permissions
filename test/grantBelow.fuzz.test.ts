@@ -5,7 +5,7 @@ import {
   type GrantEntry,
   type Permissions,
   permixOf,
-  placeEntitlement,
+  pseudoRecordsOfEntitlement,
   type Row,
 } from '../index';
 import { canGrantWithRules, checkWithRules, mapOf, type Rules } from './schemaMaps';
@@ -224,7 +224,7 @@ test(`fuzz, ${CASES} cases: marks change no read, lose no grant, and add only gr
     const anchor = rows[entry.anchor.resource as Resource].find(
       (row) => row.id === entry.anchor.id,
     ) as Row;
-    const placed = placeEntitlement(map, entry, anchor);
+    const placed = pseudoRecordsOfEntitlement(map, entry, anchor);
     const withMarks = await permixOf(writer);
     const without = await permixOf(unmarked(writer));
     const grants = (permix: typeof withMarks) =>

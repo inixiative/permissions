@@ -295,7 +295,7 @@ crossed.
   the item) is "the list is not empty" under another spelling; write conditions that reach a
   person.
 - **A list never passes on a stand-in.** The pseudo record a grant is checked on has no lists:
-  `placeUnder` builds keys and parents, never items, and a `where` cannot pin one (only scalar
+  `pseudoRecordsBelowAnchor` builds keys and parents, never items, and a `where` cannot pin one (only scalar
   values are pinned, see [Granting one](#granting-one)). So nobody grants "participant of every
   conversation in the brand"; a grant that rests on the list is anchored where a real list is (the
   conversation itself, or a record below it).
@@ -487,7 +487,7 @@ The key is the engine's id field (`permissions.idField`).
 
 The same gate judges the schema's rules, a row's `permissionRules`, `additionalRules` and an
 entitlement's `where`. Another column of the row does not stand in for its key: a grant's stand-in
-record carries foreign keys and never its own key (`placeEntitlement` leaves it off, whatever the
+record carries foreign keys and never its own key (`pseudoRecordsOfEntitlement` leaves it off, whatever the
 `where` pins and even where a foreign key is the key), so a rule resting on an empty column cannot
 be granted over many records. Give the column an explicit value when that grant is needed.
 
@@ -696,7 +696,7 @@ const entry = {
   where: { field: 'provider', operator: 'equals', value: 'slack' },
   actions: { manage: true },
 };
-const placed = placeEntitlement(map, entry, await hydrate('db:Space', space)); // null: malformed
+const placed = pseudoRecordsOfEntitlement(map, entry, await hydrate('db:Space', space)); // null: malformed
 placed?.every((record) => canGrantEntitlement(writer, entry, record)); // every Slack integration of s1?
 ```
 
@@ -721,7 +721,7 @@ the grant walk, where every field the placed record lacks is unknown, it granted
 cannot do. Run `validateSchema` and write rules positively (`role in ['member', 'guest']`, not
 `role notIn ['owner', 'admin']`).
 
-`placeEntitlement` first refuses a malformed entry (null), by the rules `setup` applies at install, so validity and the grant are one check before saving. It then builds the pseudo records of `entry.resource` from the anchor down the path (`placeUnder(map, resource, path, anchorResource, anchor, where?)`, also exported for placing a
+`pseudoRecordsOfEntitlement` first refuses a malformed entry (null), by the rules `setup` applies at install, so validity and the grant are one check before saving. It then builds the pseudo records of `entry.resource` from the anchor down the path (`pseudoRecordsBelowAnchor(map, resource, path, anchorResource, anchor, where?)`, also exported for placing a
 record you are about to create, narrowed by its `where` the same way): at
 each step the foreign keys whose values the parent knows, the parent attached under the
 relation, ids below the anchor unknown; on a polymorphic step one record per kind it admits, each
@@ -744,7 +744,7 @@ relation). Below the root, a stand-in takes a stated value only on a marked fiel
 does not end at the anchor's model through to-one relations. A self
 anchor is the anchor row itself.
 
-**Marks: fields that join a stand-in.** The records `placeUnder` builds below the anchor carry
+**Marks: fields that join a stand-in.** The records `pseudoRecordsBelowAnchor` builds below the anchor carry
 keys and parents and nothing else, so a rule that reads a type field on one of them
 (`integrationResource.kind equals 'channel'`) finds it unknown and the grant is refused, however
 exactly the `where` states it. Mark the field in the Prisma schema:
@@ -1190,7 +1190,7 @@ An allowed check stops at the first grant that answers. A refused one tries ever
 offers, so its cost grows with depth and with the entitlements held on the resource asked.
 
 
-The core owns wrapping, checking, grant placement and validation. The helpers resolve a delegate's
+The core owns wrapping, checking, the pseudo records a grant is checked on, and validation. The helpers resolve a delegate's
 permissions and hydrate a record through your `load`. Fetching rows, mapping roles to grants, and
 naming actions and roles stay in your app (e.g. [`@template/permissions`](https://github.com/inixiative/template)
 passes one schema map, its prisma map, polymorphism registry and rules, and its role mappings). The core makes no

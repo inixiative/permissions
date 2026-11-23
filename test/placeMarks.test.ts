@@ -6,7 +6,7 @@ import {
   createPermissions,
   createRebacCheck,
   type EntitlementEntry,
-  placeEntitlement,
+  pseudoRecordsOfEntitlement,
   type Row,
   type SchemaMap,
   validateSchema,
@@ -114,7 +114,7 @@ const everyChannel: EntitlementEntry = {
   actions: { '*': true },
 };
 const placedOn = (map: SchemaMap, entry: EntitlementEntry, anchor: Row = i1) =>
-  placeEntitlement(map, entry, anchor) as Row[];
+  pseudoRecordsOfEntitlement(map, entry, anchor) as Row[];
 const granted = async (map: SchemaMap, rules: Rules, entry: EntitlementEntry, anchor = i1) => {
   const writer = await orgOwner();
   const canGrant = canGrantWithRules(map);
@@ -372,7 +372,7 @@ describe('a polymorphic stand-in: the mark joins it, the path still sets its kin
       },
       actions: { manage: true },
     };
-    const [placed] = placeEntitlement(map, entry, s1) as Row[];
+    const [placed] = pseudoRecordsOfEntitlement(map, entry, s1) as Row[];
     expect((placed as Row).integration).toEqual({
       status: 'active',
       ownerModel: 'Space',

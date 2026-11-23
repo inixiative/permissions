@@ -5,7 +5,7 @@ import {
   delegatedWhere,
   type EntitlementEntry,
   type Permix,
-  placeEntitlement,
+  pseudoRecordsOfEntitlement,
   type Row,
 } from '../index';
 import { canGrantWithRules, checkWithRules, mapOf, type Rules } from './schemaMaps';
@@ -69,7 +69,7 @@ describe('the copy rule reads what delegatedWhere builds as narrowing the held w
   };
 
   const grants = async (held: Condition, entry: EntitlementEntry) => {
-    const placed = placeEntitlement(map, entry, { id: 's1' }) as Row[];
+    const placed = pseudoRecordsOfEntitlement(map, entry, { id: 's1' }) as Row[];
     const holder = await holderOf(held);
     return placed.every((record) => canGrant(holder, schema, entry, record));
   };
@@ -118,7 +118,7 @@ describe('a negated schema rule is refused in the grant walk too', () => {
       anchor: { resource: 'db:space', id: 's1', path: 'space' },
       actions: { read: true },
     };
-    const [placed] = placeEntitlement(map, entry, { id: 's1' }) as Row[];
+    const [placed] = pseudoRecordsOfEntitlement(map, entry, { id: 's1' }) as Row[];
 
     expect(() => canGrantWithRules(map)(writer, schema, entry, placed as Row)).toThrow(
       'is not a well-formed positive rule',
@@ -156,7 +156,7 @@ describe('a list pin passes on at any depth: copies are judged by structure, the
     value: ids,
   });
   const grantable = (writer: Permix, entry: EntitlementEntry) =>
-    (placeEntitlement(map, entry, { id: 's1' }) as Row[]).every((record) =>
+    (pseudoRecordsOfEntitlement(map, entry, { id: 's1' }) as Row[]).every((record) =>
       canGrant(writer, schema, entry, record),
     );
   const holding = async (owner: Permix, entry: EntitlementEntry) => {
@@ -216,7 +216,7 @@ describe('liveness asks the anchor and the action along the chain, never a where
   });
   const pinned: Condition = { field: 'id', operator: Operator.in, value: ['tA'] };
   const grantable = (writer: Permix, entry: EntitlementEntry, spaceId: string) =>
-    (placeEntitlement(map, entry, { id: spaceId }) as Row[]).every((record) =>
+    (pseudoRecordsOfEntitlement(map, entry, { id: spaceId }) as Row[]).every((record) =>
       canGrant(writer, schema, entry, record),
     );
   const held = async (owner: Permix, entry: EntitlementEntry) => {

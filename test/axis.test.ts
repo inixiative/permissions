@@ -5,8 +5,8 @@ import {
   createPermissions,
   type EntitlementEntry,
   type PermissionEntry,
-  placeEntitlement,
-  placeUnder,
+  pseudoRecordsBelowAnchor,
+  pseudoRecordsOfEntitlement,
   type Row,
   type SchemaMap,
 } from '../index';
@@ -191,7 +191,7 @@ const theOrganizations = () =>
   underO1({ field: 'ownerModel', operator: 'equals', value: 'Organization' } as never);
 
 const may = async (writer: Awaited<ReturnType<typeof table>>, entry: EntitlementEntry) => {
-  const placed = placeEntitlement(map, entry, o1);
+  const placed = pseudoRecordsOfEntitlement(map, entry, o1);
   return placed?.every((record) => canGrant(writer, schema, entry, record));
 };
 
@@ -249,14 +249,14 @@ describe('a holder grants what it holds onward, and no more', () => {
   test("an admin holding the organization's own does not grant every kind", async () => {
     const writer = await holdingAdmin(theOrganizations());
     expect(await may(writer, theOrganizations())).toBe(true);
-    expect(placeEntitlement(map, underO1(), o1)).toHaveLength(4);
+    expect(pseudoRecordsOfEntitlement(map, underO1(), o1)).toHaveLength(4);
     expect(await may(writer, underO1())).toBe(false);
   });
 });
 
 describe('the grant is judged on one pseudo record per kind the entry admits (R81)', () => {
   test('unfiltered: four pseudo records, each owner placed under the anchor', () => {
-    const placed = placeEntitlement(map, underO1(), o1);
+    const placed = pseudoRecordsOfEntitlement(map, underO1(), o1);
     expect(placed?.map((record) => record.ownerModel)).toEqual([
       'Organization',
       'Space',
@@ -277,7 +277,7 @@ describe('the grant is judged on one pseudo record per kind the entry admits (R8
   });
 
   test("an admin grants it narrowed to the organization's own", async () => {
-    expect(placeEntitlement(map, theOrganizations(), o1)?.length).toBe(1);
+    expect(pseudoRecordsOfEntitlement(map, theOrganizations(), o1)?.length).toBe(1);
     expect(await may(await admin(), theOrganizations())).toBe(true);
   });
 
@@ -287,10 +287,9 @@ describe('the grant is judged on one pseudo record per kind the entry admits (R8
       anchor: { resource: 'db:Space', id: 's1', path: 'space' },
       actions: { manage: true },
     };
-    expect(placeEntitlement(map, atSpace, s1)?.map((record) => record.ownerModel)).toEqual([
-      'Space',
-      'SpaceUser',
-    ]);
+    expect(
+      pseudoRecordsOfEntitlement(map, atSpace, s1)?.map((record) => record.ownerModel),
+    ).toEqual(['Space', 'SpaceUser']);
   });
 });
 
@@ -301,7 +300,7 @@ describe('an owner is placed under every record above it, not only its parent', 
       anchor: { resource: 'db:Organization', id: 'o1', path: 'organizationUser.organization' },
       actions: { manage: true },
     };
-    const placed = placeEntitlement(map, members, o1);
+    const placed = pseudoRecordsOfEntitlement(map, members, o1);
     expect(placed?.map((record) => record.ownerModel)).toEqual(['OrganizationUser', 'SpaceUser']);
     const spaceMember = placed?.[1]?.spaceUser as Row;
     expect(spaceMember.space).toEqual({ organizationId: 'o1', organization: o1 });
@@ -349,16 +348,15 @@ describe('a kind whose owner cannot be placed is still judged', () => {
       anchor: { resource: 'db:Organization', id: 'o1', path: 'organization' },
       actions: { manage: true },
     };
-    expect(placeEntitlement(orphanMap, things, o1)?.map((record) => record.ownerModel)).toEqual([
-      'Organization',
-      'Widget',
-    ]);
+    expect(
+      pseudoRecordsOfEntitlement(orphanMap, things, o1)?.map((record) => record.ownerModel),
+    ).toEqual(['Organization', 'Widget']);
   });
 });
 
 describe('the root of the where narrows the kinds: each leaf checked on each pseudo record (R88)', () => {
   const kinds = (where: EntitlementEntry['where']) =>
-    placeEntitlement(map, underO1(where), o1)?.map((record) => record.ownerModel) ?? null;
+    pseudoRecordsOfEntitlement(map, underO1(where), o1)?.map((record) => record.ownerModel) ?? null;
 
   test('`in` keeps the kinds it names', () => {
     expect(
@@ -464,7 +462,7 @@ describe('a root leaf is judged only on the kind (R88 adversarial, R90)', () => 
 
   test("a leaf on a copy of the anchor's columns inside the owner narrows nothing", async () => {
     const leaf = { field: 'space.organization.name', operator: 'equals', value: 'Later' };
-    const placed = placeEntitlement(map, withK(leaf), { ...o1, name: 'Now' });
+    const placed = pseudoRecordsOfEntitlement(map, withK(leaf), { ...o1, name: 'Now' });
     expect(placed?.map((record) => record.ownerModel)).toEqual(['Organization', 'Space']);
   });
 
@@ -512,7 +510,7 @@ describe('a root leaf is judged only on the kind (R88 adversarial, R90)', () => 
     },
   };
   const kindsUnder = (where: Row) =>
-    placeEntitlement(billing, underO1({ all: [kindsK, where] } as never), o1)?.map(
+    pseudoRecordsOfEntitlement(billing, underO1({ all: [kindsK, where] } as never), o1)?.map(
       (record) => record.ownerModel,
     );
 
@@ -599,16 +597,21 @@ describe("on a multi-hop path only the kind narrows: the first step's parent is 
       actions: { manage: true },
       where: { field: 'thingBillingOrganizationId', operator: 'equals', value: 'o9' } as never,
     };
-    expect(placeEntitlement(things, items, o1)?.length).toBe(2);
+    expect(pseudoRecordsOfEntitlement(things, items, o1)?.length).toBe(2);
   });
 });
 
-describe('placeUnder narrows by its where the way a grant does', () => {
+describe('pseudoRecordsBelowAnchor narrows by its where the way a grant does', () => {
   test('no where: every kind; a root kind leaf: the kinds it admits', () => {
     const under = (where?: EntitlementEntry['where']) =>
-      placeUnder(map, 'db:Integration', 'organization', 'db:Organization', o1, where).map(
-        (record) => record.ownerModel,
-      );
+      pseudoRecordsBelowAnchor(
+        map,
+        'db:Integration',
+        'organization',
+        'db:Organization',
+        o1,
+        where,
+      ).map((record) => record.ownerModel);
     expect(under()).toHaveLength(4);
     expect(
       under({ field: 'ownerModel', operator: 'equals', value: 'Organization' } as never),
