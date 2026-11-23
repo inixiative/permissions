@@ -16,32 +16,7 @@ import { fieldOfResource } from './resourceNames';
 import { keysFrom } from './rowKeys';
 import type { SchemaMap } from './schemaMap';
 import type { Anchor, Row } from './types';
-
-const exactKeys = new Set(['field', 'operator', 'value']);
-
-type Leaf = { field: string; operator: string; value: unknown };
-
-const isLiteralLeaf = (rule: unknown): rule is Leaf =>
-  typeof rule === 'object' &&
-  rule !== null &&
-  typeof (rule as Leaf).field === 'string' &&
-  typeof (rule as Leaf).operator === 'string' &&
-  'value' in rule &&
-  Object.keys(rule).every((key) => exactKeys.has(key));
-
-export const conjuncts = (where: Condition | null | undefined): unknown[] => {
-  if (where == null) return [];
-  if (
-    typeof where === 'object' &&
-    'all' in where &&
-    Array.isArray(where.all) &&
-    Object.keys(where).length === 1
-  )
-    return where.all;
-  return [where];
-};
-
-const rootLeaves = (where: Condition | undefined): Leaf[] => conjuncts(where).filter(isLiteralLeaf);
+import { type Leaf, rootLeaves } from './whereConjuncts';
 
 const isScalar = (value: unknown) => value === null || typeof value !== 'object';
 

@@ -44,6 +44,7 @@ export const ruleFieldEqualsPath = (field: string, path: string): ActionRule => 
 export const makeKindRules = <R extends string = string>(
   mapWithoutPermissions: SchemaMapWithoutPermissions,
 ) => {
+  // why: the rules are built from the map, so it has none yet; every reader takes the whole map
   const map: SchemaMap = { ...mapWithoutPermissions, permissions: {} };
   const kindsOf = (side: string, field: string): string[] => {
     const supplied = suppliedModelAt(map, side);

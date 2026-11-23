@@ -48,11 +48,13 @@ repeated and template wrapped.
 - **Every function takes the whole map.** No function takes a part of it (`Pick<…, 'permissions'>`,
   a field map beside the map it came from). The one exception is `makeKindRules`, which builds rules
   and so takes the map before it has them (`SchemaMapWithoutPermissions`).
-- What is wrong with the map's own shape is in one place, `validateSchemaMap.ts`
-  (`problemsOfMapNames`, `problemsOfBridges`), in the words of `errors.ts`: the index and the check
-  throw the first problem, `validateSchema` reports them.
+- What is wrong with the map's names and bridges is in `validateSchemaMap.ts` (`problemsOfMapNames`,
+  `problemsOfBridges`), in the words of `errors.ts`. The index throws the first name problem and the
+  check the first bridge problem; `validateSchema` reports them all, where it used to throw on a
+  name problem (or pass, when no rule made it index the map).
 - `schemaMap.ts` holds the types only. Its jobs moved to `resourceNames.ts`, `relations.ts`,
-  `rowKeys.ts` and `placement.ts`; cycle detection is `issuesOfDelegationBackToOwnAction.ts`.
+  `permissionsAnnotation.ts`, `rowKeys.ts`, `placement.ts` and `whereConjuncts.ts`; cycle detection
+  is `issuesOfDelegationBackToOwnAction.ts`.
 - The first check freezes `permissions` and `bridges`, not the field maps, which are the app's.
 - A stored rule's refusal now reads "stored outside the map is refused".
 

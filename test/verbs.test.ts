@@ -31,12 +31,12 @@ const RULES: { verb: string; pattern: RegExp; owners: string[] }[] = [
   {
     verb: 'decide which relations hydration follows',
     pattern: /\.fromFields/,
-    owners: ['src/core/relations.ts'],
+    owners: ['src/core/relations.ts', 'src/core/permissionsAnnotation.ts'],
   },
   {
     verb: 'read a @permissions(...) annotation',
     pattern: /annotations\??\.permissions/,
-    owners: ['src/core/relations.ts'],
+    owners: ['src/core/permissionsAnnotation.ts'],
   },
   {
     verb: 'build a json-rules lens and judge a path against it',

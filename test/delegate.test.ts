@@ -8,7 +8,7 @@ import {
   type Row,
   type SchemaMap,
 } from '../index';
-import { checkWithRules, mapOf, type Rules } from './schemaMaps';
+import { checkWithRules, mapOf } from './schemaMaps';
 
 // own ⊇ manage ⊇ operate ⊇ read on each tenant; a user has no operate.
 const schema: SchemaMap = {

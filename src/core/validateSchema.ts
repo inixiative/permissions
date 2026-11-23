@@ -13,7 +13,7 @@ import { isRefusedByACheck, relIssues, walkRelationPath } from './ruleReads';
 import type { SchemaMap } from './schemaMap';
 import { bridgesWalkedFromRecords } from './supplied';
 import { issuesOfShapeAndCycle, validateActionRule } from './validateActionRule';
-import { problemsOfBridges, problemsOfMapNames } from './validateSchemaMap';
+import { problemsOfBridges, problemsOfMapNames, problemsOfSchemaMap } from './validateSchemaMap';
 
 /** A segment a `{ rel }` may take next, and the resource it lands on. */
 export type RelationHop = { segment: string; resource: string; bridge: boolean };
@@ -112,20 +112,20 @@ const lensWarnings = (map: SchemaMap): ValidationIssue[] =>
   });
 
 /**
- * A whole map, for a test or boot: its own shape first (a map whose names are wrong has no lens to
- * judge rules in, so those are all it reports), then its bridges, every rule well formed, positive and
- * inside the lens, every action defined (`errors`), and every resource whose row hydrates too much
- * (`warnings`).
+ * A whole map, for a test or boot. A map whose names are wrong cannot be indexed, so its name and
+ * bridge problems are all that is reported. Otherwise: its bridges, every rule well formed,
+ * positive and inside the lens, every action defined (`errors`), and every resource whose row
+ * hydrates too much (`warnings`). A malformed `@permissions` annotation still throws, from the index.
  */
 export const validateSchema = (
   map: SchemaMap,
 ): ValidationResult & { warnings: ValidationIssue[] } => {
-  const ofNames = problemsOfMapNames(map).map((message) => ({
-    path: 'maps',
-    code: 'lens',
-    message,
-  }));
-  if (ofNames.length) return { ok: false, errors: ofNames, warnings: [] };
+  if (problemsOfMapNames(map).length)
+    return {
+      ok: false,
+      errors: problemsOfSchemaMap(map).map((message) => ({ path: '$', code: 'lens', message })),
+      warnings: [],
+    };
   const errors = [...issuesOfEveryActionRule(map, true), ...readIssues(map)];
   return { ok: errors.length === 0, errors, warnings: lensWarnings(map) };
 };

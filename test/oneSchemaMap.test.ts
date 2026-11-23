@@ -127,6 +127,28 @@ describe('one schema map: maps, supplied, bridges, polymorphism, permissions', (
     );
   });
 
+  test('validateSchema reports every name and bridge problem of a map that cannot be indexed', () => {
+    const map = mapOfRead(mine, {
+      supplied: { db: actor },
+      polymorphism: { nope: {} },
+      bridges: [
+        {
+          endpoints: [
+            { fieldMap: 'db', model: 'Doc' },
+            { fieldMap: 'crm', model: 'Account' },
+          ],
+          cardinality: 'oneToOne',
+        },
+      ],
+    });
+    expect(() => reads(map, {})).toThrow(/`polymorphism` names the map `nope`/);
+    expect(validateSchema(map).errors.map((issue) => issue.message.split(':')[0])).toEqual([
+      '`polymorphism` names the map `nope`, which is not in `maps`',
+      '`db` is in both `maps` and `supplied`',
+      'a bridge between `db',
+    ]);
+  });
+
   test('polymorphism names a map in `maps` and a model of it', () => {
     const reading = (polymorphism: SchemaMap['polymorphism']) => () =>
       reads(mapOfRead(true, { polymorphism }), {});

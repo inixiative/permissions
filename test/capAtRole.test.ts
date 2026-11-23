@@ -1,6 +1,5 @@
 import { describe, expect, test } from 'bun:test';
 import { capAtRole, type PermissionEntry, type SchemaMap } from '../index';
-import type { Rules } from './schemaMaps';
 
 // own ⊇ manage ⊇ operate ⊇ read on each tenant; a user has no operate.
 const schema: SchemaMap = {

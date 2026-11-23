@@ -1,19 +1,16 @@
+import type { RelationField } from '@inixiative/field-map';
+import type { LensNarrowing, ModelNarrowing } from '@inixiative/json-rules';
 import {
-  type FieldEntry,
-  hasColumn,
-  isScalarField,
-  type ModelEntry,
-  modelOf,
-  own,
-  type RelationField,
-} from '@inixiative/field-map';
-import { endpointKey, type LensNarrowing, type ModelNarrowing } from '@inixiative/json-rules';
-import { idField } from './recordId';
+  annotationKeys,
+  dottedPath,
+  permissionsAnnotation,
+  skipsHydration,
+  whyFieldTakesNoPlaceMark,
+} from './permissionsAnnotation';
 import {
   axesOfResource,
   axisOf,
   fieldOfResource,
-  isSuppliedMap,
   mapAndModelNamed,
   modelOfResource,
   modelsNamedIn,
@@ -50,16 +47,6 @@ type MapIndex = {
   lenses: Map<string, LensNarrowing | null>;
   lensSizes: Map<string, number>;
 };
-
-/** A field's `/// @permissions(...)` annotation, as field-map carries it. */
-const permissionsAnnotation = (field: FieldEntry | undefined) => field?.annotations?.permissions;
-
-const skipsHydration = (field: FieldEntry | undefined): boolean =>
-  permissionsAnnotation(field)?.hydrate === false;
-
-const annotationKeys = ['hydrate', 'down', 'place'];
-const placeableTypes = ['String', 'Int', 'Boolean'];
-const dottedPath = /^[A-Za-z_]\w*(\.[A-Za-z_]\w*)*$/;
 
 const indexes = new WeakMap<SchemaMap, MapIndex>();
 
@@ -107,38 +94,13 @@ const indexAnnotations = (map: SchemaMap, index: MapIndex) => {
       if ('down' in annotation)
         index.lists.set(`${resource}\u0000${name}`, listFor(map, resource, name, annotation.down));
       if ('place' in annotation) {
-        const problem = placeProblem(map, resource, fields, name, field, annotation.place);
+        const problem = whyFieldTakesNoPlaceMark(map, resource, name, annotation.place);
         if (problem) throw new Error(`${at}: \`place\` ${problem}`);
         marks.add(name);
       }
     }
     if (marks.size) index.marks.set(resource, marks);
   }
-};
-
-const placeProblem = (
-  map: SchemaMap,
-  resource: string,
-  fields: ModelEntry['fields'],
-  name: string,
-  field: FieldEntry,
-  value: unknown,
-) => {
-  if (value !== true) return 'is true or absent';
-  if (!hasColumn(field)) return 'marks a scalar or enum field';
-  if (field.isList) return 'never marks a list';
-  if ((isScalarField(field) && field.isId) || name === idField()) return 'never marks an id';
-  if (
-    Object.values(fields).some(
-      (other) => other.kind === 'object' && other.fromFields?.includes(name),
-    )
-  )
-    return 'never marks a relation key: the path sets it';
-  if (axesOfResource(map, resource).some((axis) => axis.field === name))
-    return 'never marks a discriminator: the path sets the kind';
-  if (field.kind === 'scalar' && !placeableTypes.includes(field.type))
-    return `marks String, Int, Boolean or an enum, not ${field.type}`;
-  return null;
 };
 
 const listFor = (map: SchemaMap, resource: string, name: string, down: unknown): ListRelation => {

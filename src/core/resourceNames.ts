@@ -11,9 +11,13 @@ import { endpointKey, parseEndpointKey, relationTargetOf } from '@inixiative/jso
 import { nameHasNoMap, nameIsNoModelOfItsMap } from './errors';
 import type { PolymorphicAxis, SchemaMap } from './schemaMap';
 
+const whyNameHasNoMap = (name: string): string | null =>
+  name.includes(':') ? null : nameHasNoMap(name);
+
 /** The map and model a name holds (`db:Inquiry`); a name with no map throws. */
 export const mapAndModelNamed = (name: string): { mapName: string; modelName: string } => {
-  if (!name.includes(':')) throw new Error(nameHasNoMap(name));
+  const why = whyNameHasNoMap(name);
+  if (why) throw new Error(why);
   return parseEndpointKey(name, '');
 };
 
@@ -43,10 +47,12 @@ export const fieldOfResource = (
 
 /** Why `name` is not a resource of the map, or null: it names no map, or a model its map (in `maps` or `supplied`) does not have. A map in neither is not judged here. */
 export const whyNameIsNoModel = (map: SchemaMap, name: string): string | null => {
-  if (!name.includes(':')) return nameHasNoMap(name);
   const { mapName, modelName } = parseEndpointKey(name, '');
   const fieldMap = fieldMapOfResource(map, name) ?? own(map.supplied ?? {}, mapName);
-  return fieldMap && !modelOf(fieldMap, modelName) ? nameIsNoModelOfItsMap(name, mapName) : null;
+  return (
+    whyNameHasNoMap(name) ??
+    (fieldMap && !modelOf(fieldMap, modelName) ? nameIsNoModelOfItsMap(name, mapName) : null)
+  );
 };
 
 /** The resource a relation field of `resource` leads to (json-rules' `relationTargetOf`, named `map:Model`). */

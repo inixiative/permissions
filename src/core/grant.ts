@@ -4,11 +4,12 @@ import { entitlementProblem } from './entitlementProblem';
 import { asOwner } from './identity';
 import { whyEntitlementWhereLeavesLens } from './lens';
 import type { EntitlementEntry } from './permix';
-import { conjuncts, rowsAbove } from './placement';
+import { rowsAbove } from './placement';
 import { reachableFrom } from './reachableFrom';
 import type { SchemaMap } from './schemaMap';
 import type { Anchor, CheckOptions, Entitlement, PermixLike, Row } from './types';
 import { createWalker } from './walker';
+import { conjuncts } from './whereConjuncts';
 
 export type CanGrantEntitlement = (
   permix: PermixLike,

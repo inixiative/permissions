@@ -11,7 +11,6 @@ import {
 } from './issuesOfDelegationBackToOwnAction';
 import { idField } from './recordId';
 import { issuesForRuleReadsOutsideLens } from './ruleReads';
-import type { SchemaMap } from './schemaMap';
 import type { ActionRule } from './types';
 
 const hasOnly = (node: Record<string, unknown>, keys: string[]): boolean =>
@@ -74,14 +73,8 @@ const issues = (rule: unknown, path: string): ValidationIssue[] => {
   return [{ path, code: 'actionRule', message: 'not an action rule' }];
 };
 
-/** Where a rule sits: the map, the resource, the action it is the rule of (none for a rule asked inline), and the other rule sets that reach the same record (`action → rule`). */
-export type ActionRuleContext = {
-  map: SchemaMap;
-  resource: string;
-  action?: string;
-  rowRules?: Record<string, unknown> | null;
-  additionalRules?: readonly (Record<string, unknown> | null | undefined)[];
-};
+/** Where a rule sits: a {@link PlaceOfActionRule}, with no `action` for a rule asked inline or kept outside the map. */
+export type ActionRuleContext = Omit<PlaceOfActionRule, 'action'> & { action?: string };
 
 // A rule's shape and positivity; only a well-formed rule is judged further.
 const issuesOfShapeOrElse = (rule: unknown, more: () => ValidationIssue[]): ValidationIssue[] => {
