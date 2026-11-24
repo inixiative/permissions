@@ -72,6 +72,16 @@ helper for one individual map."
   since a `down` it cannot read is a list it cannot load.
 - **`makeKindRules({ fieldMaps, polymorphismRegistries, bridges })`** takes the three tables it
   reads; a whole schema map is fine to pass.
+- **A hydrator refuses what is not its own.** Asked for a resource of another map, or a model its
+  field map does not have, it throws; it used to pass the record through holding whatever rows
+  the caller put on it. A `mapName` that is no name throws when the hydrator is made.
+- **What `validateSchemaMap` reports of a supplied bridge**: a far end that names no model of its
+  map, a first end that names a model its map does not have, and a model both given by a supplied
+  bridge and found by key through a joined one. A rule that reads a supplied model where no bridge
+  gives it is told so ("no supplied bridge gives `actor:User` at `crm:Account`").
+- **A schema map whose key is replaced after a first use is read again.** Replacing
+  `schemaMap.permissions`, `bridges`, `fieldMaps` or `polymorphismRegistries` is followed by every
+  later call, and by a check made before the replacement.
 - Requires `@inixiative/json-rules` ^4.7.0.
 
 ## 0.28.0 — one schema map; a resource is `map:Model`; one call validates a stored rule
