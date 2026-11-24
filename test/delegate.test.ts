@@ -12,7 +12,7 @@ import { checkWithRules, mapOf } from './schemaMaps';
 
 // own ⊇ manage ⊇ operate ⊇ read on each tenant; a user has no operate.
 const schema: SchemaMap = {
-  maps: {},
+  fieldMaps: {},
   permissions: {
     'db:organization': {
       actions: { own: null, manage: 'own', operate: 'manage', read: 'operate' },

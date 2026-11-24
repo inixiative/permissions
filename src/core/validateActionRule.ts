@@ -102,7 +102,7 @@ export const validateActionRule = (
           ...(context.action === undefined
             ? []
             : issuesOfDelegationBackToOwnAction(rule, { ...context, action: context.action })),
-          ...issuesForRuleReadsOutsideLens(context.map, context.resource, rule as ActionRule),
+          ...issuesForRuleReadsOutsideLens(context.schemaMap, context.resource, rule as ActionRule),
         ]
       : [],
   );

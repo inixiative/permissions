@@ -68,7 +68,7 @@ describe('the member case: operate on M, anchored at M, no where, backed by the 
   });
   const standard = { own: null, manage: 'own', operate: 'manage', read: 'operate' };
   const schema: SchemaMap = {
-    maps: {},
+    fieldMaps: {},
     permissions: {
       'db:user': { actions: standard },
       'db:organization': { actions: standard },
@@ -120,7 +120,7 @@ describe('the member case: operate on M, anchored at M, no where, backed by the 
       },
     },
   };
-  const map = mapOf(
+  const schemaMap = mapOf(
     {
       'db:organizationUser': { user: 'db:user', organization: 'db:organization' },
       'db:integration': {
@@ -137,8 +137,8 @@ describe('the member case: operate on M, anchored at M, no where, backed by the 
       'db:integrationResource': ['enabled'],
     },
   );
-  const rebac = checkWithRules(map);
-  const canGrant = canGrantWithRules(map);
+  const rebac = checkWithRules(schemaMap);
+  const canGrant = canGrantWithRules(schemaMap);
 
   const u1 = { id: 'u1' };
   const o1 = { id: 'o1' };
@@ -194,7 +194,7 @@ describe('the member case: operate on M, anchored at M, no where, backed by the 
   ];
 
   const grants = (permix: Permix, granted: EntitlementEntry, anchor: Row) => {
-    const pseudoRecord = pseudoRecordsOfEntitlement(map, granted, anchor);
+    const pseudoRecord = pseudoRecordsOfEntitlement(schemaMap, granted, anchor);
     return pseudoRecord?.every((record) => canGrant(permix, schema, granted, record)) === true;
   };
   const uses = (permix: Permix) =>
@@ -297,7 +297,7 @@ describe('the member case: operate on M, anchored at M, no where, backed by the 
       ['manage'],
       { all: [eq('ownerModel', 'OrganizationUser'), eq('organizationUser', { id: 'm1' })] },
     );
-    const pseudoRecord = pseudoRecordsOfEntitlement(map, forged, o1);
+    const pseudoRecord = pseudoRecordsOfEntitlement(schemaMap, forged, o1);
     expect(pseudoRecord?.[0]).not.toHaveProperty('organizationUser');
     expect(grants(await permixOf(memberP), forged, o1)).toBe(false);
     // the same pin under M itself, where the user is a row above
@@ -324,7 +324,7 @@ describe('the member case: operate on M, anchored at M, no where, backed by the 
 // ───────────────────────── organization → space → integration ─────────────────────────
 
 const schema: SchemaMap = {
-  maps: {},
+  fieldMaps: {},
   permissions: {
     'db:organization': {
       actions: {
@@ -359,7 +359,7 @@ const schema: SchemaMap = {
     },
   },
 };
-const map = mapOf(
+const schemaMap = mapOf(
   {
     'db:space': { organization: 'db:organization' },
     'db:integration': { space: 'db:space' },
@@ -367,9 +367,9 @@ const map = mapOf(
   },
   { 'db:space': ['label'], 'db:integration': ['provider'] },
 );
-const rebac = checkWithRules(map);
-const paths = pathsWithRules(map);
-const canGrant = canGrantWithRules(map);
+const rebac = checkWithRules(schemaMap);
+const paths = pathsWithRules(schemaMap);
+const canGrant = canGrantWithRules(schemaMap);
 
 const o1 = { id: 'o1' };
 const spaceRow = (id: string, label: string) => ({
@@ -397,7 +397,7 @@ const holding = (entries: EntitlementEntry[], owner: Permissions = root): Permis
 ];
 const grants = async (writer: Permissions, granted: EntitlementEntry, anchor: Row) => {
   const permix = await permixOf(writer);
-  const pseudoRecord = pseudoRecordsOfEntitlement(map, granted, anchor);
+  const pseudoRecord = pseudoRecordsOfEntitlement(schemaMap, granted, anchor);
   return pseudoRecord?.every((record) => canGrant(permix, schema, granted, record)) === true;
 };
 const manages = async (holder: Permissions, space: Row) =>
@@ -582,7 +582,7 @@ describe('the mark: a row without grantsBelow never counts in the first pass', (
     ] as unknown as EntitlementEntry[];
     for (const bad of wrong) {
       expect(entitlementProblem(bad)).toBe('`grantsBelow` is true or absent');
-      expect(pseudoRecordsOfEntitlement(map, bad, s1)).toBeNull();
+      expect(pseudoRecordsOfEntitlement(schemaMap, bad, s1)).toBeNull();
     }
     const conditional = { ...manageS1, where: draft };
     expect(entitlementProblem(conditional)).toBe(
@@ -828,7 +828,7 @@ describe('refused: an entitlement met below the anchor, on a pseudoRecord record
       entry('db:integration', { resource: 'db:integration', id: 'i7' }, ['manage']),
     );
     const pinned = integrationsOfS1(['manage'], eq('id', 'i7'));
-    expect(pseudoRecordsOfEntitlement(map, pinned, s1)?.[0]).not.toHaveProperty('id');
+    expect(pseudoRecordsOfEntitlement(schemaMap, pinned, s1)?.[0]).not.toHaveProperty('id');
     expect(await grants(holding([manageI7]), pinned, s1)).toBe(false);
   });
 
@@ -858,12 +858,12 @@ describe('what counts as above: rows the anchor holds under a to-one relation th
       'db:space': { profile: 'db:profile' },
       'db:integration': { space: 'db:space' },
     });
-    const db = owning.maps.db as FieldMap;
+    const db = owning.fieldMaps.db as FieldMap;
     const profile = fieldOf(db, 'space', 'profile');
     if (profile?.kind !== 'object') throw new Error('db:space.profile is a relation');
     const inverse: SchemaMap = {
       ...owning,
-      maps: {
+      fieldMaps: {
         db: {
           models: {
             ...db.models,
@@ -944,7 +944,7 @@ describe('what counts as above: rows the anchor holds under a to-one relation th
     });
     const lib: SchemaMap = {
       permissions: {},
-      maps: {
+      fieldMaps: {
         db: {
           models: {
             organization: { fields: { id: column } },
@@ -969,7 +969,7 @@ describe('what counts as above: rows the anchor holds under a to-one relation th
           },
         },
       },
-      polymorphism: {
+      polymorphismRegistries: {
         db: {
           integration: {
             axes: [

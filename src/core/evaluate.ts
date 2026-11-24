@@ -17,7 +17,7 @@ import { validateActionRule } from './validateActionRule';
 // One walk: the app's schema map, the schema, the bridge dictionary built on first use, and how
 // what it finds combines (a boolean for `check`, every admission for `paths`).
 export type Walk<R extends string, T = boolean> = {
-  map: SchemaMap<R>;
+  schemaMap: SchemaMap<R>;
   getDict: () => BridgeDictionary | undefined;
   /** The supplied maps' joined bridges' rows, indexed once per check. */
   suppliedDictionary: () => BridgeDictionary | undefined;
@@ -80,7 +80,7 @@ export const identifyRowOncePerCheck = <R extends string, T>(
   record: Row,
 ): string =>
   answerOnce(walk.oneCheck.rowIds, record, resource, () =>
-    rowId(record, identityKeyOfRow(walk.map, resource, record, walk.idField)),
+    rowId(record, identityKeyOfRow(walk.schemaMap, resource, record, walk.idField)),
   );
 
 /** The nodes on the current path, each with the relation hops crossed when it was reached; a node leaves when its walk returns. */
@@ -221,7 +221,7 @@ const walkActionRules = <R extends string, T>(
   actionOrRule: string,
   visited: Visited,
 ): T => {
-  const schemaRule = walk.map.permissions[resource]?.actions[actionOrRule] ?? null;
+  const schemaRule = walk.schemaMap.permissions[resource]?.actions[actionOrRule] ?? null;
   const rowRules = record.permissionRules as Record<string, ActionRule> | null | undefined;
   const additionalRules = (walk.additionalRules?.(resource, record) ?? []).filter(
     (rules): rules is Record<string, ActionRule> => isPlainObject(rules),
@@ -229,7 +229,7 @@ const walkActionRules = <R extends string, T>(
   // why: a stored or additional rule is judged as the map's own are: one that is not positive, loops or reads outside the lens throws
   const holds = (rule: ActionRule) => {
     const [problem] = validateActionRule(rule, {
-      map: walk.map,
+      schemaMap: walk.schemaMap,
       resource,
       action: actionOrRule,
       rowRules,
@@ -285,9 +285,9 @@ const walkRule = <R extends string, T>(
   if ('arrayOperator' in rule) {
     // why: under an item only the declared down tree exists; a second list is never crossed
     if (walk.under) return algebra.none;
-    if (suppliedModelAt(walk.map, pathSegments(rule.rel)[0] ?? '')) {
+    if (suppliedModelAt(walk.schemaMap, pathSegments(rule.rel)[0] ?? '')) {
       const filled = recordWithSuppliedData(
-        walk.map,
+        walk.schemaMap,
         resource,
         record,
         walk.bridgeData,
@@ -302,7 +302,7 @@ const walkRule = <R extends string, T>(
         ? algebra.unit
         : algebra.none;
     }
-    const list = listOf(walk.map, resource, rule.rel);
+    const list = listOf(walk.schemaMap, resource, rule.rel);
     const items = record[rule.rel];
     if (!list || !Array.isArray(items)) return algebra.none;
     const under: Walk<R, T> = {
@@ -323,7 +323,7 @@ const walkRule = <R extends string, T>(
     let current: Row = record;
     const walked: string[] = [];
     for (const segment of segments) {
-      const hop = bridgeHop(bridgesWalkedFromRecords(walk.map), currentResource, segment);
+      const hop = bridgeHop(bridgesWalkedFromRecords(walk.schemaMap), currentResource, segment);
       if (hop) {
         if (walk.under) return algebra.none;
         const farId = current[hop.localOn];
@@ -335,7 +335,7 @@ const walkRule = <R extends string, T>(
       } else {
         const related = current[segment] as Row | null | undefined;
         if (!related || Array.isArray(related)) return algebra.none;
-        const next = relationOf(walk.map, currentResource, segment);
+        const next = relationOf(walk.schemaMap, currentResource, segment);
         if (!next) return algebra.none;
         walked.push(segment);
         current = related;
@@ -349,7 +349,7 @@ const walkRule = <R extends string, T>(
 
   if ('rule' in rule) {
     const filled = recordWithSuppliedData(
-      walk.map,
+      walk.schemaMap,
       resource,
       record,
       walk.bridgeData,

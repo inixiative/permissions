@@ -22,10 +22,8 @@ export { reachableFrom } from './src/core/reachableFrom';
 export * from './src/core/redundantEntitlements';
 export type {
   PolymorphicAxis,
-  Polymorphism,
-  RecordFieldMaps,
+  PolymorphismRegistry,
   SchemaMap,
-  SchemaMapWithoutPermissions,
 } from './src/core/schemaMap';
 export type * from './src/core/types';
 export { type ActionRuleContext, validateActionRule } from './src/core/validateActionRule';
@@ -34,8 +32,8 @@ export {
   type RelationHop,
   relationHopsFrom,
   schemaRuleIssues,
-  validateSchema,
-} from './src/core/validateSchema';
+  validateSchemaMap,
+} from './src/core/validateSchemaMap';
 export * from './src/helpers/delegation/capAtRole';
 export * from './src/helpers/delegation/delegate';
 export * from './src/helpers/delegation/permissions';

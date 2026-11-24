@@ -1,5 +1,5 @@
 import { describe, expect, spyOn, test } from 'bun:test';
-import { map, model, nobody, pool, schema } from '../bench/fixtures';
+import { model, nobody, pool, schema, schemaMap } from '../bench/fixtures';
 import { createPermissions } from '../index';
 import * as rowKeys from '../src/core/rowKeys';
 import * as ruleReads from '../src/core/ruleReads';
@@ -11,7 +11,7 @@ import { checkWithRules, mapOf, pathsWithRules, type Rules } from './schemaMaps'
 
 describe('a row is identified once per row per check', () => {
   test('a denied read 6 hops down keys each of its 7 rows once, and again on the next check', async () => {
-    const check = checkWithRules(map);
+    const check = checkWithRules(schemaMap);
     const permix = await nobody();
     const record = pool(6)[0] as never;
     const keyed = spyOn(rowKeys, 'identityKeyOfRow');

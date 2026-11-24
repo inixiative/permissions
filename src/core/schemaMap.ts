@@ -5,29 +5,25 @@ import type { ResourcePermission } from './types';
 /** A polymorphic model's discriminator: `field` names the kind, `fkMap` the columns each kind carries. */
 export type PolymorphicAxis = { field: string; fkMap: Partial<Record<string, readonly string[]>> };
 
-/** Polymorphic models by model name, in the shape of a false-polymorphism registry. */
-export type Polymorphism = Partial<Record<string, { axes: readonly PolymorphicAxis[] }>>;
+/** One field map's polymorphic models by model name, in the shape of a false-polymorphism registry. */
+export type PolymorphismRegistry = Partial<Record<string, { axes: readonly PolymorphicAxis[] }>>;
 
 /**
- * The map before it has rules: what the rule builders and every reader of the data shape take.
- * `maps` are the field maps (`@inixiative/field-map`) of the records the app loads and walks,
- * `supplied` those whose rows each check is given in its `data` (who is acting, for one), both by
- * map name; `bridges` are json-rules bridges between their models; `polymorphism` says, by map name
- * then model, which kind a relation makes a polymorphic record. A model goes by `map:Model`
- * everywhere (`db:Inquiry`, `actor:User`): json-rules' endpoint key, the model spelled as its field
- * map spells it.
+ * The one object the checks walk. What describes a map is keyed by map name: `fieldMaps` are the
+ * field maps (`@inixiative/field-map`) of the records the app loads and walks, `suppliedFieldMaps`
+ * those whose rows each check is given in its `bridgeData` (who is acting, for one), and
+ * `polymorphismRegistries` say which kind a relation makes a polymorphic record. `bridges` are
+ * json-rules bridges between their models. The rules (`permissions`) are keyed by resource: a model
+ * goes by `map:Model` everywhere (`db:Inquiry`, `actor:User`), json-rules' endpoint key, the model
+ * spelled as its field map spells it. Indexed once per object.
  */
-export type SchemaMapWithoutPermissions = {
-  maps: Record<string, FieldMap>;
-  supplied?: Record<string, FieldMap>;
+export type SchemaMap<R extends string = string> = {
+  fieldMaps: Record<string, FieldMap>;
+  suppliedFieldMaps?: Record<string, FieldMap>;
+  polymorphismRegistries?: Partial<Record<string, PolymorphismRegistry>>;
   bridges?: Bridge[];
-  polymorphism?: Partial<Record<string, Polymorphism>>;
-};
-
-/** The part of the schema map hydration reads: the field maps of the records the app loads, and their polymorphism. */
-export type RecordFieldMaps = Pick<SchemaMapWithoutPermissions, 'maps' | 'polymorphism'>;
-
-/** The schema the checks walk: the data shape and the rules, by resource (`map:Model`). Indexed once per map object. */
-export type SchemaMap<R extends string = string> = SchemaMapWithoutPermissions & {
   permissions: Partial<Record<R, ResourcePermission>>;
 };
+
+/** What the relation readers read: field maps by map name, and their polymorphism registries. */
+export type FieldMapsWithPolymorphism = Pick<SchemaMap, 'fieldMaps' | 'polymorphismRegistries'>;

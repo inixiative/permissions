@@ -48,13 +48,13 @@ describe('validateActionRule: an action rule, checked like json-rules checks a c
 });
 
 describe('validateActionRule: a rule that delegates back to its own action is a cycle', () => {
-  const map = mapWith(mapOf({ 'db:doc': { parent: 'db:doc' } }), {
+  const schemaMap = mapWith(mapOf({ 'db:doc': { parent: 'db:doc' } }), {
     permissions: {
       'db:doc': { actions: { own: null, manage: 'own', operate: 'manage', read: 'operate' } },
     },
   });
   const at = (action: string, rule: unknown, rowRules?: Record<string, unknown>) =>
-    validateActionRule(rule, { map, resource: 'db:doc', action, rowRules });
+    validateActionRule(rule, { schemaMap, resource: 'db:doc', action, rowRules });
 
   it('refuses a rule for read that is read', () => {
     expect(at('read', 'read').errors.map((issue) => issue.code)).toEqual(['cycle']);

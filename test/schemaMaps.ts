@@ -58,16 +58,16 @@ export type ListOf = { item: string; down: readonly string[] };
 export type Rules = Pick<SchemaMap, 'permissions' | 'bridges'>;
 
 /** The map with `rules` laid over it: one object, as every entry point takes. */
-export const mapWith = (map: SchemaMap, rules: Rules): SchemaMap => {
-  let byRules = mapsWithRules.get(map);
+export const mapWith = (schemaMap: SchemaMap, rules: Rules): SchemaMap => {
+  let byRules = mapsWithRules.get(schemaMap);
   if (!byRules) {
     byRules = new WeakMap();
-    mapsWithRules.set(map, byRules);
+    mapsWithRules.set(schemaMap, byRules);
   }
   let whole = byRules.get(rules);
   if (!whole) {
     whole = {
-      ...map,
+      ...schemaMap,
       permissions: rules.permissions,
       ...(rules.bridges ? { bridges: rules.bridges } : {}),
     };
@@ -80,9 +80,9 @@ const mapsWithRules = new WeakMap<SchemaMap, WeakMap<Rules, SchemaMap>>();
 
 /** A check over `map` that takes each case's rules beside the subject: `(permix, rules, subject, action)`. */
 export const checkWithRules =
-  (map: SchemaMap, options?: CheckOptions) =>
+  (schemaMap: SchemaMap, options?: CheckOptions) =>
   (permix: PermixLike, rules: Rules, subject: Subject, actionOrRule: ActionRule): boolean =>
-    makeRebacCheck(mapWith(map, rules), options)(permix, subject, actionOrRule);
+    makeRebacCheck(mapWith(schemaMap, rules), options)(permix, subject, actionOrRule);
 
 const split = (resource: string) => {
   if (!resource.includes(':'))
@@ -159,21 +159,28 @@ export const mapOf = (
   }
   return {
     permissions: {},
-    maps: Object.fromEntries(
+    fieldMaps: Object.fromEntries(
       Object.entries(models).map(([mapName, of]) => [mapName, { models: of }]),
     ),
-    supplied: { actor: actorMap },
+    suppliedFieldMaps: { actor: actorMap },
   };
 };
 
 /** Every admission over `map`, taking each case's rules beside the subject. */
 export const pathsWithRules =
-  (map: SchemaMap, options?: PathsOptions) =>
+  (schemaMap: SchemaMap, options?: PathsOptions) =>
   (permix: PermixLike, rules: Rules, subject: Subject, actionOrRule: ActionRule): Admission[] =>
-    makeRebacPaths(mapWith(map, rules), options)(permix, subject, actionOrRule);
+    makeRebacPaths(mapWith(schemaMap, rules), options)(permix, subject, actionOrRule);
 
 /** The grant check over `map`, taking each case's rules beside the entry. */
 export const canGrantWithRules =
-  (map: SchemaMap, options?: Pick<CheckOptions, 'additionalRules'>) =>
+  (schemaMap: SchemaMap, options?: Pick<CheckOptions, 'additionalRules'>) =>
   (permix: PermixLike, rules: Rules, entry: EntitlementEntry, pseudoRecord: Row): boolean =>
-    makeCanGrantEntitlement(mapWith(map, rules), options)(permix, entry, pseudoRecord);
+    makeCanGrantEntitlement(mapWith(schemaMap, rules), options)(permix, entry, pseudoRecord);
+
+/** The `db` field map of a test's schema map, named, as `makeHydrator` takes one. */
+export const dbFieldMapOf = (schemaMap: Pick<SchemaMap, 'fieldMaps'>) => {
+  const fieldMap = schemaMap.fieldMaps.db;
+  if (!fieldMap) throw new Error('the test schema map has no `db` field map');
+  return { mapName: 'db', fieldMap };
+};

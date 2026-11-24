@@ -1,6 +1,12 @@
 import { describe, expect, test } from 'bun:test';
 import { Operator } from '@inixiative/json-rules';
-import { map as chainMap, schema as chainSchema, model, nobody, pool } from '../bench/fixtures';
+import {
+  schemaMap as chainMap,
+  schema as chainSchema,
+  model,
+  nobody,
+  pool,
+} from '../bench/fixtures';
 import {
   type ActionRule,
   createPermissions,
@@ -13,7 +19,14 @@ import {
   type Row,
 } from '../index';
 import { outcomesOfWalkCase, type WalkCase, walkCase } from './fixtures/walkCases';
-import { canGrantWithRules, checkWithRules, mapOf, pathsWithRules, type Rules } from './schemaMaps';
+import {
+  canGrantWithRules,
+  checkWithRules,
+  dbFieldMapOf,
+  mapOf,
+  pathsWithRules,
+  type Rules,
+} from './schemaMaps';
 
 // One check answers each node reached after a hop once (src/core/evaluate.ts, `walkAction`): a
 // node is its table, its row object, its resource and action, in one walk mode. An answer is kept
@@ -84,7 +97,7 @@ describe('only a node reached after a hop is remembered', () => {
 });
 
 describe('a node reached while an ancestor of it is on the path is not kept', () => {
-  const map = mapOf(
+  const schemaMap = mapOf(
     { 'db:space': { organization: 'db:organization' }, 'db:organization': { space: 'db:space' } },
     { 'db:space': ['flag'], 'db:organization': ['flag'] },
   );
@@ -117,7 +130,7 @@ describe('a node reached while an ancestor of it is on the path is not kept', ()
             },
           };
           answers.push(
-            checkWithRules(map)(
+            checkWithRules(schemaMap)(
               createPermissions(),
               schema,
               { resource: 'db:space', record: loopRecord() },
@@ -137,7 +150,7 @@ describe('a node reached while an ancestor of it is on the path is not kept', ()
           },
         };
         expect(() =>
-          checkWithRules(map)(
+          checkWithRules(schemaMap)(
             createPermissions(),
             schema,
             { resource: 'db:space', record: loopRecord() },
@@ -218,7 +231,7 @@ describe("the grant check's two passes share no answers", () => {
   // o1 from the root, under a `where`. The first pass walks O's read on o1 one hop up and counts no
   // `where`: it denies. The liveness pass walks the same node of O, counting every `where`: it admits.
   test('the first pass denies at o1 where the liveness pass admits, and the grant holds', async () => {
-    const map = mapOf(
+    const schemaMap = mapOf(
       { 'db:space': { organization: 'db:organization' } },
       { 'db:organization': ['name'] },
     );
@@ -259,8 +272,10 @@ describe("the grant check's two passes share no answers", () => {
       { owner },
     );
     const [pseudoRecord] =
-      pseudoRecordsOfEntitlement(map, spacesOfO1, { id: 'o1', name: 'acme' }) ?? [];
-    expect(canGrantWithRules(map)(writer, schema, spacesOfO1, pseudoRecord as Row)).toBe(true);
+      pseudoRecordsOfEntitlement(schemaMap, spacesOfO1, { id: 'o1', name: 'acme' }) ?? [];
+    expect(canGrantWithRules(schemaMap)(writer, schema, spacesOfO1, pseudoRecord as Row)).toBe(
+      true,
+    );
   });
 });
 
@@ -298,7 +313,7 @@ describe('walk modes', () => {
   });
 
   test('under a list item, one row reached at two lens positions is walked at each', async () => {
-    const map = mapOf(
+    const schemaMap = mapOf(
       {
         'db:member': { organization: 'db:organization', user: 'db:user', brand: 'db:brand' },
         'db:brand': { user: 'db:user' },
@@ -336,7 +351,7 @@ describe('walk modes', () => {
     };
     const { counted, calls } = counting(await nobody());
     expect(
-      checkWithRules(map)(
+      checkWithRules(schemaMap)(
         counted,
         schema,
         { resource: 'db:organization', record: { id: 'o1', members: [member] } },
@@ -349,7 +364,7 @@ describe('walk modes', () => {
 
 describe('two objects of one row', () => {
   test('a plain check reads each copy as loaded (an include tree loads the organization twice)', async () => {
-    const map = mapOf(
+    const schemaMap = mapOf(
       {
         'db:space': { organization: 'db:organization', project: 'db:project' },
         'db:project': { organization: 'db:organization' },
@@ -382,7 +397,7 @@ describe('two objects of one row', () => {
       project: { id: 'p1', organizationId: 'o1', organization: { id: 'o1' } },
     };
     expect(
-      checkWithRules(map)(
+      checkWithRules(schemaMap)(
         createPermissions(),
         schema,
         { resource: 'db:space', record: space },
@@ -402,10 +417,10 @@ describe('two objects of one row', () => {
     'db:space': { id: 's1', organizationId: 'o1' },
   };
   const hydratedO1 = () =>
-    makeHydrator({ map: loopMap, load: async (resource: string) => stored[resource] ?? null })(
-      'db:organization',
-      { id: 'o1', primarySpaceId: 's1' },
-    );
+    makeHydrator({
+      ...dbFieldMapOf(loopMap),
+      load: async (resource: string) => stored[resource] ?? null,
+    })('db:organization', { id: 'o1', primarySpaceId: 's1' });
   const self = { resource: 'db:organization', id: 'o1' };
   const writerHolding = async (action: string) => {
     const owner = createPermissions();

@@ -7,7 +7,7 @@ import {
   type Row,
   ruleFieldEqualsPath,
   type SchemaMap,
-  validateSchema,
+  validateSchemaMap,
 } from '../index';
 import {
   actorData,
@@ -22,9 +22,9 @@ const toOne = (type: string, key: string) =>
   ({ kind: 'object', type, isList: false, fromFields: [key], toFields: ['id'] }) as const;
 
 // A token owned by an organization, a space (with its organization), a user, or no one (`default`).
-const map: SchemaMap = {
+const schemaMap: SchemaMap = {
   permissions: {},
-  maps: {
+  fieldMaps: {
     db: {
       models: {
         Token: {
@@ -46,7 +46,7 @@ const map: SchemaMap = {
       enums: { TokenOwner: ['Organization', 'Space', 'User', 'default'] },
     },
   },
-  polymorphism: {
+  polymorphismRegistries: {
     db: {
       Token: {
         axes: [
@@ -63,10 +63,10 @@ const map: SchemaMap = {
       },
     },
   },
-  supplied: { actor: actorMap },
+  suppliedFieldMaps: { actor: actorMap },
 };
-const kind = makeKindRules(map);
-const check = checkWithRules(map);
+const kind = makeKindRules(schemaMap);
+const check = checkWithRules(schemaMap);
 const permix: PermixLike = {
   check: (resource, action) => resource === 'db:Organization' && action === 'manage',
 };
@@ -116,7 +116,7 @@ describe('the fan-out: each branch checks its own kind first', () => {
         isKind('ownerModel', 'default'),
       ],
     });
-    expect(validateSchema(mapWith(map, schemaOf(rule))).errors).toEqual([]);
+    expect(validateSchemaMap(mapWith(schemaMap, schemaOf(rule))).errors).toEqual([]);
   });
 
   test("a branch holds only on its own kind: a space-owned row never takes the organization's branch", () => {

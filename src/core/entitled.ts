@@ -29,7 +29,7 @@ export const entitled = <R extends string, T>(
 ): T => {
   const { above } = walk;
   if (above && !above.has(record)) return walk.algebra.none;
-  const held = [...reachableFrom(walk.map, resource, action)].flatMap(
+  const held = [...reachableFrom(walk.schemaMap, resource, action)].flatMap(
     (implying) => permix.entitlements?.(resource, implying) ?? [],
   );
   return walk.algebra.any(
@@ -44,9 +44,10 @@ export const entitled = <R extends string, T>(
           (above
             ? grantsBelow === true && where === undefined
             : where === undefined ||
-              (whyEntitlementWhereLeavesLens(walk.map, resource, where) === null &&
+              (whyEntitlementWhereLeavesLens(walk.schemaMap, resource, where) === null &&
                 (walk.ignoreWheres || holds(where, record)))) &&
-          anchorRowReachedFrom(walk.map, resource, record, anchor, true, walk.idField) !== undefined
+          anchorRowReachedFrom(walk.schemaMap, resource, record, anchor, true, walk.idField) !==
+            undefined
             ? walk.algebra.through(
                 ref,
                 evaluate(walk, asOwner(owner), resource, record, action, visited),

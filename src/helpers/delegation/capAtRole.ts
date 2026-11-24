@@ -9,16 +9,16 @@ import type { SchemaMap } from '../../core/schemaMap';
  * as plain `true`. Null when nothing is kept. A conditional action is not held.
  */
 export const capAtRole = <Action extends string = string>(
-  map: SchemaMap,
+  schemaMap: SchemaMap,
   entry: PermissionEntry<NoInfer<Action>>,
   ceiling: string,
 ): PermissionEntry<Action> | null => {
   const held = (action: string) => (entry.actions as Record<string, unknown>)[action] === true;
   const kept = union(
-    Object.keys(map.permissions[entry.resource]?.actions ?? {}),
+    Object.keys(schemaMap.permissions[entry.resource]?.actions ?? {}),
     Object.keys(entry.actions),
   ).filter((action) => {
-    const implying = reachableFrom(map, entry.resource, action);
+    const implying = reachableFrom(schemaMap, entry.resource, action);
     return implying.has(ceiling) && [...implying].some(held);
   });
   return kept.length

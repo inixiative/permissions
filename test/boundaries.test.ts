@@ -69,7 +69,7 @@ const schema: Rules = {
     },
   },
 };
-const map = mapOf(
+const schemaMap = mapOf(
   {
     'db:product': { distributor: 'db:distributor' },
     'db:order': { buyer: 'db:organization', product: 'db:product' },
@@ -78,8 +78,8 @@ const map = mapOf(
   },
   { 'db:product': ['line', 'color'] },
 );
-const check = checkWithRules(map);
-const canGrant = canGrantWithRules(map);
+const check = checkWithRules(schemaMap);
+const canGrant = canGrantWithRules(schemaMap);
 
 const table = async (...entries: PermissionEntry[]) => {
   const permix = createPermissions();
@@ -133,7 +133,7 @@ const ordering = (permix: Permix, buyerId: string, p: Row = product()) =>
 const reselling = (permix: Permix, buyerId: string, p: Row = product()) =>
   check(permix, schema, { resource: 'db:order', record: orderBy(buyerId, p) }, 'resell');
 const grants = (writer: Permix, entry: EntitlementEntry) => {
-  const pseudoRecord = pseudoRecordsOfEntitlement(map, entry, { id: entry.anchor.id });
+  const pseudoRecord = pseudoRecordsOfEntitlement(schemaMap, entry, { id: entry.anchor.id });
   return (
     !!pseudoRecord?.length &&
     pseudoRecord.every((record) => canGrant(writer, schema, entry, record))

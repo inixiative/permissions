@@ -9,7 +9,7 @@ import {
 } from '@inixiative/field-map';
 import { endpointKey, parseEndpointKey, relationTargetOf } from '@inixiative/json-rules';
 import { nameHasNoMap, nameIsNoModelOfItsMap } from './errors';
-import type { PolymorphicAxis, RecordFieldMaps, SchemaMap } from './schemaMap';
+import type { FieldMapsWithPolymorphism, PolymorphicAxis, SchemaMap } from './schemaMap';
 
 const whyNameHasNoMap = (name: string): string | null =>
   name.includes(':') ? null : nameHasNoMap(name);
@@ -22,33 +22,40 @@ export const mapAndModelNamed = (name: string): { mapName: string; modelName: st
 };
 
 /** Whether `mapName` is one of the map's supplied maps, whose rows a check is given. */
-export const isSuppliedMap = (map: SchemaMap, mapName: string): boolean =>
-  Object.hasOwn(map.supplied ?? {}, mapName);
+export const isSuppliedMap = (schemaMap: SchemaMap, mapName: string): boolean =>
+  Object.hasOwn(schemaMap.suppliedFieldMaps ?? {}, mapName);
 
 /** The field map a record's resource is in, or undefined when its map is not in `maps`. */
-export const fieldMapOfResource = (map: RecordFieldMaps, resource: string): FieldMap | undefined =>
-  own(map.maps, parseEndpointKey(resource, '').mapName);
+export const fieldMapOfResource = (
+  fieldMapsWithPolymorphism: FieldMapsWithPolymorphism,
+  resource: string,
+): FieldMap | undefined =>
+  own(fieldMapsWithPolymorphism.fieldMaps, parseEndpointKey(resource, '').mapName);
 
 /** A record's model entry, or undefined when the map has no field map or no such model for it. */
-export const modelOfResource = (map: RecordFieldMaps, resource: string): ModelEntry | undefined => {
-  const fieldMap = fieldMapOfResource(map, resource);
+export const modelOfResource = (
+  fieldMapsWithPolymorphism: FieldMapsWithPolymorphism,
+  resource: string,
+): ModelEntry | undefined => {
+  const fieldMap = fieldMapOfResource(fieldMapsWithPolymorphism, resource);
   return fieldMap ? modelOf(fieldMap, parseEndpointKey(resource, '').modelName) : undefined;
 };
 
 /** A field of a record's model. */
 export const fieldOfResource = (
-  map: RecordFieldMaps,
+  fieldMapsWithPolymorphism: FieldMapsWithPolymorphism,
   resource: string,
   name: string,
 ): FieldEntry | undefined => {
-  const fieldMap = fieldMapOfResource(map, resource);
+  const fieldMap = fieldMapOfResource(fieldMapsWithPolymorphism, resource);
   return fieldMap ? fieldOf(fieldMap, parseEndpointKey(resource, '').modelName, name) : undefined;
 };
 
 /** Why `name` is not a resource of the map, or null: it names no map, or a model its map (in `maps` or `supplied`) does not have. A map in neither is not judged here. */
-export const whyNameIsNoModel = (map: SchemaMap, name: string): string | null => {
+export const whyNameIsNoModel = (schemaMap: SchemaMap, name: string): string | null => {
   const { mapName, modelName } = parseEndpointKey(name, '');
-  const fieldMap = fieldMapOfResource(map, name) ?? own(map.supplied ?? {}, mapName);
+  const fieldMap =
+    fieldMapOfResource(schemaMap, name) ?? own(schemaMap.suppliedFieldMaps ?? {}, mapName);
   return (
     whyNameHasNoMap(name) ??
     (fieldMap && !modelOf(fieldMap, modelName) ? nameIsNoModelOfItsMap(name, mapName) : null)
@@ -62,11 +69,11 @@ export const resourceLedToBy = (resource: string, field: RelationField): string 
 };
 
 export const axesOfResource = (
-  map: RecordFieldMaps,
+  fieldMapsWithPolymorphism: FieldMapsWithPolymorphism,
   resource: string,
 ): readonly PolymorphicAxis[] => {
   const { mapName, modelName } = parseEndpointKey(resource, '');
-  return map.polymorphism?.[mapName]?.[modelName]?.axes ?? [];
+  return fieldMapsWithPolymorphism.polymorphismRegistries?.[mapName]?.[modelName]?.axes ?? [];
 };
 
 /** Every model of the given field maps, named `map:Model`. */
@@ -79,8 +86,8 @@ export const modelsNamedIn = (
 
 /** `resource`'s polymorphic axis on `field`, from `map.polymorphism`. */
 export const axisOf = <R extends string>(
-  map: RecordFieldMaps,
+  fieldMapsWithPolymorphism: FieldMapsWithPolymorphism,
   resource: R,
   field: string,
 ): PolymorphicAxis | undefined =>
-  axesOfResource(map, resource).find((axis) => axis.field === field);
+  axesOfResource(fieldMapsWithPolymorphism, resource).find((axis) => axis.field === field);

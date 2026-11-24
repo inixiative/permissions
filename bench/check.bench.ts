@@ -3,16 +3,16 @@ import { withExactStrings } from '../src/core/exactStrings';
 import { checkWithRules } from '../test/schemaMaps';
 import {
   entitlement,
-  map,
   model,
   nobody as nobodyTable,
   pool,
   rootOwner,
   schema,
+  schemaMap,
 } from './fixtures';
 import { measure, report } from './harness';
 
-const check = checkWithRules(map);
+const check = checkWithRules(schemaMap);
 const on = (depth: number) => {
   const records = pool(depth);
   return (permix: Parameters<typeof check>[0], action: string) => (i: number) =>

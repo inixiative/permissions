@@ -22,7 +22,7 @@ export const schema: Rules = {
   ),
 };
 
-export const map = mapOf(
+export const schemaMap = mapOf(
   Object.fromEntries(Array.from({ length: DEPTH }, (_, i) => [model(i + 1), { parent: model(i) }])),
 );
 

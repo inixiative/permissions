@@ -6,7 +6,7 @@ import {
   type Row,
   ruleFieldEqualsPath,
   type SchemaMap,
-  validateSchema,
+  validateSchemaMap,
 } from '../index';
 import {
   actorData,
@@ -18,9 +18,9 @@ import {
 } from './schemaMaps';
 
 // Two supplied maps: who is acting, and the request's device posture from a security tool.
-const map: SchemaMap = {
+const schemaMap: SchemaMap = {
   permissions: {},
-  maps: {
+  fieldMaps: {
     db: {
       models: {
         Doc: {
@@ -43,12 +43,12 @@ const map: SchemaMap = {
       enums: { Status: ['draft', 'live'] },
     },
   },
-  supplied: {
+  suppliedFieldMaps: {
     actor: actorMap,
     device: { models: { Posture: { fields: { managed: stringColumn, risk: stringColumn } } } },
   },
 };
-const check = checkWithRules(map);
+const check = checkWithRules(schemaMap);
 const nobody: PermixLike = { check: () => false };
 const schemaOf = (read: ActionRule): Rules => ({
   permissions: { 'db:Doc': { actions: { read } }, 'db:Org': { actions: { read: false } } },
@@ -61,7 +61,7 @@ const read = (rule: ActionRule, record: Row, data?: Record<string, Row[]>) =>
     'read',
   );
 const issues = (rule: ActionRule) =>
-  validateSchema(mapWith(map, schemaOf(rule))).errors.map((issue) => issue.message);
+  validateSchemaMap(mapWith(schemaMap, schemaOf(rule))).errors.map((issue) => issue.message);
 const exists = (field: string) => ({ field, operator: Operator.exists });
 
 const mine = ruleFieldEqualsPath('ownerId', 'actor:User.id');
@@ -147,8 +147,8 @@ describe('supplied maps: rows the call gives, read by every rule as <prefix>:<Mo
 // The actor's own relations, and bridges on from it: a security tool's devices joined by the
 // actor's id (a list), its posture of the request (one row), and each device's findings (a list).
 const chained: SchemaMap = {
-  ...map,
-  supplied: {
+  ...schemaMap,
+  suppliedFieldMaps: {
     actor: {
       models: {
         User: {
@@ -198,7 +198,7 @@ const chainedCheck = checkWithRules(chained);
 const readChained = (rule: ActionRule, record: Row, data: Record<string, Row[]>) =>
   chainedCheck(nobody, schemaOf(rule), { resource: 'db:Doc', record, bridgeData: data }, 'read');
 const chainedIssues = (rule: ActionRule) =>
-  validateSchema(mapWith(chained, schemaOf(rule))).errors.map((issue) => issue.message);
+  validateSchemaMap(mapWith(chained, schemaOf(rule))).errors.map((issue) => issue.message);
 const value = (field: string, operator: Operator, v: string): ActionRule => ({
   rule: { field, operator, value: v },
 });

@@ -5,7 +5,7 @@ import { canGrantWithRules, checkWithRules, mapOf, pathsWithRules, type Rules } 
 // `visited` holds only the nodes on the current path: a node leaves it when its walk returns, so a
 // node a finished sibling walked is walked again by an owner that reaches it.
 
-const map = mapOf({ 'db:space': { organization: 'db:organization' } });
+const schemaMap = mapOf({ 'db:space': { organization: 'db:organization' } });
 const schema: Rules = {
   permissions: {
     'db:organization': { actions: { own: null } },
@@ -39,7 +39,12 @@ const holderAndOwner = async () => {
 describe('`visited` holds only the nodes on the current path', () => {
   test('paths reports the admission through a node a finished sibling walked', async () => {
     const holder = await holderAndOwner();
-    const paths = pathsWithRules(map)(holder, schema, { resource: 'db:space', record: s1 }, 'read');
+    const paths = pathsWithRules(schemaMap)(
+      holder,
+      schema,
+      { resource: 'db:space', record: s1 },
+      'read',
+    );
     expect(paths.map((admission) => admission.map((chain) => chain.join('>')))).toEqual([
       [],
       ['fromO>fromH'],
@@ -49,9 +54,9 @@ describe('`visited` holds only the nodes on the current path', () => {
   test('check and the grant check admit on the same case', async () => {
     const holder = await holderAndOwner();
     const subject = { resource: 'db:space', record: s1 };
-    expect(checkWithRules(map)(holder, schema, subject, 'read')).toBe(true);
+    expect(checkWithRules(schemaMap)(holder, schema, subject, 'read')).toBe(true);
     expect(
-      canGrantWithRules(map)(
+      canGrantWithRules(schemaMap)(
         holder,
         schema,
         { resource: 'db:space', anchor: atS1, actions: { read: true } },

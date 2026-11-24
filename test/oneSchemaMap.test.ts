@@ -9,9 +9,8 @@ import {
   type Row,
   ruleFieldEqualsPath,
   type SchemaMap,
-  type SchemaMapWithoutPermissions,
   validateActionRule,
-  validateSchema,
+  validateSchemaMap,
 } from '../index';
 import { actorData, stringColumn } from './schemaMaps';
 
@@ -53,10 +52,10 @@ const sec: FieldMap = {
   models: { Device: { fields: { serial: stringColumn, risk: stringColumn } } },
 };
 
-const withoutPermissions: SchemaMapWithoutPermissions = {
-  maps: { db },
-  supplied: { actor },
-  polymorphism: {
+const withoutPermissions: Omit<SchemaMap, 'permissions'> = {
+  fieldMaps: { db },
+  suppliedFieldMaps: { actor },
+  polymorphismRegistries: {
     db: { Doc: { axes: [{ field: 'ownerModel', fkMap: { User: ['userId'], Org: ['orgId'] } }] } },
   },
 };
@@ -73,8 +72,8 @@ const mapOfRead = (read: ActionRule, more: Partial<SchemaMap> = {}): SchemaMap =
 });
 
 const nobody: PermixLike = { check: () => false };
-const reads = (map: SchemaMap, record: Row, data?: Record<string, Row[]>) =>
-  makeRebacCheck(map)(
+const reads = (schemaMap: SchemaMap, record: Row, data?: Record<string, Row[]>) =>
+  makeRebacCheck(schemaMap)(
     nobody,
     { resource: 'db:Doc', record, ...(data ? { bridgeData: data } : {}) },
     'read',
@@ -92,34 +91,36 @@ const valueIs = (field: string, value: string): ActionRule => ({
 
 describe('one schema map: maps, supplied, bridges, polymorphism, permissions', () => {
   test('a check takes the one map: the rules, the records and the supplied rows are in it', () => {
-    const map = mapOfRead(mine);
-    expect(reads(map, { ownerId: 'u1' }, actorData('User', { id: 'u1' }))).toBe(true);
-    expect(reads(map, { ownerId: 'u2' }, actorData('User', { id: 'u1' }))).toBe(false);
-    expect(validateSchema(map).errors).toEqual([]);
+    const schemaMap = mapOfRead(mine);
+    expect(reads(schemaMap, { ownerId: 'u1' }, actorData('User', { id: 'u1' }))).toBe(true);
+    expect(reads(schemaMap, { ownerId: 'u2' }, actorData('User', { id: 'u1' }))).toBe(false);
+    expect(validateSchemaMap(schemaMap).errors).toEqual([]);
   });
 
   test('a supplied map goes by any name, `app` included', () => {
-    const map = mapOfRead(ruleFieldEqualsPath('ownerId', 'app:User.id'), {
-      supplied: { app: actor },
+    const schemaMap = mapOfRead(ruleFieldEqualsPath('ownerId', 'app:User.id'), {
+      suppliedFieldMaps: { app: actor },
     });
-    expect(reads(map, { ownerId: 'u1' }, { 'app:User': [{ id: 'u1' }] })).toBe(true);
+    expect(reads(schemaMap, { ownerId: 'u1' }, { 'app:User': [{ id: 'u1' }] })).toBe(true);
   });
 
-  test('a map name in both `maps` and `supplied` throws, and validateSchema reports it', () => {
-    const map = mapOfRead(mine, { supplied: { db: actor } });
-    expect(() => reads(map, {})).toThrow(/`db` is in both `maps` and `supplied`/);
-    expect(validateSchema(map).errors.map((issue) => issue.message)).toEqual([
-      '`db` is in both `maps` and `supplied`: a map is one or the other',
+  test('a map name in both `fieldMaps` and `suppliedFieldMaps` throws, and validateSchemaMap reports it', () => {
+    const schemaMap = mapOfRead(mine, { suppliedFieldMaps: { db: actor } });
+    expect(() => reads(schemaMap, {})).toThrow(
+      /`db` is in both `fieldMaps` and `suppliedFieldMaps`/,
+    );
+    expect(validateSchemaMap(schemaMap).errors.map((issue) => issue.message)).toEqual([
+      '`db` is in both `fieldMaps` and `suppliedFieldMaps`: a map is one or the other',
     ]);
   });
 
   test('a name with no map is refused: there is no map to default to', () => {
-    const map = mapOfRead(true);
-    expect(() => makeRebacCheck(map)(nobody, { resource: 'Doc', record: {} }, 'read')).toThrow(
-      /`Doc` names no map: a resource is `map:Model`/,
-    );
+    const schemaMap = mapOfRead(true);
+    expect(() =>
+      makeRebacCheck(schemaMap)(nobody, { resource: 'Doc', record: {} }, 'read'),
+    ).toThrow(/`Doc` names no map: a resource is `map:Model`/);
     const bare = mapOfRead(true, { permissions: { Doc: { actions: { read: true } } } });
-    expect(validateSchema(bare).errors.map((issue) => issue.message)).toContain(
+    expect(validateSchemaMap(bare).errors.map((issue) => issue.message)).toContain(
       '`Doc` names no map: a resource is `map:Model`',
     );
   });
@@ -131,10 +132,10 @@ describe('one schema map: maps, supplied, bridges, polymorphism, permissions', (
     );
   });
 
-  test('validateSchema reports every name and bridge problem of a map that cannot be indexed', () => {
-    const map = mapOfRead(mine, {
-      supplied: { db: actor },
-      polymorphism: { nope: {} },
+  test('validateSchemaMap reports every name and bridge problem of a map that cannot be indexed', () => {
+    const schemaMap = mapOfRead(mine, {
+      suppliedFieldMaps: { db: actor },
+      polymorphismRegistries: { nope: {} },
       bridges: [
         {
           endpoints: [
@@ -145,53 +146,61 @@ describe('one schema map: maps, supplied, bridges, polymorphism, permissions', (
         },
       ],
     });
-    expect(() => reads(map, {})).toThrow(/`polymorphism` names the map `nope`/);
-    expect(validateSchema(map).errors.map((issue) => issue.message.split(':')[0])).toEqual([
-      '`polymorphism` names the map `nope`, which is not in `maps`',
-      '`db` is in both `maps` and `supplied`',
-      'a bridge between `db',
+    expect(() => reads(schemaMap, {})).toThrow(/`polymorphismRegistries` names the map `nope`/);
+    expect(validateSchemaMap(schemaMap).errors.map((issue) => issue.message.split(':')[0])).toEqual(
+      [
+        '`polymorphismRegistries` names the map `nope`, which is not in `fieldMaps`',
+        '`db` is in both `fieldMaps` and `suppliedFieldMaps`',
+        'a bridge between `db',
+      ],
+    );
+    expect(validateSchemaMap(schemaMap).errors.map((issue) => issue.path)).toEqual([
+      '$',
+      '$',
+      'bridges',
     ]);
-    expect(validateSchema(map).errors.map((issue) => issue.path)).toEqual(['$', '$', 'bridges']);
   });
 
-  test('polymorphism names a map in `maps` and a model of it', () => {
-    const reading = (polymorphism: SchemaMap['polymorphism']) => () =>
-      reads(mapOfRead(true, { polymorphism }), {});
+  test('polymorphism names a map in `fieldMaps` and a model of it', () => {
+    const reading = (polymorphismRegistries: SchemaMap['polymorphismRegistries']) => () =>
+      reads(mapOfRead(true, { polymorphismRegistries }), {});
     const axes = [{ field: 'ownerModel', fkMap: { User: ['userId'] } }];
     expect(reading({ zz: { Doc: { axes } } })).toThrow(
-      /`polymorphism` names the map `zz`, which is not in `maps`/,
+      /`polymorphismRegistries` names the map `zz`, which is not in `fieldMaps`/,
     );
     expect(reading({ Doc: { axes } } as never)).toThrow(
-      /`polymorphism` names the map `Doc`, which is not in `maps`/,
+      /`polymorphismRegistries` names the map `Doc`, which is not in `fieldMaps`/,
     );
     expect(reading({ db: { Dok: { axes } } })).toThrow(
-      /`polymorphism` names `db:Dok`, which is not a model of the map `db`/,
+      /`polymorphismRegistries` names `db:Dok`, which is not a model of the map `db`/,
     );
   });
 
-  test('every model of a map in `maps` is a resource: a relation to it is followed', () => {
-    const map = mapOfRead(valueIs('org.ownerId', 'u1'), { permissions: { 'db:Org': undefined } });
-    expect(validateSchema(map).errors).toEqual([]);
-    expect(reads(map, { orgId: 'o1', org: { id: 'o1', ownerId: 'u1' } })).toBe(true);
+  test('every model of a map in `fieldMaps` is a resource: a relation to it is followed', () => {
+    const schemaMap = mapOfRead(valueIs('org.ownerId', 'u1'), {
+      permissions: { 'db:Org': undefined },
+    });
+    expect(validateSchemaMap(schemaMap).errors).toEqual([]);
+    expect(reads(schemaMap, { orgId: 'o1', org: { id: 'o1', ownerId: 'u1' } })).toBe(true);
   });
 
   test('a name whose map has no such model is an error, not a resource with no lens', () => {
     const typo = mapOfRead(true, { permissions: { 'db:Dok': { actions: { read: true } } } });
-    expect(validateSchema(typo).errors.map((issue) => issue.message)).toContain(
+    expect(validateSchemaMap(typo).errors.map((issue) => issue.message)).toContain(
       '`db:Dok` is not a model of the map `db`',
     );
   });
 
   test('`db:User` and `actor:User` are two models: a relation leads to the one in its own map', () => {
-    const map = mapOfRead(
+    const schemaMap = mapOfRead(
       { rel: 'user', action: 'read' },
       {
         permissions: { 'db:User': { actions: { read: valueIs('actor:User.id', 'u1') } } },
       },
     );
     const record = { userId: 'x', user: { id: 'x' } };
-    expect(reads(map, record, actorData('User', { id: 'u1' }))).toBe(true);
-    expect(reads(map, record, actorData('User', { id: 'u2' }))).toBe(false);
+    expect(reads(schemaMap, record, actorData('User', { id: 'u1' }))).toBe(true);
+    expect(reads(schemaMap, record, actorData('User', { id: 'u2' }))).toBe(false);
   });
 
   test('kind rules are built from the map before it has rules, a record side and a supplied side', () => {
@@ -238,12 +247,12 @@ describe('one list of bridges', () => {
   };
 
   test('a bridge between supplied maps is read by a rule; one from a record is crossed by a rel', () => {
-    const map = mapOfRead(
+    const schemaMap = mapOfRead(
       {
         all: [valueIs('actor:User.sec:Device.risk', 'low'), { rel: 'crm:Account', action: 'own' }],
       },
       {
-        supplied: { actor, sec },
+        suppliedFieldMaps: { actor, sec },
         bridges: [deviceOfActor, accountOfDoc],
         permissions: { 'crm:Account': { actions: { own: null } } },
       },
@@ -257,7 +266,7 @@ describe('one list of bridges', () => {
       'sec:Device': [{ serial: 's1', risk }],
       'crm:Account': [{ id: 'a1' }],
     });
-    const check = makeRebacCheck(map);
+    const check = makeRebacCheck(schemaMap);
     const subject = (risk: string) => ({
       resource: 'db:Doc',
       record: { id: 'd1', accountId: 'a1' },
@@ -266,7 +275,7 @@ describe('one list of bridges', () => {
     expect(check(owner, subject('low'), 'read')).toBe(true);
     expect(check(owner, subject('high'), 'read')).toBe(false);
     expect(check(nobody, subject('low'), 'read')).toBe(false);
-    expect(validateSchema(map).errors).toEqual([]);
+    expect(validateSchemaMap(schemaMap).errors).toEqual([]);
   });
 
   for (const [what, bridge] of [
@@ -292,18 +301,18 @@ describe('one list of bridges', () => {
     ],
   ] as [string, Bridge][])
     test(`a bridge ${what} with one end supplied and one a record is refused: no chain leads from a supplied row into the records`, () => {
-      const map = mapOfRead(mine, { bridges: [bridge] });
+      const schemaMap = mapOfRead(mine, { bridges: [bridge] });
       const refusal = /a bridge between `\w+:\w+` and `\w+:\w+` has one end supplied/;
-      expect(() => reads(map, {})).toThrow(refusal);
+      expect(() => reads(schemaMap, {})).toThrow(refusal);
       expect(
-        validateSchema(map)
+        validateSchemaMap(schemaMap)
           .errors.map((issue) => issue.message)
           .join(),
       ).toMatch(refusal);
     });
 
   test('a bridge crossed by a rel is joined', () => {
-    const map = mapOfRead(true, {
+    const schemaMap = mapOfRead(true, {
       bridges: [
         {
           endpoints: [
@@ -315,7 +324,7 @@ describe('one list of bridges', () => {
       ],
     });
     expect(
-      validateSchema(map)
+      validateSchemaMap(schemaMap)
         .errors.map((issue) => issue.message)
         .join(),
     ).toMatch(
@@ -325,14 +334,14 @@ describe('one list of bridges', () => {
 });
 
 describe('validateActionRule answers what a check refuses, in one call', () => {
-  const map = mapOfRead(true, {
+  const schemaMap = mapOfRead(true, {
     permissions: {
       'db:Doc': { actions: { read: true, write: 'read' } },
       'db:Org': { actions: { read: true } },
     },
   });
   const codes = (rule: unknown, more: object = {}) =>
-    validateActionRule(rule, { map, resource: 'db:Doc', action: 'read', ...more }).errors.map(
+    validateActionRule(rule, { schemaMap, resource: 'db:Doc', action: 'read', ...more }).errors.map(
       (issue) => issue.code,
     );
 
@@ -370,24 +379,24 @@ describe('validateActionRule answers what a check refuses, in one call', () => {
   });
 
   test('with no action there is no cycle to find; reads are still judged', () => {
-    const at = { map, resource: 'db:Doc' };
+    const at = { schemaMap, resource: 'db:Doc' };
     expect(validateActionRule('write', at).errors).toEqual([]);
     expect(validateActionRule(has('noSuchColumn'), at).errors.map((i) => i.code)).toEqual(['lens']);
   });
 
-  test('validateSchema reports a read outside the lens once', () => {
+  test('validateSchemaMap reports a read outside the lens once', () => {
     const bad = mapOfRead(has('noSuchColumn'));
-    expect(validateSchema(bad).errors).toHaveLength(1);
+    expect(validateSchemaMap(bad).errors).toHaveLength(1);
   });
 });
 
 describe('what a check freezes', () => {
   test('the rules and the bridges, never the field maps', () => {
-    const map = mapOfRead(mine, { maps: { db: structuredClone(db) }, bridges: [] });
-    reads(map, { ownerId: 'u1' }, actorData('User', { id: 'u1' }));
-    expect(Object.isFrozen(map.permissions)).toBe(true);
-    expect(Object.isFrozen(map.bridges)).toBe(true);
-    expect(Object.isFrozen(map.maps.db)).toBe(false);
-    expect(Object.isFrozen(map)).toBe(false);
+    const schemaMap = mapOfRead(mine, { fieldMaps: { db: structuredClone(db) }, bridges: [] });
+    reads(schemaMap, { ownerId: 'u1' }, actorData('User', { id: 'u1' }));
+    expect(Object.isFrozen(schemaMap.permissions)).toBe(true);
+    expect(Object.isFrozen(schemaMap.bridges)).toBe(true);
+    expect(Object.isFrozen(schemaMap.fieldMaps.db)).toBe(false);
+    expect(Object.isFrozen(schemaMap)).toBe(false);
   });
 });

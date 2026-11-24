@@ -23,10 +23,10 @@ export type RebacCheck<R extends string = string> = (
  * denies; a rule naming itself on one record throws.
  */
 export const makeRebacCheck = <R extends string = string>(
-  map: SchemaMap<R>,
+  schemaMap: SchemaMap<R>,
   { additionalRules }: CheckOptions = {},
 ): RebacCheck<R> => {
-  const walker = makeWalker(map, booleanAlgebra, false, additionalRules);
+  const walker = makeWalker(schemaMap, booleanAlgebra, false, additionalRules);
   return (permix, subject, actionOrRule) => walker(permix, subject, actionOrRule);
 };
 
@@ -46,10 +46,10 @@ export type PathsOptions = CheckOptions & { limit?: number };
  * throws {@link PathLimitError}.
  */
 export const makeRebacPaths = <R extends string = string>(
-  map: SchemaMap<R>,
+  schemaMap: SchemaMap<R>,
   { limit = 20, additionalRules }: PathsOptions = {},
 ): RebacPaths<R> => {
-  const walker = makeWalker(map, pathsAlgebra(limit), false, additionalRules);
+  const walker = makeWalker(schemaMap, pathsAlgebra(limit), false, additionalRules);
   return (permix, subject, actionOrRule) => walker(permix, subject, actionOrRule);
 };
 

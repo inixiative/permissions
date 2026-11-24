@@ -1,36 +1,32 @@
 import { describe, expect, test } from 'bun:test';
+import type { FieldMap } from '@inixiative/field-map';
 import {
   makeHydrator,
   makeRebacCheck,
-  type RecordFieldMaps,
   type Row,
   type SchemaMap,
-  validateSchema,
+  validateSchemaMap,
 } from '../index';
 
 const id = { kind: 'scalar', type: 'String', isId: true } as const;
 const column = { kind: 'scalar', type: 'String' } as const;
 
-const records: RecordFieldMaps = {
-  maps: {
-    db: {
-      models: {
-        Space: {
-          fields: {
-            id,
-            organizationId: column,
-            organization: {
-              kind: 'object',
-              type: 'Organization',
-              isList: false,
-              fromFields: ['organizationId'],
-              toFields: ['id'],
-            },
-          },
+const fieldMap: FieldMap = {
+  models: {
+    Space: {
+      fields: {
+        id,
+        organizationId: column,
+        organization: {
+          kind: 'object',
+          type: 'Organization',
+          isList: false,
+          fromFields: ['organizationId'],
+          toFields: ['id'],
         },
-        Organization: { fields: { id, name: column } },
       },
     },
+    Organization: { fields: { id, name: column } },
   },
 };
 
@@ -40,32 +36,37 @@ const load = async (resource: string, where: Row) =>
 const space = { id: 's1', organizationId: 'o1' };
 const nobody = { check: () => false };
 
-describe('the hydrator only hydrates', () => {
-  test('it takes the record field maps and their polymorphism, and nothing else', async () => {
-    const hydrated = await makeHydrator({ map: records, load })('db:Space', space);
+describe('the hydrator only hydrates, one field map at a time', () => {
+  test('it takes one field map and its name, and nothing else of the schema map', async () => {
+    const hydrated = await makeHydrator({ mapName: 'db', fieldMap, load })('db:Space', space);
     expect((hydrated.organization as Row).name).toBe('Org');
   });
 
-  test('a whole schema map is record field maps too', async () => {
-    const map: SchemaMap = { ...records, permissions: {} };
-    const hydrated = await makeHydrator({ map, load })('db:Space', space);
-    expect((hydrated.organization as Row).name).toBe('Org');
+  test('the name it is given is the map half of every resource it reads and loads', async () => {
+    const asked: string[] = [];
+    const loadFromCrm = async (resource: string, where: Row) => {
+      asked.push(resource);
+      return store[resource.replace('crm:', 'db:')]?.find((row) => row.id === where.id) ?? null;
+    };
+    const hydrate = makeHydrator({ mapName: 'crm', fieldMap, load: loadFromCrm });
+    expect(((await hydrate('crm:Space', space)).organization as Row).name).toBe('Org');
+    expect(asked).toEqual(['crm:Organization']);
   });
 
   test('what is wrong with the map’s names is the validator’s and the check’s, never the hydrator’s', async () => {
     const actor = { models: { User: { fields: { id } } } };
-    const map: SchemaMap = {
-      ...records,
-      supplied: { db: actor },
+    const schemaMap: SchemaMap = {
+      fieldMaps: { db: fieldMap },
+      suppliedFieldMaps: { db: actor },
       permissions: { 'db:Space': { actions: { read: true } } },
     };
-    const hydrated = await makeHydrator({ map, load })('db:Space', space);
+    const hydrated = await makeHydrator({ mapName: 'db', fieldMap, load })('db:Space', space);
     expect((hydrated.organization as Row).name).toBe('Org');
-    expect(validateSchema(map).errors.map((issue) => issue.message)).toEqual([
-      '`db` is in both `maps` and `supplied`: a map is one or the other',
+    expect(validateSchemaMap(schemaMap).errors.map((issue) => issue.message)).toEqual([
+      '`db` is in both `fieldMaps` and `suppliedFieldMaps`: a map is one or the other',
     ]);
     expect(() =>
-      makeRebacCheck(map)(nobody, { resource: 'db:Space', record: hydrated }, 'read'),
-    ).toThrow(/`db` is in both `maps` and `supplied`/);
+      makeRebacCheck(schemaMap)(nobody, { resource: 'db:Space', record: hydrated }, 'read'),
+    ).toThrow(/`db` is in both `fieldMaps` and `suppliedFieldMaps`/);
   });
 });

@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'bun:test';
 import { Operator } from '@inixiative/json-rules';
-import { validateSchema } from '../index';
+import { validateSchemaMap } from '../index';
 import { mapOf, mapWith, type Rules } from './schemaMaps';
 
-const map = mapOf(
+const schemaMap = mapOf(
   {
     'db:document': { organization: 'db:organization', author: 'db:user', folder: 'db:folder' },
     'db:folder': { organization: 'db:organization', archive: 'db:archive' },
@@ -30,16 +30,20 @@ const schema: Rules = {
   },
 };
 
-describe('validateSchema', () => {
+describe('validateSchemaMap', () => {
   test('a schema whose rels resolve and whose actions exist is valid', () => {
-    expect(validateSchema(mapWith(map, schema))).toEqual({ ok: true, errors: [], warnings: [] });
+    expect(validateSchemaMap(mapWith(schemaMap, schema))).toEqual({
+      ok: true,
+      errors: [],
+      warnings: [],
+    });
   });
 
   test('names a relation the map does not have', () => {
     const bad: Rules = {
       permissions: { 'db:document': { actions: { read: { rel: 'orgnization', action: 'read' } } } },
     };
-    expect(validateSchema(mapWith(map, bad)).errors).toEqual([
+    expect(validateSchemaMap(mapWith(schemaMap, bad)).errors).toEqual([
       {
         path: 'db:document.read',
         code: 'relation',
@@ -57,10 +61,9 @@ describe('validateSchema', () => {
         },
       },
     };
-    expect(validateSchema(mapWith(map, bad)).errors.map((issue) => issue.message)).toEqual([
-      '`db:organization` has no action `view`',
-      '`db:document` has no action `write`',
-    ]);
+    expect(validateSchemaMap(mapWith(schemaMap, bad)).errors.map((issue) => issue.message)).toEqual(
+      ['`db:organization` has no action `view`', '`db:document` has no action `write`'],
+    );
   });
 
   test('carries validateActionRule’s refusals, e.g. a negated rule', () => {
@@ -71,6 +74,6 @@ describe('validateSchema', () => {
         },
       },
     };
-    expect(validateSchema(mapWith(map, bad)).ok).toBe(false);
+    expect(validateSchemaMap(mapWith(schemaMap, bad)).ok).toBe(false);
   });
 });

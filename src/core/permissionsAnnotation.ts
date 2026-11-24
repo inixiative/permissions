@@ -1,7 +1,7 @@
 import { type FieldEntry, hasColumn, isScalarField } from '@inixiative/field-map';
 import { idField } from './recordId';
 import { axesOfResource, fieldOfResource, modelOfResource } from './resourceNames';
-import type { RecordFieldMaps } from './schemaMap';
+import type { FieldMapsWithPolymorphism } from './schemaMap';
 
 /** A field's `/// @permissions(...)` annotation, as field-map carries it. */
 export const permissionsAnnotation = (field: FieldEntry | undefined) =>
@@ -16,13 +16,13 @@ export const dottedPath = /^[A-Za-z_]\w*(\.[A-Za-z_]\w*)*$/;
 
 /** Why the field `name` of `resource` is no `pseudoField` with this value, or null. */
 export const whyFieldIsNoPseudoField = (
-  map: RecordFieldMaps,
+  fieldMapsWithPolymorphism: FieldMapsWithPolymorphism,
   resource: string,
   name: string,
   value: unknown,
 ): string | null => {
-  const fields = modelOfResource(map, resource)?.fields ?? {};
-  const field = fieldOfResource(map, resource, name);
+  const fields = modelOfResource(fieldMapsWithPolymorphism, resource)?.fields ?? {};
+  const field = fieldOfResource(fieldMapsWithPolymorphism, resource, name);
   if (value !== true) return 'is true or absent';
   if (!field || !hasColumn(field)) return 'sits on a scalar or enum field';
   if (field.isList) return 'never sits on a list';
@@ -33,7 +33,7 @@ export const whyFieldIsNoPseudoField = (
     )
   )
     return 'never sits on a relation key: the path sets it';
-  if (axesOfResource(map, resource).some((axis) => axis.field === name))
+  if (axesOfResource(fieldMapsWithPolymorphism, resource).some((axis) => axis.field === name))
     return 'never sits on a discriminator: the path sets the kind';
   if (field.kind === 'scalar' && !pseudoFieldTypes.includes(field.type))
     return `sits on String, Int, Boolean or an enum, not ${field.type}`;

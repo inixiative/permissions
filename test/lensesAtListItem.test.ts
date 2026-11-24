@@ -10,10 +10,10 @@ import {
 } from '../index';
 import { actorMap, mapWith, type Rules } from './schemaMaps';
 
-const map: SchemaMap = {
+const schemaMap: SchemaMap = {
   permissions: {},
-  supplied: { actor: actorMap },
-  maps: {
+  suppliedFieldMaps: { actor: actorMap },
+  fieldMaps: {
     db: {
       models: {
         Org: {
@@ -68,7 +68,7 @@ const reads = (lens: ReturnType<typeof lensesAtRow>['rule'], field: string) =>
 
 describe('lensesAtRow / lensesAtListItem', () => {
   test("a row's rule lens carries the actor, its lens does not", () => {
-    const at = lensesAtRow(map, 'db:Member');
+    const at = lensesAtRow(schemaMap, 'db:Member');
     expect(reads(at.rule, 'actor:User.id')).toBe(true);
     expect(reads(at.rule, '__actor.id')).toBe(false);
     expect(reads(at.lens, 'actor:User.id')).toBe(false);
@@ -76,15 +76,15 @@ describe('lensesAtRow / lensesAtListItem', () => {
   });
 
   test('an item of a declared list is judged in what its `down` paths load', () => {
-    const item = lensesAtListItem(map, 'db:Org', 'members');
+    const item = lensesAtListItem(schemaMap, 'db:Org', 'members');
     expect(item?.resource).toBe('db:Member');
     expect(item?.under?.list).toBe('db:Org.members');
     expect(reads(item?.lens ?? null, 'user.email')).toBe(true);
   });
 
   test('a list that is not declared has no item lenses', () => {
-    expect(lensesAtListItem(map, 'db:Org', 'guests')).toBeNull();
-    expect(lensesAtListItem(map, 'db:Org', 'name')).toBeNull();
+    expect(lensesAtListItem(schemaMap, 'db:Org', 'guests')).toBeNull();
+    expect(lensesAtListItem(schemaMap, 'db:Org', 'name')).toBeNull();
   });
 });
 
@@ -96,23 +96,27 @@ describe('relationHopsFrom / declaredListsOf', () => {
     },
   };
   test('a row offers its followed to-one relations, each with where it lands', () => {
-    const hops = relationHopsFrom(mapWith(map, schema), lensesAtRow(map, 'db:Member'));
+    const hops = relationHopsFrom(mapWith(schemaMap, schema), lensesAtRow(schemaMap, 'db:Member'));
     expect(hops).toEqual([
       { segment: 'org', resource: 'db:Org', bridge: false },
       { segment: 'user', resource: 'db:User', bridge: false },
     ]);
   });
   test('a hop past a walked path is offered from where it lands, never back to a model passed', () => {
-    const hops = relationHopsFrom(mapWith(map, schema), lensesAtRow(map, 'db:Member'), 'org');
+    const hops = relationHopsFrom(
+      mapWith(schemaMap, schema),
+      lensesAtRow(schemaMap, 'db:Member'),
+      'org',
+    );
     expect(hops).toEqual([]);
   });
   test('declared lists only', () => {
-    expect(declaredListsOf(map, 'db:Org')).toEqual(['members']);
+    expect(declaredListsOf(schemaMap, 'db:Org')).toEqual(['members']);
   });
   test('an inline rule reading outside the lens has issues', () => {
     const issues = validateActionRule(
       { rule: { field: 'org.members.role', operator: 'equals', value: 'x' } },
-      { map: mapWith(map, schema), resource: 'db:Member' },
+      { schemaMap: mapWith(schemaMap, schema), resource: 'db:Member' },
     ).errors;
     expect(issues.length).toBeGreaterThan(0);
   });
@@ -121,7 +125,7 @@ describe('relationHopsFrom / declaredListsOf', () => {
 describe('relationHopsFrom over bridges and a self relation', () => {
   const dbMap: SchemaMap = {
     permissions: {},
-    maps: {
+    fieldMaps: {
       db: {
         models: {
           Org: {
