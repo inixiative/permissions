@@ -1,5 +1,6 @@
-import type { ValidationIssue } from '@inixiative/json-rules';
+import { endpointKey, type ValidationIssue } from '@inixiative/json-rules';
 import { bridgeHop } from './bridgeHop';
+import { resourceHasNoFieldMap } from './errors';
 import {
   issueRefusesTheRead,
   issuesForReadsOutsideLens,
@@ -10,13 +11,14 @@ import {
   whyRelationPathCannotBeWalked,
 } from './lens';
 import { relationOf } from './relations';
-import type { SchemaMap } from './schemaMap';
+import { modelOfResource, whyNameIsNoModel } from './resourceNames';
+import type { ResolvedSchemaMap } from './schemaMap';
 import { bridgesWalkedFromRecords, suppliedModelAt } from './supplied';
 import type { ActionRule } from './types';
 
 /** Walk a `{ rel }` path from `at` as a check hops it: the lenses where it lands, or why it cannot be walked. */
 export const walkRelationPath = (
-  map: SchemaMap,
+  schemaMap: ResolvedSchemaMap,
   at: LensesAtRow,
   rel: string,
   path: string,
@@ -26,16 +28,16 @@ export const walkRelationPath = (
   let run: string[] = [];
   let current = at.resource;
   const judge = (): ValidationIssue[] => {
-    const problem = whyRelationPathCannotBeWalked(map, from, run.join('.'));
+    const problem = whyRelationPathCannotBeWalked(schemaMap, from, run.join('.'));
     return problem
       ? [{ path, code: problem.code === 'down' ? 'down' : 'relation', message: problem.message }]
       : [];
   };
   for (const segment of rel.split('.')) {
-    const hop = bridgeHop(bridgesWalkedFromRecords(map), current, segment);
+    const hop = bridgeHop(bridgesWalkedFromRecords(schemaMap), current, segment);
     if (!hop) {
       run.push(segment);
-      const next = relationOf(map, current, segment);
+      const next = relationOf(schemaMap, current, segment);
       if (!next) return { issues: judge() };
       current = next.resource;
       continue;
@@ -53,21 +55,21 @@ export const walkRelationPath = (
     const missed = judge();
     if (missed.length) return { issues: missed };
     current = hop.farResource;
-    from = lensesAtRow(map, current);
+    from = lensesAtRow(schemaMap, current);
     run = [];
   }
   const missed = judge();
   if (missed.length) return { issues: missed };
   return {
     landed: from.under
-      ? lensesAtRow(map, current, { ...from.under, prefix: [...from.under.prefix, ...run] })
-      : lensesAtRow(map, current),
+      ? lensesAtRow(schemaMap, current, { ...from.under, prefix: [...from.under.prefix, ...run] })
+      : lensesAtRow(schemaMap, current),
   };
 };
 
 /** Every read, action and operator issue of a well-formed rule at `at`. */
 export const relIssues = (
-  map: SchemaMap,
+  schemaMap: ResolvedSchemaMap,
   at: LensesAtRow,
   rule: ActionRule,
   path: string,
@@ -79,25 +81,29 @@ export const relIssues = (
     if (!seen || seen.has(key)) return [];
     seen.add(key);
     return relIssues(
-      map,
+      schemaMap,
       landed,
-      map.permissions[landed.resource]?.actions[action] ?? null,
+      schemaMap.permissions[landed.resource]?.actions[action] ?? null,
       path,
       seen,
     );
   };
   if (rule === null || typeof rule !== 'object') {
     if (typeof rule !== 'string') return [];
-    if (!(rule in (map.permissions[resource]?.actions ?? {})))
+    if (!(rule in (schemaMap.permissions[resource]?.actions ?? {})))
       return [{ path, code: 'action', message: `\`${resource}\` has no action \`${rule}\`` }];
     return under ? follow(at, rule) : [];
   }
   if ('any' in rule)
-    return rule.any.flatMap((child, i) => relIssues(map, at, child, `${path}.any[${i}]`, seen));
+    return rule.any.flatMap((child, i) =>
+      relIssues(schemaMap, at, child, `${path}.any[${i}]`, seen),
+    );
   if ('all' in rule)
-    return rule.all.flatMap((child, i) => relIssues(map, at, child, `${path}.all[${i}]`, seen));
+    return rule.all.flatMap((child, i) =>
+      relIssues(schemaMap, at, child, `${path}.all[${i}]`, seen),
+    );
   if ('rule' in rule)
-    return issuesForReadsOutsideLens(map, at, rule.rule, path, { supplied: true });
+    return issuesForReadsOutsideLens(schemaMap, at, rule.rule, path, { supplied: true });
   if ('arrayOperator' in rule) {
     if (under)
       return [
@@ -107,9 +113,9 @@ export const relIssues = (
           message: `\`${resource}.${rule.rel}\` is a second list under an item of \`${under.list}\`: one list per walk`,
         },
       ];
-    if (suppliedModelAt(map, rule.rel.split('.')[0] ?? ''))
-      return issuesOfSuppliedListArm(map, rule.rel, rule.condition, path);
-    const item = lensesAtListItem(map, resource, rule.rel);
+    if (suppliedModelAt(schemaMap, rule.rel.split('.')[0] ?? ''))
+      return issuesOfSuppliedListArm(schemaMap, resource, rule.rel, rule.condition, path);
+    const item = lensesAtListItem(schemaMap, resource, rule.rel);
     if (!item)
       return [
         {
@@ -118,11 +124,11 @@ export const relIssues = (
           message: `\`${resource}.${rule.rel}\` is not a declared list: mark the list field \`/// @permissions(down: [...])\``,
         },
       ];
-    return relIssues(map, item, rule.condition, `${path}.condition`, new Set());
+    return relIssues(schemaMap, item, rule.condition, `${path}.condition`, new Set());
   }
-  const walked = walkRelationPath(map, at, rule.rel, path);
+  const walked = walkRelationPath(schemaMap, at, rule.rel, path);
   if ('issues' in walked) return walked.issues;
-  if (!(rule.action in (map.permissions[walked.landed.resource]?.actions ?? {})))
+  if (!(rule.action in (schemaMap.permissions[walked.landed.resource]?.actions ?? {})))
     return [
       {
         path,
@@ -135,14 +141,28 @@ export const relIssues = (
 };
 
 /** Whether a check refuses on this issue: a read it cannot make, not an action that does not exist (it denies) nor an operator that does not fit. */
+/** What is wrong with `resource` as a place a rule sits, or null: it names no map, a model its map does not have, or neither a model of a field map nor the far end of a bridge from one. */
+export const whyResourceIsNoPlaceForARule = (
+  schemaMap: ResolvedSchemaMap,
+  resource: string,
+): string | null => {
+  const why = whyNameIsNoModel(schemaMap, resource);
+  if (why) return why;
+  if (modelOfResource(schemaMap, resource)) return null;
+  const far = bridgesWalkedFromRecords(schemaMap).some(({ endpoints }) =>
+    endpoints.some((end) => endpointKey(end) === resource),
+  );
+  return far ? null : resourceHasNoFieldMap(resource);
+};
+
 export const isRefusedByACheck = (issue: ValidationIssue): boolean =>
   issue.code !== 'action' && issueRefusesTheRead(issue);
 
 /** Every read of a well-formed action rule at `resource` that a check refuses: outside the lens, a relation it cannot walk, a list it does not declare. */
 export const issuesForRuleReadsOutsideLens = (
-  map: SchemaMap,
+  schemaMap: ResolvedSchemaMap,
   resource: string,
   rule: ActionRule,
   at = '$',
 ): ValidationIssue[] =>
-  relIssues(map, lensesAtRow(map, resource), rule, at).filter(isRefusedByACheck);
+  relIssues(schemaMap, lensesAtRow(schemaMap, resource), rule, at).filter(isRefusedByACheck);

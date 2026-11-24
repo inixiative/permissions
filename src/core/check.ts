@@ -1,7 +1,7 @@
 import { type Admission, booleanAlgebra, pathsAlgebra } from './algebra';
 import type { SchemaMap } from './schemaMap';
 import type { ActionRule, CheckOptions, PermixLike, Subject } from './types';
-import { createWalker } from './walker';
+import { makeWalker } from './walker';
 
 export type RebacCheck<R extends string = string> = (
   permix: PermixLike,
@@ -10,23 +10,23 @@ export type RebacCheck<R extends string = string> = (
 ) => boolean;
 
 /**
- * Build the rebac check over the app's schema map: its field maps, supplied maps, bridges,
+ * Build the rebac check over the app's schema map: its field maps, bridges,
  * polymorphism and rules, in the one object.
  *
  * A `rel` hop reads the relation field from the resource's model in `map.maps` and lands on the
  * model it leads to, in the same map; a path's polymorphic kinds come from `map.polymorphism`.
  * Cross-source `rel` hops cross the map's joined bridges that have no end supplied: the join-key
  * scalar on the record looks the far row up in a `BridgeDictionary` the engine builds from
- * `subject.data`; a far row absent there denies the walk. `string` delegates (rbac via permix or
+ * `subject.bridgeData`; a far row absent there denies the walk. `string` delegates (rbac via permix or
  * the map's rules), `{ rule }` is an ABAC predicate over the record and the supplied rows
- * `subject.data` gives (`actor:<Model>.<column>`), `any`/`all` compose. A loop through a relation
+ * `subject.bridgeData` gives (`actor:<Model>.<column>`), `any`/`all` compose. A loop through a relation
  * denies; a rule naming itself on one record throws.
  */
-export const createRebacCheck = <R extends string = string>(
-  map: SchemaMap<R>,
+export const makeRebacCheck = <R extends string = string>(
+  schemaMap: SchemaMap<R>,
   { additionalRules }: CheckOptions = {},
 ): RebacCheck<R> => {
-  const walker = createWalker(map, booleanAlgebra, false, additionalRules);
+  const walker = makeWalker(schemaMap, booleanAlgebra, false, additionalRules);
   return (permix, subject, actionOrRule) => walker(permix, subject, actionOrRule);
 };
 
@@ -45,11 +45,11 @@ export type PathsOptions = CheckOptions & { limit?: number };
  * entitlements in the order they were set up. A walk that finds more than `limit` (default 20)
  * throws {@link PathLimitError}.
  */
-export const createRebacPaths = <R extends string = string>(
-  map: SchemaMap<R>,
+export const makeRebacPaths = <R extends string = string>(
+  schemaMap: SchemaMap<R>,
   { limit = 20, additionalRules }: PathsOptions = {},
 ): RebacPaths<R> => {
-  const walker = createWalker(map, pathsAlgebra(limit), false, additionalRules);
+  const walker = makeWalker(schemaMap, pathsAlgebra(limit), false, additionalRules);
   return (permix, subject, actionOrRule) => walker(permix, subject, actionOrRule);
 };
 

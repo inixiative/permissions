@@ -17,8 +17,7 @@ import {
   modelsNamedIn,
   resourceLedToBy,
 } from './resourceNames';
-import type { PolymorphicAxis, SchemaMap } from './schemaMap';
-import { problemsOfMapNames } from './validateSchemaMap';
+import type { FieldMapsWithPolymorphism, PolymorphicAxis } from './schemaMap';
 
 /** A to-one relation the hydrator follows: where it leads, its key, and on a polymorphic record the kinds it admits. */
 export type Relation<R extends string = string> = {
@@ -48,13 +47,11 @@ type MapIndex = {
   lensSizes: Map<string, number>;
 };
 
-const indexes = new WeakMap<SchemaMap, MapIndex>();
+const indexes = new WeakMap<FieldMapsWithPolymorphism, MapIndex>();
 
-export const indexMap = (map: SchemaMap): MapIndex => {
-  const known = indexes.get(map);
+export const indexMap = (fieldMapsWithPolymorphism: FieldMapsWithPolymorphism): MapIndex => {
+  const known = indexes.get(fieldMapsWithPolymorphism);
   if (known) return known;
-  const [problem] = problemsOfMapNames(map);
-  if (problem) throw new Error(problem);
   const index: MapIndex = {
     lists: new Map(),
     pseudoFields: new Map(),
@@ -63,21 +60,24 @@ export const indexMap = (map: SchemaMap): MapIndex => {
     lenses: new Map(),
     lensSizes: new Map(),
   };
-  indexes.set(map, index);
+  indexes.set(fieldMapsWithPolymorphism, index);
   try {
-    indexAnnotations(map, index);
+    indexAnnotations(fieldMapsWithPolymorphism, index);
   } catch (error) {
-    indexes.delete(map);
+    indexes.delete(fieldMapsWithPolymorphism);
     throw error;
   }
   return index;
 };
 
 // why: field-map keeps a malformed annotation value without complaint, so every one is read strictly here
-const indexAnnotations = (map: SchemaMap, index: MapIndex) => {
-  for (const resource of modelsNamedIn(map.maps)) {
+const indexAnnotations = (
+  fieldMapsWithPolymorphism: FieldMapsWithPolymorphism,
+  index: MapIndex,
+) => {
+  for (const resource of modelsNamedIn(fieldMapsWithPolymorphism.fieldMaps)) {
     const model = mapAndModelNamed(resource).modelName;
-    const fields = modelOfResource(map, resource)?.fields ?? {};
+    const fields = modelOfResource(fieldMapsWithPolymorphism, resource)?.fields ?? {};
     const pseudoFields = new Set<string>();
     for (const [name, field] of Object.entries(fields)) {
       const annotation = permissionsAnnotation(field);
@@ -93,10 +93,15 @@ const indexAnnotations = (map: SchemaMap, index: MapIndex) => {
       if ('down' in annotation)
         index.lists.set(
           `${resource}\u0000${name}`,
-          listDeclaredByDown(map, resource, name, annotation.down),
+          listDeclaredByDown(fieldMapsWithPolymorphism, resource, name, annotation.down),
         );
       if ('pseudoField' in annotation) {
-        const problem = whyFieldIsNoPseudoField(map, resource, name, annotation.pseudoField);
+        const problem = whyFieldIsNoPseudoField(
+          fieldMapsWithPolymorphism,
+          resource,
+          name,
+          annotation.pseudoField,
+        );
         if (problem) throw new Error(`${at}: \`pseudoField\` ${problem}`);
         pseudoFields.add(name);
       }
@@ -106,31 +111,31 @@ const indexAnnotations = (map: SchemaMap, index: MapIndex) => {
 };
 
 const listDeclaredByDown = (
-  map: SchemaMap,
+  fieldMapsWithPolymorphism: FieldMapsWithPolymorphism,
   resource: string,
   name: string,
   down: unknown,
 ): ListRelation => {
   const model = mapAndModelNamed(resource).modelName;
   const at = `${model}.${name} @permissions`;
-  const field = fieldOfResource(map, resource, name);
+  const field = fieldOfResource(fieldMapsWithPolymorphism, resource, name);
   if (field?.kind !== 'object' || !field.isList)
     throw new Error(`${at}: \`down\` sits on a list relation`);
   const item = resourceLedToBy(resource, field);
-  if (!modelOfResource(map, item))
+  if (!modelOfResource(fieldMapsWithPolymorphism, item))
     throw new Error(`${at}: ${field.type} is not a model of its map`);
-  const back = Object.entries(modelOfResource(map, item)?.fields ?? {}).filter(
-    (entry): entry is [string, RelationField] => {
-      const other = entry[1];
-      return (
-        other.kind === 'object' &&
-        !other.isList &&
-        other.type === model &&
-        Boolean(other.fromFields?.length) &&
-        (!field.relationName || !other.relationName || other.relationName === field.relationName)
-      );
-    },
-  );
+  const back = Object.entries(
+    modelOfResource(fieldMapsWithPolymorphism, item)?.fields ?? {},
+  ).filter((entry): entry is [string, RelationField] => {
+    const other = entry[1];
+    return (
+      other.kind === 'object' &&
+      !other.isList &&
+      other.type === model &&
+      Boolean(other.fromFields?.length) &&
+      (!field.relationName || !other.relationName || other.relationName === field.relationName)
+    );
+  });
   const [inverse] = back;
   if (back.length !== 1 || !inverse)
     throw new Error(
@@ -148,7 +153,7 @@ const listDeclaredByDown = (
     let branch = tree;
     let current = item;
     for (const [depth, segment] of path.entries()) {
-      const relation = followedToOneRelationOrWhyNot(map, current, segment);
+      const relation = followedToOneRelationOrWhyNot(fieldMapsWithPolymorphism, current, segment);
       if (typeof relation === 'string')
         throw new Error(`${at}: \`${path.join('.')}\`: ${relation}`);
       if (depth === 0 && segment === inverse[0])
@@ -169,26 +174,29 @@ const listDeclaredByDown = (
 
 /** The declared list `segment` of `resource`, or null: an undeclared list is never crossed. */
 export const listOf = <R extends string>(
-  map: SchemaMap,
+  fieldMapsWithPolymorphism: FieldMapsWithPolymorphism,
   resource: R,
   segment: string,
 ): ListRelation<R> | null =>
-  (indexMap(map).lists.get(`${resource}\u0000${segment}`) as ListRelation<R> | undefined) ?? null;
+  (indexMap(fieldMapsWithPolymorphism).lists.get(`${resource}\u0000${segment}`) as
+    | ListRelation<R>
+    | undefined) ?? null;
 
 /** The declared lists of `resource`, by field name. */
 export const listsOf = <R extends string>(
-  map: SchemaMap,
+  fieldMapsWithPolymorphism: FieldMapsWithPolymorphism,
   resource: R,
 ): [string, ListRelation<R>][] =>
-  [...indexMap(map).lists].flatMap(([key, list]) => {
+  [...indexMap(fieldMapsWithPolymorphism).lists].flatMap(([key, list]) => {
     const [of, name] = key.split('\u0000') as [string, string];
     return of === resource ? [[name, list as ListRelation<R>] as [string, ListRelation<R>]] : [];
   });
 
 export const pseudoFieldsOf = <R extends string>(
-  map: SchemaMap,
+  fieldMapsWithPolymorphism: FieldMapsWithPolymorphism,
   resource: R,
-): ReadonlySet<string> => indexMap(map).pseudoFields.get(resource) ?? new Set();
+): ReadonlySet<string> =>
+  indexMap(fieldMapsWithPolymorphism).pseudoFields.get(resource) ?? new Set();
 
 const kindsWhoseForeignKeysAre = (axes: readonly PolymorphicAxis[], columns: readonly string[]) => {
   for (const axis of axes) {
@@ -204,63 +212,75 @@ const followedToOneRelations = new WeakMap<MapIndex, Map<string, Relation | stri
 
 /** `segment` of `resource` as a relation the hydrator follows, or why it is not one; answered once per map. */
 export const followedToOneRelationOrWhyNot = <R extends string>(
-  map: SchemaMap,
+  fieldMapsWithPolymorphism: FieldMapsWithPolymorphism,
   resource: R,
   segment: string,
 ): Relation<R> | string =>
-  answerOnce(followedToOneRelations, indexMap(map), `${resource}\u0000${segment}`, () => {
-    const field = fieldOfResource(map, resource, segment);
-    const at = `\`${resource}.${segment}\``;
-    if (field?.kind !== 'object' || field.isList) return `${at} is not a to-one relation`;
-    const led = resourceLedToBy(resource, field);
-    if (skipsHydration(field))
-      return `${at} is \`hydrate: false\`: nothing loads it; drop the annotation or read it from \`${led}\``;
-    if (!field.fromFields?.length)
-      return `${at} keeps its foreign key on \`${led}\`: nothing loads it; write the rule on \`${led}\`, or hold the key on this model`;
-    if (!modelOfResource(map, led))
-      return `${at} leads to \`${led}\`, which is not a model of its map: nothing loads it`;
-    return {
-      resource: led,
-      from: field.fromFields,
-      to: field.toFields ?? [],
-      kinds: kindsWhoseForeignKeysAre(axesOfResource(map, resource), field.fromFields),
-    };
-  }) as Relation<R> | string;
+  answerOnce(
+    followedToOneRelations,
+    indexMap(fieldMapsWithPolymorphism),
+    `${resource}\u0000${segment}`,
+    () => {
+      const field = fieldOfResource(fieldMapsWithPolymorphism, resource, segment);
+      const at = `\`${resource}.${segment}\``;
+      if (field?.kind !== 'object' || field.isList) return `${at} is not a to-one relation`;
+      const led = resourceLedToBy(resource, field);
+      if (skipsHydration(field))
+        return `${at} is \`hydrate: false\`: nothing loads it; drop the annotation or read it from \`${led}\``;
+      if (!field.fromFields?.length)
+        return `${at} keeps its foreign key on \`${led}\`: nothing loads it; write the rule on \`${led}\`, or hold the key on this model`;
+      if (!modelOfResource(fieldMapsWithPolymorphism, led))
+        return `${at} leads to \`${led}\`, which is not a model of its map: nothing loads it`;
+      return {
+        resource: led,
+        from: field.fromFields,
+        to: field.toFields ?? [],
+        kinds: kindsWhoseForeignKeysAre(
+          axesOfResource(fieldMapsWithPolymorphism, resource),
+          field.fromFields,
+        ),
+      };
+    },
+  ) as Relation<R> | string;
 
 export const relationOf = <R extends string>(
-  map: SchemaMap,
+  fieldMapsWithPolymorphism: FieldMapsWithPolymorphism,
   resource: R,
   segment: string,
 ): Relation<R> | null => {
-  const relation = followedToOneRelationOrWhyNot(map, resource, segment);
+  const relation = followedToOneRelationOrWhyNot(fieldMapsWithPolymorphism, resource, segment);
   return typeof relation === 'string' ? null : relation;
 };
 
 /** Every to-one relation of `resource` the hydrator follows, by field name. */
 export const followedToOneRelationsOf = <R extends string>(
-  map: SchemaMap,
+  fieldMapsWithPolymorphism: FieldMapsWithPolymorphism,
   resource: R,
 ): [string, Relation<R>][] => {
-  const { toOnes } = indexMap(map);
+  const { toOnes } = indexMap(fieldMapsWithPolymorphism);
   if (!toOnes.has(resource))
     toOnes.set(
       resource,
-      Object.keys(modelOfResource(map, resource)?.fields ?? {}).flatMap((name) => {
-        const relation = relationOf(map, resource, name);
-        return relation ? [[name, relation] as [string, Relation]] : [];
-      }),
+      Object.keys(modelOfResource(fieldMapsWithPolymorphism, resource)?.fields ?? {}).flatMap(
+        (name) => {
+          const relation = relationOf(fieldMapsWithPolymorphism, resource, name);
+          return relation ? [[name, relation] as [string, Relation]] : [];
+        },
+      ),
     );
   return toOnes.get(resource) as [string, Relation<R>][];
 };
 
 export const ownerRelationOf = <R extends string>(
-  map: SchemaMap,
+  fieldMapsWithPolymorphism: FieldMapsWithPolymorphism,
   resource: R,
   field: string,
   value: string,
 ): string | undefined => {
-  const columns = [...(axisOf(map, resource, field)?.fkMap[value] ?? [])].sort().join(',');
-  return followedToOneRelationsOf(map, resource).find(
+  const columns = [...(axisOf(fieldMapsWithPolymorphism, resource, field)?.fkMap[value] ?? [])]
+    .sort()
+    .join(',');
+  return followedToOneRelationsOf(fieldMapsWithPolymorphism, resource).find(
     ([, relation]) => [...relation.from].sort().join(',') === columns,
   )?.[0];
 };

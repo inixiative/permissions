@@ -21,7 +21,7 @@ export const bridgeHop = (
   resource: string,
   segment: string,
 ): BridgeHop | null => {
-  const { mapName: map, modelName: model } = parseEndpointKey(resource, '');
+  const { mapName: schemaMap, modelName: model } = parseEndpointKey(resource, '');
   for (const b of bridges ?? []) {
     const [a, c] = b.endpoints;
     const aKey = endpointKey(a);
@@ -29,7 +29,7 @@ export const bridgeHop = (
     // a → c. For `oneToMany`, c is the "many" side (endpoints[1]) — a single-record permission check
     // can't span a list, so this direction is NOT walkable; it would otherwise collapse to an
     // arbitrary `found[0]` (a non-deterministic wrong-allow). `oneToOne` is symmetric → walkable.
-    if (a.fieldMap === map && a.model === model && cKey === segment) {
+    if (a.fieldMap === schemaMap && a.model === model && cKey === segment) {
       if (b.cardinality === 'oneToMany') continue; // to-one walks only
       return {
         farResource: cKey,
@@ -40,7 +40,7 @@ export const bridgeHop = (
       };
     }
     // c → a. The far endpoint a is the "one" side (oneToMany) or symmetric (oneToOne) — always to-one.
-    if (c.fieldMap === map && c.model === model && aKey === segment) {
+    if (c.fieldMap === schemaMap && c.model === model && aKey === segment) {
       return {
         farResource: aKey,
         localOn: c.on,

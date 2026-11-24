@@ -15,13 +15,15 @@ export type Delegation<Action extends string = string> = {
 };
 
 const capped = <Action extends string>(
-  map: SchemaMap,
+  schemaMap: SchemaMap,
   owner: Permissions<Action>,
   ceiling: string,
 ): Permissions<Action> =>
   owner.flatMap((group) => {
     if (group.owner) return [];
-    const entries = group.entries.flatMap((entry) => capAtRole<Action>(map, entry, ceiling) ?? []);
+    const entries = group.entries.flatMap(
+      (entry) => capAtRole<Action>(schemaMap, entry, ceiling) ?? [],
+    );
     return entries.length ? [{ entries }] : [];
   });
 
@@ -32,14 +34,14 @@ const capped = <Action extends string>(
  * nothing.
  */
 export const delegate = <Action extends string = string>(
-  map: SchemaMap,
+  schemaMap: SchemaMap,
   owner: Permissions<Action>,
   delegation: Delegation<NoInfer<Action>>,
 ): Permissions<Action> => {
   if (delegation.full) return owner;
   const entitlements = delegation.entitlements ?? [];
   return [
-    ...(delegation.ceiling ? capped(map, owner, delegation.ceiling) : []),
+    ...(delegation.ceiling ? capped(schemaMap, owner, delegation.ceiling) : []),
     ...(entitlements.length ? [{ entries: entitlements, owner }] : []),
   ];
 };

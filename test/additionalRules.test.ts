@@ -31,7 +31,7 @@ const schema: Rules = {
   },
 };
 
-const map = mapOf(
+const schemaMap = mapOf(
   { 'db:contact': { organization: 'db:organization' } },
   { 'db:organization': ['ownerId'], 'db:contact': ['label'] },
 );
@@ -42,7 +42,7 @@ const rulesOfTheOrganization: AdditionalRules = (resource, record) => [
     resource
   ],
 ];
-const check = checkWithRules(map, { additionalRules: rulesOfTheOrganization });
+const check = checkWithRules(schemaMap, { additionalRules: rulesOfTheOrganization });
 
 const organization = (id: string, rules?: unknown): Row => ({ id, ownerId: `owner-${id}`, rules });
 const contactOf = (owner: Row, fields: Row = {}): Row => ({
@@ -52,7 +52,7 @@ const contactOf = (owner: Row, fields: Row = {}): Row => ({
   ...fields,
 });
 const can = (record: Row, action: string, resource = 'db:contact') =>
-  check(permix, schema, { resource, record, data: stranger }, action);
+  check(permix, schema, { resource, record, bridgeData: stranger }, action);
 
 describe('additional rules for a record', () => {
   test('widen the action they name on that record, and nothing else', () => {
@@ -73,12 +73,12 @@ describe('additional rules for a record', () => {
     };
     const selfOpening: AdditionalRules = (resource, record) =>
       resource === 'db:organization' ? [record.rules as Record<string, never>] : [];
-    const walked = checkWithRules(map, { additionalRules: selfOpening });
+    const walked = checkWithRules(schemaMap, { additionalRules: selfOpening });
     const at = (owner: Row) =>
       walked(
         permix,
         viaOrganization,
-        { resource: 'db:contact', record: contactOf(owner), data: stranger },
+        { resource: 'db:contact', record: contactOf(owner), bridgeData: stranger },
         'read',
       );
     expect(at(organization('org-1'))).toBe(false);
@@ -147,12 +147,12 @@ describe('additional rules for a record', () => {
   });
 
   test('admit a path the same way the check does', () => {
-    const paths = pathsWithRules(map, { additionalRules: rulesOfTheOrganization });
+    const paths = pathsWithRules(schemaMap, { additionalRules: rulesOfTheOrganization });
     const at = (owner: Row) =>
       paths(
         permix,
         schema,
-        { resource: 'db:contact', record: contactOf(owner), data: stranger },
+        { resource: 'db:contact', record: contactOf(owner), bridgeData: stranger },
         'read',
       );
     expect(at(organization('org-1'))).toHaveLength(0);

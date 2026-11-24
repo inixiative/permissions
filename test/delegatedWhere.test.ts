@@ -43,7 +43,7 @@ describe('the copy rule reads what delegatedWhere builds as narrowing the held w
       'db:integration': { actions: { read: { rel: 'space', action: 'own' } } },
     },
   };
-  const map = mapOf(
+  const schemaMap = mapOf(
     { 'db:integration': { space: 'db:space' } },
     {
       'db:integration': ['provider', 'channel', 'team', 'secret'],
@@ -52,7 +52,7 @@ describe('the copy rule reads what delegatedWhere builds as narrowing the held w
       'db:space': ['hidden'],
     },
   );
-  const canGrant = canGrantWithRules(map);
+  const canGrant = canGrantWithRules(schemaMap);
   const underS1 = (where?: Condition): EntitlementEntry => ({
     resource: 'db:integration',
     anchor: { resource: 'db:space', id: 's1', path: 'space' },
@@ -69,7 +69,7 @@ describe('the copy rule reads what delegatedWhere builds as narrowing the held w
   };
 
   const grants = async (held: Condition, entry: EntitlementEntry) => {
-    const pseudoRecord = pseudoRecordsOfEntitlement(map, entry, { id: 's1' }) as Row[];
+    const pseudoRecord = pseudoRecordsOfEntitlement(schemaMap, entry, { id: 's1' }) as Row[];
     const holder = await holderOf(held);
     return pseudoRecord.every((record) => canGrant(holder, schema, entry, record));
   };
@@ -102,7 +102,7 @@ describe('a negated schema rule is refused in the grant walk too', () => {
         },
       },
     };
-    const map = mapOf(
+    const schemaMap = mapOf(
       { 'db:doc': { space: 'db:space' } },
       {
         'db:integration': ['provider', 'channel', 'team', 'secret'],
@@ -118,9 +118,9 @@ describe('a negated schema rule is refused in the grant walk too', () => {
       anchor: { resource: 'db:space', id: 's1', path: 'space' },
       actions: { read: true },
     };
-    const [pseudoRecord] = pseudoRecordsOfEntitlement(map, entry, { id: 's1' }) as Row[];
+    const [pseudoRecord] = pseudoRecordsOfEntitlement(schemaMap, entry, { id: 's1' }) as Row[];
 
-    expect(() => canGrantWithRules(map)(writer, schema, entry, pseudoRecord as Row)).toThrow(
+    expect(() => canGrantWithRules(schemaMap)(writer, schema, entry, pseudoRecord as Row)).toThrow(
       'is not a well-formed positive rule',
     );
   });
@@ -133,7 +133,7 @@ describe('a list pin passes on at any depth: copies are judged by structure, the
       'db:thread': { actions: { read: { rel: 'space', action: 'own' } } },
     },
   };
-  const map = mapOf(
+  const schemaMap = mapOf(
     { 'db:thread': { space: 'db:space' } },
     {
       'db:integration': ['provider', 'channel', 'team', 'secret'],
@@ -142,8 +142,8 @@ describe('a list pin passes on at any depth: copies are judged by structure, the
       'db:space': ['hidden'],
     },
   );
-  const canGrant = canGrantWithRules(map);
-  const check = checkWithRules(map);
+  const canGrant = canGrantWithRules(schemaMap);
+  const check = checkWithRules(schemaMap);
   const threads = (where: Condition): EntitlementEntry => ({
     resource: 'db:thread',
     anchor: { resource: 'db:space', id: 's1', path: 'space' },
@@ -156,7 +156,7 @@ describe('a list pin passes on at any depth: copies are judged by structure, the
     value: ids,
   });
   const grantable = (writer: Permix, entry: EntitlementEntry) =>
-    (pseudoRecordsOfEntitlement(map, entry, { id: 's1' }) as Row[]).every((record) =>
+    (pseudoRecordsOfEntitlement(schemaMap, entry, { id: 's1' }) as Row[]).every((record) =>
       canGrant(writer, schema, entry, record),
     );
   const holding = async (owner: Permix, entry: EntitlementEntry) => {
@@ -197,7 +197,7 @@ describe('liveness asks the anchor and the action along the chain, never a where
       'db:thread': { actions: { read: { rel: 'space', action: 'own' } } },
     },
   };
-  const map = mapOf(
+  const schemaMap = mapOf(
     { 'db:thread': { space: 'db:space' } },
     {
       'db:integration': ['provider', 'channel', 'team', 'secret'],
@@ -206,8 +206,8 @@ describe('liveness asks the anchor and the action along the chain, never a where
       'db:space': ['hidden'],
     },
   );
-  const canGrant = canGrantWithRules(map);
-  const check = checkWithRules(map);
+  const canGrant = canGrantWithRules(schemaMap);
+  const check = checkWithRules(schemaMap);
   const threads = (spaceId: string, where?: Condition): EntitlementEntry => ({
     resource: 'db:thread',
     anchor: { resource: 'db:space', id: spaceId, path: 'space' },
@@ -216,7 +216,7 @@ describe('liveness asks the anchor and the action along the chain, never a where
   });
   const pinned: Condition = { field: 'id', operator: Operator.in, value: ['tA'] };
   const grantable = (writer: Permix, entry: EntitlementEntry, spaceId: string) =>
-    (pseudoRecordsOfEntitlement(map, entry, { id: spaceId }) as Row[]).every((record) =>
+    (pseudoRecordsOfEntitlement(schemaMap, entry, { id: spaceId }) as Row[]).every((record) =>
       canGrant(writer, schema, entry, record),
     );
   const held = async (owner: Permix, entry: EntitlementEntry) => {

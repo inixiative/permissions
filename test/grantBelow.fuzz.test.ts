@@ -60,7 +60,7 @@ const schema: Rules = {
 };
 const resources = ['db:organization', 'db:space', 'db:integration', 'db:kcpThread'] as const;
 type Resource = (typeof resources)[number];
-const map = mapOf(
+const schemaMap = mapOf(
   {
     'db:space': { organization: 'db:organization' },
     'db:integration': { space: 'db:space' },
@@ -68,8 +68,8 @@ const map = mapOf(
   },
   { 'db:space': ['label'], 'db:integration': ['provider'] },
 );
-const rebac = checkWithRules(map);
-const canGrant = canGrantWithRules(map);
+const rebac = checkWithRules(schemaMap);
+const canGrant = canGrantWithRules(schemaMap);
 const actionsOf = (resource: Resource) => Object.keys(schema.permissions[resource]?.actions ?? {});
 
 type World = Record<Resource, Row[]>;
@@ -224,7 +224,7 @@ test(`fuzz, ${CASES} cases: marks change no read, lose no grant, and add only gr
     const anchor = rows[entry.anchor.resource as Resource].find(
       (row) => row.id === entry.anchor.id,
     ) as Row;
-    const pseudoRecord = pseudoRecordsOfEntitlement(map, entry, anchor);
+    const pseudoRecord = pseudoRecordsOfEntitlement(schemaMap, entry, anchor);
     const withMarks = await permixOf(writer);
     const without = await permixOf(withoutPseudoFields(writer));
     const grants = (permix: typeof withMarks) =>

@@ -1,13 +1,13 @@
 import type { FieldMap, ModelEntry } from '@inixiative/field-map';
-import { parseEndpointKey } from '@inixiative/json-rules';
+import { type Bridge, endpointKey, isJoinedBridge, parseEndpointKey } from '@inixiative/json-rules';
 import {
   type ActionRule,
   type Admission,
   type CheckOptions,
-  createCanGrantEntitlement,
-  createRebacCheck,
-  createRebacPaths,
   type EntitlementEntry,
+  makeCanGrantEntitlement,
+  makeRebacCheck,
+  makeRebacPaths,
   type PathsOptions,
   type PermixLike,
   type Row,
@@ -57,20 +57,80 @@ export type ListOf = { item: string; down: readonly string[] };
 /** The rules a test lays over a map: the map's `permissions`, and its `bridges` when the case has some. */
 export type Rules = Pick<SchemaMap, 'permissions' | 'bridges'>;
 
+/**
+ * A test's schema map written with its supplied field maps in a group of their own, as these
+ * suites were first written. `declaringSuppliedBridges` turns it into the schema map an app
+ * declares: every field map in `fieldMaps`, and a supplied bridge from each map of records to
+ * each supplied model that no joined bridge finds by key.
+ */
+export type SchemaMapWithSuppliedGroup = SchemaMap & {
+  suppliedFieldMaps?: Record<string, FieldMap>;
+  recordFieldMaps?: Record<string, FieldMap>;
+  fieldMapsAsDeclared?: Record<string, FieldMap>;
+  suppliedBridgesTheHelperDeclared?: readonly Bridge[];
+};
+
+export const declaringSuppliedBridges = (given: SchemaMapWithSuppliedGroup): SchemaMap => {
+  const supplied = given.suppliedFieldMaps ?? {};
+  const records =
+    given.recordFieldMaps && given.fieldMaps === given.fieldMapsAsDeclared
+      ? given.recordFieldMaps
+      : Object.fromEntries(
+          Object.entries(given.fieldMaps).filter(([mapName]) => !Object.hasOwn(supplied, mapName)),
+        );
+  const joined = (given.bridges ?? []).filter(isJoinedBridge);
+  const declaredByTheTest = (given.bridges ?? []).filter(
+    (bridge) =>
+      !isJoinedBridge(bridge) && !given.suppliedBridgesTheHelperDeclared?.includes(bridge),
+  );
+  const foundByKey = new Set(
+    joined
+      .filter(({ endpoints }) => endpoints.every((end) => Object.hasOwn(supplied, end.fieldMap)))
+      .map(({ endpoints: [, far] }) => endpointKey(far)),
+  );
+  const from = new Set([
+    ...Object.keys(records),
+    ...Object.keys(given.permissions).map((resource) => parseEndpointKey(resource, '').mapName),
+    ...joined.flatMap(({ endpoints }) => endpoints.map((end) => end.fieldMap)),
+  ]);
+  for (const mapName of Object.keys(supplied)) from.delete(mapName);
+  const given1 = Object.entries(supplied).flatMap(([mapName, fieldMap]) =>
+    Object.keys(fieldMap.models)
+      .filter((model) => !foundByKey.has(endpointKey({ fieldMap: mapName, model })))
+      .map((model) => ({ fieldMap: mapName, model })),
+  );
+  const fieldMaps = { ...records, ...supplied };
+  const declaredByTheHelper: Bridge[] = [...from].flatMap((near) =>
+    given1.map((far) => ({
+      endpoints: [{ fieldMap: near }, far] as [{ fieldMap: string }, typeof far],
+      cardinality: 'oneToOne' as const,
+    })),
+  );
+  const whole: SchemaMapWithSuppliedGroup = {
+    ...given,
+    recordFieldMaps: records,
+    fieldMaps,
+    fieldMapsAsDeclared: fieldMaps,
+    suppliedBridgesTheHelperDeclared: declaredByTheHelper,
+    bridges: [...joined, ...declaredByTheTest, ...declaredByTheHelper],
+  };
+  return whole;
+};
+
 /** The map with `rules` laid over it: one object, as every entry point takes. */
-export const mapWith = (map: SchemaMap, rules: Rules): SchemaMap => {
-  let byRules = mapsWithRules.get(map);
+export const mapWith = (schemaMap: SchemaMap, rules: Rules): SchemaMap => {
+  let byRules = mapsWithRules.get(schemaMap);
   if (!byRules) {
     byRules = new WeakMap();
-    mapsWithRules.set(map, byRules);
+    mapsWithRules.set(schemaMap, byRules);
   }
   let whole = byRules.get(rules);
   if (!whole) {
-    whole = {
-      ...map,
+    whole = declaringSuppliedBridges({
+      ...schemaMap,
       permissions: rules.permissions,
       ...(rules.bridges ? { bridges: rules.bridges } : {}),
-    };
+    });
     byRules.set(rules, whole);
   }
   return whole;
@@ -80,9 +140,9 @@ const mapsWithRules = new WeakMap<SchemaMap, WeakMap<Rules, SchemaMap>>();
 
 /** A check over `map` that takes each case's rules beside the subject: `(permix, rules, subject, action)`. */
 export const checkWithRules =
-  (map: SchemaMap, options?: CheckOptions) =>
+  (schemaMap: SchemaMap, options?: CheckOptions) =>
   (permix: PermixLike, rules: Rules, subject: Subject, actionOrRule: ActionRule): boolean =>
-    createRebacCheck(mapWith(map, rules), options)(permix, subject, actionOrRule);
+    makeRebacCheck(mapWith(schemaMap, rules), options)(permix, subject, actionOrRule);
 
 const split = (resource: string) => {
   if (!resource.includes(':'))
@@ -157,23 +217,30 @@ export const mapOf = (
       },
     };
   }
-  return {
+  return declaringSuppliedBridges({
     permissions: {},
-    maps: Object.fromEntries(
+    fieldMaps: Object.fromEntries(
       Object.entries(models).map(([mapName, of]) => [mapName, { models: of }]),
     ),
-    supplied: { actor: actorMap },
-  };
+    suppliedFieldMaps: { actor: actorMap },
+  });
 };
 
 /** Every admission over `map`, taking each case's rules beside the subject. */
 export const pathsWithRules =
-  (map: SchemaMap, options?: PathsOptions) =>
+  (schemaMap: SchemaMap, options?: PathsOptions) =>
   (permix: PermixLike, rules: Rules, subject: Subject, actionOrRule: ActionRule): Admission[] =>
-    createRebacPaths(mapWith(map, rules), options)(permix, subject, actionOrRule);
+    makeRebacPaths(mapWith(schemaMap, rules), options)(permix, subject, actionOrRule);
 
 /** The grant check over `map`, taking each case's rules beside the entry. */
 export const canGrantWithRules =
-  (map: SchemaMap, options?: Pick<CheckOptions, 'additionalRules'>) =>
+  (schemaMap: SchemaMap, options?: Pick<CheckOptions, 'additionalRules'>) =>
   (permix: PermixLike, rules: Rules, entry: EntitlementEntry, pseudoRecord: Row): boolean =>
-    createCanGrantEntitlement(mapWith(map, rules), options)(permix, entry, pseudoRecord);
+    makeCanGrantEntitlement(mapWith(schemaMap, rules), options)(permix, entry, pseudoRecord);
+
+/** The `db` field map of a test's schema map, named, as `makeHydrator` takes one. */
+export const dbFieldMapOf = (schemaMap: Pick<SchemaMap, 'fieldMaps'>) => {
+  const fieldMap = schemaMap.fieldMaps.db;
+  if (!fieldMap) throw new Error('the test schema map has no `db` field map');
+  return { mapName: 'db', fieldMap };
+};

@@ -49,10 +49,10 @@ const fieldMap: FieldMap = {
     },
   },
 };
-const map: SchemaMap = {
+const schemaMap: SchemaMap = {
   permissions: {},
-  maps: { db: fieldMap },
-  polymorphism: {
+  fieldMaps: { db: fieldMap },
+  polymorphismRegistries: {
     db: {
       Integration: {
         axes: [
@@ -102,8 +102,8 @@ const schema: Rules = {
     },
   },
 };
-const check = checkWithRules(map);
-const canGrant = canGrantWithRules(map);
+const check = checkWithRules(schemaMap);
+const canGrant = canGrantWithRules(schemaMap);
 const o1 = { id: 'o1' };
 const s1 = { id: 's1', organizationId: 'o1', organization: o1 };
 const o1Owner = async () => {
@@ -164,7 +164,7 @@ describe('polymorphic steps', () => {
       where: { field: 'ownerModel', operator: 'in', value: ['Integration', 'Organization'] },
       actions: { manage: true },
     } as EntitlementEntry;
-    const pseudoRecord = pseudoRecordsOfEntitlement(map, entry, o1);
+    const pseudoRecord = pseudoRecordsOfEntitlement(schemaMap, entry, o1);
     expect(
       pseudoRecord?.map((r) => (r.integration as { ownerModel: string }).ownerModel).sort(),
     ).toEqual(['Organization', 'Space']);

@@ -1,8 +1,9 @@
 import { fieldOf } from '@inixiative/field-map';
 import { type Condition, declaredEnumValues, Operator } from '@inixiative/json-rules';
 import { ownerRelationOf } from './relations';
+import { resolvedSchemaMap } from './resolvedSchemaMap';
 import { axisOf } from './resourceNames';
-import type { SchemaMap, SchemaMapWithoutPermissions } from './schemaMap';
+import type { SchemaMap } from './schemaMap';
 import { suppliedModelAt } from './supplied';
 import type { ActionRule } from './types';
 
@@ -37,17 +38,25 @@ export const ruleFieldEqualsPath = (field: string, path: string): ActionRule => 
 });
 
 /**
- * The rule builders for one map, each reading its kinds from the map so no app restates them. A
- * side is a resource and its polymorphic axis (`map.polymorphism`), or a supplied model and one of
+ * The rule builders, each reading its kinds and their relations from the three tables it is given so no app restates
+ * them. A side is a resource (`fieldMaps`) and its polymorphic axis (`polymorphismRegistries`), or a supplied
+ * model (the far end of a supplied bridge in `bridges`) and one of
  * its enum fields (`'actor:Acting'`, `'model'`), whose values are its kinds.
  */
-export const makeKindRules = <R extends string = string>(
-  mapWithoutPermissions: SchemaMapWithoutPermissions,
-) => {
-  // why: the rules are built from the map, so it has none yet; every reader takes the whole map
-  const map: SchemaMap = { ...mapWithoutPermissions, permissions: {} };
+export const makeKindRules = <R extends string = string>({
+  fieldMaps,
+  polymorphismRegistries,
+  bridges,
+}: Pick<SchemaMap, 'fieldMaps' | 'polymorphismRegistries' | 'bridges'>) => {
+  // why: the rules are built from these tables, so no schema map exists yet for the readers to take
+  const schemaMap = resolvedSchemaMap({
+    fieldMaps,
+    polymorphismRegistries,
+    bridges,
+    permissions: {},
+  });
   const kindsOf = (side: string, field: string): string[] => {
-    const supplied = suppliedModelAt(map, side);
+    const supplied = suppliedModelAt(schemaMap, side);
     if (supplied) {
       const entry = fieldOf(supplied.fieldMap, supplied.modelName, field);
       const values =
@@ -55,9 +64,9 @@ export const makeKindRules = <R extends string = string>(
       if (!values) throw new Error(`\`${side}.${field}\` is not an enum field of a supplied model`);
       return [...values];
     }
-    const axis = axisOf(map, side as R, field);
+    const axis = axisOf(schemaMap, side as R, field);
     if (!axis)
-      throw new Error(`\`${side}\` has no polymorphic axis \`${field}\` in map.polymorphism`);
+      throw new Error(`\`${side}\` has no polymorphic axis \`${field}\` in polymorphismRegistries`);
     return Object.keys(axis.fkMap);
   };
   const declared = (side: string, field: string, kinds: readonly string[]) => {
@@ -67,7 +76,7 @@ export const makeKindRules = <R extends string = string>(
   };
   // A supplied side is read at its key; a resource's at `at`, the path from the row the rule is on.
   const read = (side: string, field: string, at: string) =>
-    suppliedModelAt(map, side) ? `${side}.${field}` : `${at}${field}`;
+    suppliedModelAt(schemaMap, side) ? `${side}.${field}` : `${at}${field}`;
 
   return {
     /** The side's kind is one of `kinds`. */
@@ -109,7 +118,7 @@ export const makeKindRules = <R extends string = string>(
     ): ActionRule => {
       declared(resource, axisField, kinds);
       const branches = kinds.flatMap((kind) => {
-        const rel = ownerRelationOf(map, resource, axisField, kind);
+        const rel = ownerRelationOf(schemaMap, resource, axisField, kind);
         return rel
           ? [branchOf(kindCheck(`${at}${axisField}`, [kind]), { rel: `${at}${rel}`, action })]
           : [];

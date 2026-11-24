@@ -13,9 +13,10 @@ import {
   type Relation,
   relationOf,
 } from './relations';
+import { resolvedSchemaMap } from './resolvedSchemaMap';
 import { fieldOfResource } from './resourceNames';
 import { keysFrom } from './rowKeys';
-import type { SchemaMap } from './schemaMap';
+import type { ResolvedSchemaMap, SchemaMap } from './schemaMap';
 import type { Row } from './types';
 import { type Leaf, rootLeaves } from './whereConjuncts';
 
@@ -42,12 +43,12 @@ const valuesWhereRequiresByEquals = (
 
 // why: an object or a list copied onto a pseudo record would be a relation or a list the walk then reads
 const ownColumnValuesWhereRequires = <R extends string>(
-  map: SchemaMap,
+  schemaMap: ResolvedSchemaMap,
   resource: R,
   leaves: Leaf[],
 ): Row =>
   valuesWhereRequiresByEquals(leaves, '', (name) => {
-    const field = fieldOfResource(map, resource, name);
+    const field = fieldOfResource(schemaMap, resource, name);
     return !name.includes('.') && (!field || (hasColumn(field) && !field.isList));
   });
 
@@ -57,17 +58,20 @@ const whereAllowsKind = (leaves: Leaf[], field: string, value: string) =>
   );
 
 const rowsFromAnchorUpByResource = <R extends string>(
-  map: SchemaMap,
+  schemaMap: ResolvedSchemaMap,
   resource: R,
   row: Row,
   segments: string[],
 ): Map<R, Row> =>
   new Map(
-    rowsAlongAnchorPath(map, resource, row, segments).map((step) => [step.resource, step.row]),
+    rowsAlongAnchorPath(schemaMap, resource, row, segments).map((step) => [
+      step.resource,
+      step.row,
+    ]),
   );
 
 const standInBuiltFromRowsAboveAnchor = <R extends string>(
-  map: SchemaMap,
+  schemaMap: ResolvedSchemaMap,
   resource: R,
   rowsAboveAnchor: ReadonlyMap<R, Row>,
   depth: number,
@@ -75,12 +79,12 @@ const standInBuiltFromRowsAboveAnchor = <R extends string>(
 ): Row | null => {
   const row: Row = {};
   let reached = false;
-  for (const [name, relation] of followedToOneRelationsOf(map, resource)) {
+  for (const [name, relation] of followedToOneRelationsOf(schemaMap, resource)) {
     const parent =
       rowsAboveAnchor.get(relation.resource) ??
       (depth > 1 && !seen.has(relation.resource)
         ? standInBuiltFromRowsAboveAnchor(
-            map,
+            schemaMap,
             relation.resource,
             rowsAboveAnchor,
             depth - 1,
@@ -96,7 +100,7 @@ const standInBuiltFromRowsAboveAnchor = <R extends string>(
 
 /** The pseudo records of `resource` below the hydrated `anchor` along `path`, one per polymorphic kind the path admits (README, Granting one). */
 export const pseudoRecordsBelowAnchor = <R extends string>(
-  map: SchemaMap,
+  schemaMap: SchemaMap,
   resource: R,
   path: string,
   anchorResource: R,
@@ -119,13 +123,17 @@ export const pseudoRecordsBelowAnchor = <R extends string>(
       .filter((value) => !top || whereAllowsKind(leaves, field, value))
       .flatMap((value) => {
         const row: Row = { ...base, [field]: value };
-        const ownerName = ownerRelationOf(map, current, field, value);
+        const ownerName = ownerRelationOf(resolvedSchemaMap(schemaMap), current, field, value);
         if (!ownerName || ownerName === segment) return [row];
-        const ownerRelation = relationOf(map, current, ownerName) as Relation<R>;
+        const ownerRelation = relationOf(
+          resolvedSchemaMap(schemaMap),
+          current,
+          ownerName,
+        ) as Relation<R>;
         const owner = standInBuiltFromRowsAboveAnchor(
-          map,
+          resolvedSchemaMap(schemaMap),
           ownerRelation.resource,
-          rowsFromAnchorUpByResource(map, relation.resource, parent, rest),
+          rowsFromAnchorUpByResource(resolvedSchemaMap(schemaMap), relation.resource, parent, rest),
           3,
           new Set(),
         );
@@ -136,9 +144,9 @@ export const pseudoRecordsBelowAnchor = <R extends string>(
   const recordsDownPath = (current: R, segments: string[], prefix: string): Row[] => {
     const [segment, ...rest] = segments;
     if (segment === undefined) return current === anchorResource ? [anchor] : [];
-    const relation = relationOf(map, current, segment);
+    const relation = relationOf(resolvedSchemaMap(schemaMap), current, segment);
     if (!relation) return [];
-    const pseudoFields = pseudoFieldsOf(map, current);
+    const pseudoFields = pseudoFieldsOf(resolvedSchemaMap(schemaMap), current);
     const pseudoFieldValues =
       prefix === ''
         ? {}
@@ -168,15 +176,19 @@ export const pseudoRecordsBelowAnchor = <R extends string>(
  * the anchor is not the entry's, or the path reaches nothing; the writer must pass on every record.
  */
 export const pseudoRecordsOfEntitlement = <R extends string>(
-  map: SchemaMap,
+  schemaMap: SchemaMap,
   entry: EntitlementEntry,
   anchor: Row,
 ): Row[] | null => {
   if (entitlementProblem(entry) !== null || recordId(anchor) !== entry.anchor.id) return null;
   if (entry.anchor.path === undefined) return [anchor];
-  const required = ownColumnValuesWhereRequires(map, entry.resource as R, rootLeaves(entry.where));
+  const required = ownColumnValuesWhereRequires(
+    resolvedSchemaMap(schemaMap),
+    entry.resource as R,
+    rootLeaves(entry.where),
+  );
   const records = pseudoRecordsBelowAnchor(
-    map,
+    resolvedSchemaMap(schemaMap),
     entry.resource as R,
     entry.anchor.path,
     entry.anchor.resource as R,

@@ -7,9 +7,10 @@ import { asOwner } from './identity';
 import { whyEntitlementWhereLeavesLens } from './lens';
 import type { EntitlementEntry } from './permix';
 import { reachableFrom } from './reachableFrom';
+import { resolvedSchemaMap } from './resolvedSchemaMap';
 import type { SchemaMap } from './schemaMap';
 import type { Anchor, CheckOptions, Entitlement, PermixLike, Row } from './types';
-import { createWalker } from './walker';
+import { makeWalker } from './walker';
 import { conjuncts } from './whereConjuncts';
 
 export type CanGrantEntitlement = (
@@ -36,28 +37,28 @@ const narrows = (held: Entitlement, entry: EntitlementEntry) => {
  * Failing that, the entry narrows one entitlement the writer holds, and its granter still takes
  * each action on `pseudoRecord` in a walk that counts every `where` as holding.
  */
-export const createCanGrantEntitlement = <R extends string = string>(
-  map: SchemaMap<R>,
+export const makeCanGrantEntitlement = <R extends string = string>(
+  schemaMap: SchemaMap<R>,
   { additionalRules }: Pick<CheckOptions, 'additionalRules'> = {},
 ): CanGrantEntitlement => {
-  const check = createWalker(map, booleanAlgebra, false, additionalRules);
-  const backs = createWalker(map, booleanAlgebra, true, additionalRules);
+  const check = makeWalker(schemaMap, booleanAlgebra, false, additionalRules);
+  const backs = makeWalker(schemaMap, booleanAlgebra, true, additionalRules);
 
   return (permix, entry, pseudoRecord) => {
     if (
       entitlementProblem(entry) !== null ||
-      whyEntitlementWhereLeavesLens(map, entry.resource, entry.where)
+      whyEntitlementWhereLeavesLens(schemaMap, entry.resource, entry.where)
     )
       return false;
     const resource = entry.resource as R;
     const actions = actionsEntryHolds(entry);
     const table = asOwner(permix);
-    const above = rowsAbove(map, entry, pseudoRecord);
+    const above = rowsAbove(resolvedSchemaMap(schemaMap), entry, pseudoRecord);
     const subject = { resource, record: pseudoRecord };
     if (actions.every((action) => check(table, subject, action, above))) return true;
     const reached = actions.map((action) => ({
       action,
-      implying: reachableFrom(map, resource, action),
+      implying: reachableFrom(schemaMap, resource, action),
     }));
     const candidates = [...(reached[0]?.implying ?? [])].flatMap(
       (action) => permix.entitlements?.(resource, action) ?? [],

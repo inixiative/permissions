@@ -157,7 +157,7 @@ const outcome = (run: () => boolean | Admission[]): boolean | string | string[] 
 /** What `check` (absent null and unknown), `paths` (limit 2) and the grant check answer on a case. */
 export const outcomesOfWalkCase = async (walkCase: WalkCase) => {
   const resourceName = resourceNameIn(walkCase);
-  const map = mapOfCase(walkCase);
+  const schemaMap = mapOfCase(walkCase);
   const schema = schemaOfCase(walkCase);
   const rows = rowsOfCase(walkCase);
   const tables: Permix[] = walkCase.tables.map(() => createPermissions());
@@ -189,15 +189,15 @@ export const outcomesOfWalkCase = async (walkCase: WalkCase) => {
   const subject = {
     resource: resourceName(walkCase.objects[walkCase.query.object]?.res ?? 0),
     record,
-    data: actorData(walkCase.tables[0]?.actor ?? null, { id: 'actor0' }),
+    bridgeData: actorData(walkCase.tables[0]?.actor ?? null, { id: 'actor0' }),
   };
   const action = structuredClone(walkCase.query.action);
   const pseudoRecord = rows[walkCase.grant.pseudoRecord] ?? record;
   return {
-    check: outcome(() => checkWithRules(map)(holder, schema, subject, action)),
-    paths: outcome(() => pathsWithRules(map, { limit: 2 })(holder, schema, subject, action)),
+    check: outcome(() => checkWithRules(schemaMap)(holder, schema, subject, action)),
+    paths: outcome(() => pathsWithRules(schemaMap, { limit: 2 })(holder, schema, subject, action)),
     grant: outcome(() =>
-      canGrantWithRules(map)(
+      canGrantWithRules(schemaMap)(
         holder,
         schema,
         entryOfCase(walkCase, { ...walkCase.grant.ent, ref: '' }),

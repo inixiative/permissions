@@ -3,14 +3,14 @@ import type { FieldMap, RelationField, ScalarField, ScalarType } from '@inixiati
 import type { Condition } from '@inixiative/json-rules';
 import {
   type ActionRule,
-  createHydrator,
   type EntitlementEntry,
   entitlementProblem,
+  makeHydrator,
   type PermixLike,
   pseudoRecordsOfEntitlement,
   type Row,
   type SchemaMap,
-  validateSchema,
+  validateSchemaMap,
   whyEntitlementWhereLeavesLens,
 } from '../index';
 import {
@@ -20,15 +20,18 @@ import {
   whyWhereLeavesLensAtRow,
 } from '../src/core/lens';
 import { listOf } from '../src/core/relations';
+import { resolvedSchemaMap } from '../src/core/resolvedSchemaMap';
 import { identityKeyOfRow } from '../src/core/rowKeys';
 import { hydrationLimits } from '../src/helpers/hydration/hydrate';
-import { createHydratorReadingEachRowThroughLoad } from './createHydratorReadingEachRowThroughLoad';
 import { loadModels } from './fixtures/load';
+import { makeHydratorReadingEachRowThroughLoad } from './makeHydratorReadingEachRowThroughLoad';
 import {
   actorData,
   actorMap,
   canGrantWithRules,
   checkWithRules,
+  dbFieldMapOf,
+  declaringSuppliedBridges,
   mapWith,
   pathsWithRules,
   type Rules,
@@ -141,11 +144,11 @@ const fieldMap: FieldMap = {
     },
   },
 };
-const map: SchemaMap = {
+const schemaMap: SchemaMap = declaringSuppliedBridges({
   permissions: {},
-  maps: { db: fieldMap },
-  supplied: { actor: actorMap },
-};
+  fieldMaps: { db: fieldMap },
+  suppliedFieldMaps: { actor: actorMap },
+});
 
 const db: Record<string, Record<string, Row>> = {
   'db:Org': { o1: { id: 'o1', name: 'acme', creatorId: 'u1' } },
@@ -157,26 +160,35 @@ const db: Record<string, Record<string, Row>> = {
   'db:Conversation': { c1: { id: 'c1', orgId: 'o1', permissionRules: null } },
   'db:Message': { m1: { id: 'm1', conversationId: 'c1', authorId: 'u1', mentions: ['aron'] } },
 };
-const hydrate = createHydratorReadingEachRowThroughLoad({
-  map,
+const hydrate = makeHydratorReadingEachRowThroughLoad({
+  schemaMap,
   load: async (resource, where) => db[resource]?.[where.id as string] ?? null,
   loadItems: async (resource, where) =>
     Object.values(db[resource] ?? {}).filter((row) =>
       Object.entries(where).every(([key, value]) => row[key] === value),
     ),
 });
-// Who a permix stands for: a check is told it through the subject's `data`.
+// Who a permix stands for: a check is told it through the subject's `bridgeData`.
 const actedBy = new WeakMap<object, Row>();
-const acting = <Subject extends { data?: Record<string, Row[]> }, Rest extends unknown[], Out>(
+const acting = <
+  Subject extends { bridgeData?: Record<string, Row[]> },
+  Rest extends unknown[],
+  Out,
+>(
   ask: (permix: PermixLike, schema: Rules, subject: Subject, ...rest: Rest) => Out,
 ) => {
   return (permix: PermixLike, schema: Rules, subject: Subject, ...rest: Rest): Out => {
     const record = actedBy.get(permix);
     const data = record === undefined ? {} : actorData('User', record);
-    return ask(permix, schema, { ...subject, data: { ...data, ...subject.data } }, ...rest);
+    return ask(
+      permix,
+      schema,
+      { ...subject, bridgeData: { ...data, ...subject.bridgeData } },
+      ...rest,
+    );
   };
 };
-const check = acting(checkWithRules(map));
+const check = acting(checkWithRules(schemaMap));
 
 const actorAs = (id: string, entitlements: EntitlementEntry[] = []): PermixLike => {
   const owner: PermixLike = { check: () => true };
@@ -210,7 +222,7 @@ const actorWrote = (field: string): ActionRule => ({
 });
 // The refusals a schema gets, each once: an `exists` and its comparison reading one path are two reports of it.
 const codes = (schema: Rules) => [
-  ...new Set(validateSchema(mapWith(map, schema)).errors.map((issue) => issue.code)),
+  ...new Set(validateSchemaMap(mapWith(schemaMap, schema)).errors.map((issue) => issue.code)),
 ];
 
 describe('reads the hydrator never loaded are refused', () => {
@@ -241,7 +253,7 @@ describe('reads the hydrator never loaded are refused', () => {
       ).toThrow(/is a list/);
     }
     const declared = ruled('db:Conversation', actorWrote('["messages"][0]["authorId"]'));
-    expect(validateSchema(mapWith(map, declared)).errors[0]?.message).toMatch(
+    expect(validateSchemaMap(mapWith(schemaMap, declared)).errors[0]?.message).toMatch(
       /cross it with \{ rel: 'messages', arrayOperator: 'any', condition \}/,
     );
   });
@@ -294,11 +306,11 @@ describe('reads the hydrator never loaded are refused', () => {
       check(actorAs('attacker', [entry]), schema, { resource: 'db:Conversation', record }, 'act'),
     ).toBe(false);
     expect(entitlementProblem(entry)).toBeNull();
-    expect(whyEntitlementWhereLeavesLens(map, entry.resource, entry.where)).toMatch(
+    expect(whyEntitlementWhereLeavesLens(schemaMap, entry.resource, entry.where)).toMatch(
       /reads outside the lens: `db:Conversation.drafts` is a list/,
     );
     const writer: PermixLike = { check: () => true };
-    expect(canGrantWithRules(map)(writer, schema, entry, record)).toBe(false);
+    expect(canGrantWithRules(schemaMap)(writer, schema, entry, record)).toBe(false);
   });
 
   test('a path back to a model is refused; the hydrator links the row it would read', async () => {
@@ -380,8 +392,8 @@ describe('a loop made by data denies; a schema that names itself throws', () => 
     const subject = { resource: 'db:User', record: u1 };
     expect(check(actorAs('x'), walks, subject, 'read')).toBe(false);
     expect(check(owns('u1'), walks, subject, 'read')).toBe(true);
-    expect(acting(pathsWithRules(map))(actorAs('x'), walks, subject, 'read')).toEqual([]);
-    expect(pathsWithRules(map)(owns('u1'), walks, subject, 'read')).toEqual([[]]);
+    expect(acting(pathsWithRules(schemaMap))(actorAs('x'), walks, subject, 'read')).toEqual([]);
+    expect(pathsWithRules(schemaMap)(owns('u1'), walks, subject, 'read')).toEqual([[]]);
   });
 
   test('a sibling arm beside the looping arm is judged', async () => {
@@ -409,8 +421,8 @@ describe('a loop made by data denies; a schema that names itself throws', () => 
       actions: { read: true },
     };
     const grants = (writer: PermixLike, anchor: Row) =>
-      (pseudoRecordsOfEntitlement(map, entry, anchor) ?? []).every((pseudoRecord) =>
-        canGrantWithRules(map)(writer, walks, entry, pseudoRecord),
+      (pseudoRecordsOfEntitlement(schemaMap, entry, anchor) ?? []).every((pseudoRecord) =>
+        canGrantWithRules(schemaMap)(writer, walks, entry, pseudoRecord),
       );
     const orgReader: PermixLike = { check: (resource) => resource === 'db:Org' };
     const nobody: PermixLike = { check: () => false };
@@ -491,7 +503,7 @@ describe('computed keys, class instances, frozen wheres and the actor in a where
     expect(
       check(actorAs('u1', [entry]), ruled('db:User', null), { resource: 'db:User', record }, 'act'),
     ).toBe(false);
-    expect(whyEntitlementWhereLeavesLens(map, 'db:User', entry.where)).toMatch(
+    expect(whyEntitlementWhereLeavesLens(schemaMap, 'db:User', entry.where)).toMatch(
       /supplied rows are not on it/,
     );
     expect(codes(ruled('db:User', actorWrote('id')))).toEqual([]);
@@ -552,7 +564,7 @@ describe('what the lens keeps', () => {
       where: { field: 'mentions', operator: 'contains', value: 'aron' },
       actions: { act: true },
     };
-    expect(whyEntitlementWhereLeavesLens(map, entry.resource, entry.where)).toBeNull();
+    expect(whyEntitlementWhereLeavesLens(schemaMap, entry.resource, entry.where)).toBeNull();
     const message = await hydrate('db:Message', db['db:Message']?.m1 as Row);
     expect(
       check(
@@ -583,14 +595,16 @@ describe('what the lens keeps', () => {
 
   test('a key the model does not have and an index are refused, wherever the rule came from', () => {
     expect(
-      validateSchema(mapWith(map, ruled('db:User', reads('org.plann')))).errors[0]?.message,
+      validateSchemaMap(mapWith(schemaMap, ruled('db:User', reads('org.plann')))).errors[0]
+        ?.message,
     ).toBe('`db:Org` has no field `plann` (`org.plann`)');
     expect(
-      validateSchema(mapWith(map, ruled('db:User', reads('org.0.name')))).errors[0]?.message,
+      validateSchemaMap(mapWith(schemaMap, ruled('db:User', reads('org.0.name')))).errors[0]
+        ?.message,
     ).toMatch(/`org` is one row and is never indexed/);
-    expect(validateSchema(mapWith(map, ruled('db:User', reads('plann')))).errors[0]?.message).toBe(
-      '`db:User` has no field `plann` (`plann`)',
-    );
+    expect(
+      validateSchemaMap(mapWith(schemaMap, ruled('db:User', reads('plann')))).errors[0]?.message,
+    ).toBe('`db:User` has no field `plann` (`plann`)');
     const inline = (rule: ActionRule) =>
       check(
         actorAs('x'),
@@ -605,7 +619,7 @@ describe('what the lens keeps', () => {
       check(actorAs('x'), ruled('db:User', null), { resource: 'db:User', record: rowRule }, 'act'),
     ).toThrow('`db:User` has no field `plann`');
     expect(
-      whyEntitlementWhereLeavesLens(map, 'db:User', {
+      whyEntitlementWhereLeavesLens(schemaMap, 'db:User', {
         field: 'plann',
         operator: 'equals',
         value: 1,
@@ -674,7 +688,7 @@ describe('the root, item paths, unknown resources and wheres on an item', () => 
     const col = column('String');
     const people: SchemaMap = {
       permissions: {},
-      maps: {
+      fieldMaps: {
         db: {
           models: {
             Project: {
@@ -718,8 +732,8 @@ describe('the root, item paths, unknown resources and wheres on an item', () => 
       },
       'db:Org': { o1: { id: 'o1', name: 'acme' } },
     };
-    const load = createHydratorReadingEachRowThroughLoad({
-      map: people,
+    const load = makeHydratorReadingEachRowThroughLoad({
+      schemaMap: people,
       load: async (resource, where) => rows[resource]?.[where.id as string] ?? null,
       loadItems: async (resource, where) =>
         Object.values(rows[resource] ?? {}).filter((row) =>
@@ -767,14 +781,20 @@ describe('the root, item paths, unknown resources and wheres on an item', () => 
 
   test('a where consulted on a list item is judged at the item’s declared paths', () => {
     const where: Condition = { field: 'conversation.org.name', operator: 'equals', value: 'acme' };
-    const list = listOf(map, 'db:Conversation', 'messages');
-    const item = lensesAtRow(map, 'db:Message', {
+    const list = listOf(schemaMap, 'db:Conversation', 'messages');
+    const item = lensesAtRow(schemaMap, 'db:Message', {
       list: 'conversation.messages',
       listRelation: list as never,
       prefix: [],
     });
-    expect(whyWhereLeavesLensAtRow(map, lensesAtRow(map, 'db:Message'), where)).toBeNull();
-    expect(whyWhereLeavesLensAtRow(map, item, where)).toMatch(
+    expect(
+      whyWhereLeavesLensAtRow(
+        resolvedSchemaMap(schemaMap),
+        lensesAtRow(schemaMap, 'db:Message'),
+        where,
+      ),
+    ).toBeNull();
+    expect(whyWhereLeavesLensAtRow(resolvedSchemaMap(schemaMap), item, where)).toMatch(
       /loads no `conversation` under an item/,
     );
   });
@@ -782,8 +802,8 @@ describe('the root, item paths, unknown resources and wheres on an item', () => 
 
 describe('the starting record: a row is known by resource and id', () => {
   const loads: string[] = [];
-  const counting = createHydratorReadingEachRowThroughLoad({
-    map,
+  const counting = makeHydratorReadingEachRowThroughLoad({
+    schemaMap,
     load: async (resource, where) => {
       loads.push(`${resource}:${where.id}`);
       const row = db[resource]?.[where.id as string] ?? null;
@@ -845,8 +865,8 @@ describe('the starting record: a row is known by resource and id', () => {
       actions: { x: true },
     };
     const grants = (writer: PermixLike, user: Row) =>
-      (pseudoRecordsOfEntitlement(map, entry, user) ?? []).every((pseudoRecord) =>
-        canGrantWithRules(map)(writer, schema, entry, pseudoRecord),
+      (pseudoRecordsOfEntitlement(schemaMap, entry, user) ?? []).every((pseudoRecord) =>
+        canGrantWithRules(schemaMap)(writer, schema, entry, pseudoRecord),
       );
     const u1 = await counting('db:User', db['db:User']?.u1 as Row);
     // main's answer: u1 creates its own org, so the data places u1 above itself, and the writer
@@ -875,7 +895,7 @@ describe('the starting record: a row is known by resource and id', () => {
     const col = column('String');
     const nodes: SchemaMap = {
       permissions: {},
-      maps: {
+      fieldMaps: {
         db: {
           models: {
             Node: {
@@ -891,8 +911,8 @@ describe('the starting record: a row is known by resource and id', () => {
       },
     };
     const seen: string[] = [];
-    const load = createHydrator({
-      map: nodes,
+    const load = makeHydrator({
+      ...dbFieldMapOf(nodes),
       load: async (_resource, where) => {
         seen.push(String(where.id));
         return { id: 'n1', name: 'stored', parentId: 'n1' };
@@ -912,7 +932,7 @@ describe('the starting record: a row is known by resource and id', () => {
     const col = column('String');
     const nodes = {
       permissions: {},
-      maps: {
+      fieldMaps: {
         db: {
           models: {
             Node: {
@@ -937,7 +957,7 @@ describe('the starting record: a row is known by resource and id', () => {
       },
     } satisfies SchemaMap;
     const stored = { org: 'o', key: 'k', name: 'Una', parentOrg: 'o', parentKey: 'k' };
-    const load = createHydrator({ map: nodes, load: async () => stored });
+    const load = makeHydrator({ ...dbFieldMapOf(nodes), load: async () => stored });
     const forged = await load('db:Node', { ...stored, name: 'EVIL' });
     const reads: Rules = {
       permissions: {
@@ -974,8 +994,8 @@ describe('the starting record: a row is known by resource and id', () => {
       actions: { act: true },
     };
     const [a, b] = [
-      pseudoRecordsOfEntitlement(map, entry, db['db:Conversation']?.c1 as Row),
-      pseudoRecordsOfEntitlement(map, entry, db['db:Conversation']?.c1 as Row),
+      pseudoRecordsOfEntitlement(schemaMap, entry, db['db:Conversation']?.c1 as Row),
+      pseudoRecordsOfEntitlement(schemaMap, entry, db['db:Conversation']?.c1 as Row),
     ];
     expect(a?.[0]).not.toBe(b?.[0]);
     const walk: Rules = {
@@ -1006,7 +1026,7 @@ describe('the limits throw; nothing is cut', () => {
     const names = Array.from({ length: 9 }, (_, i) => `M${i}`);
     const dense: SchemaMap = {
       permissions: {},
-      maps: {
+      fieldMaps: {
         db: {
           models: Object.fromEntries(
             names.map((name) => [
@@ -1027,7 +1047,7 @@ describe('the limits throw; nothing is cut', () => {
         },
       },
     };
-    expect(() => countRelationsOneRowHydrates(dense, 'db:M0')).toThrow(
+    expect(() => countRelationsOneRowHydrates(resolvedSchemaMap(dense), 'db:M0')).toThrow(
       `the lens of \`db:M0\` hydrates more than ${relationLensLimits.refuse} relations a row`,
     );
   });
@@ -1037,7 +1057,7 @@ describe('the limits throw; nothing is cut', () => {
     const length = relationLensLimits.depth + 2;
     const chain: SchemaMap = {
       permissions: {},
-      maps: {
+      fieldMaps: {
         db: {
           models: Object.fromEntries(
             Array.from({ length }, (_, i) => [
@@ -1054,7 +1074,7 @@ describe('the limits throw; nothing is cut', () => {
         },
       },
     };
-    expect(() => countRelationsOneRowHydrates(chain, 'db:C0')).toThrow(
+    expect(() => countRelationsOneRowHydrates(resolvedSchemaMap(chain), 'db:C0')).toThrow(
       `the lens of \`db:C0\` goes past ${relationLensLimits.depth} relations`,
     );
   });
@@ -1063,7 +1083,7 @@ describe('the limits throw; nothing is cut', () => {
     const col = column('String');
     const nodes: SchemaMap = {
       permissions: {},
-      maps: {
+      fieldMaps: {
         db: {
           models: {
             Node: { fields: { id: col, parentId: col, parent: toOne('Node', 'parentId') } },
@@ -1071,8 +1091,8 @@ describe('the limits throw; nothing is cut', () => {
         },
       },
     };
-    const endless = createHydrator({
-      map: nodes,
+    const endless = makeHydrator({
+      ...dbFieldMapOf(nodes),
       load: async (_resource, where) => {
         const i = Number(String(where.id).slice(1));
         return { id: `n${i}`, parentId: `n${i + 1}` };
@@ -1135,7 +1155,7 @@ describe('a record passed with children already fetched', () => {
 });
 
 describe('json-rules’ operator fit check', () => {
-  test('validateSchema reports a date operator on a String column, which json-rules throws on when run', () => {
+  test('validateSchemaMap reports a date operator on a String column, which json-rules throws on when run', () => {
     const schema = ruled('db:User', {
       rule: { field: 'name', dateOperator: 'before', value: '2026-01-01' },
     } as ActionRule);
@@ -1159,7 +1179,10 @@ describe('the actor and the size of a lens', () => {
     expect(codes(ruled('db:User', reads('org.actor:User.id')))).toEqual(['lens']);
     expect(codes(ruled('db:User', reads('__actor.record.id')))).toEqual(['lens']);
     expect(
-      whyEntitlementWhereLeavesLens(map, 'db:User', { field: 'actor:User.id', operator: 'exists' }),
+      whyEntitlementWhereLeavesLens(schemaMap, 'db:User', {
+        field: 'actor:User.id',
+        operator: 'exists',
+      }),
     ).toMatch(/supplied rows are not on it/);
   });
 
@@ -1177,7 +1200,7 @@ describe('the actor and the size of a lens', () => {
       Array.from({ length: count }, (_, i) => `${prefix}${i}`);
     const wide: SchemaMap = {
       permissions: {},
-      maps: {
+      fieldMaps: {
         db: {
           models: {
             Hub: { fields: to('s', 40) },
@@ -1187,7 +1210,7 @@ describe('the actor and the size of a lens', () => {
         },
       },
     };
-    const result = validateSchema(
+    const result = validateSchemaMap(
       mapWith(wide, { permissions: { 'db:Hub': { actions: { read: null } } } }),
     );
     expect(result.ok).toBe(true);
@@ -1200,7 +1223,7 @@ describe('the actor and the size of a lens', () => {
     const kinds = ['K0', 'K1', 'K2', 'K3'];
     const poly: SchemaMap = {
       permissions: {},
-      maps: {
+      fieldMaps: {
         db: {
           models: {
             Hub: {
@@ -1231,7 +1254,7 @@ describe('the actor and the size of a lens', () => {
           },
         },
       },
-      polymorphism: {
+      polymorphismRegistries: {
         db: {
           Hub: {
             axes: [
@@ -1244,9 +1267,9 @@ describe('the actor and the size of a lens', () => {
         },
       },
     };
-    expect(countRelationsOneRowHydrates(poly, 'db:Hub')).toBe(301);
+    expect(countRelationsOneRowHydrates(resolvedSchemaMap(poly), 'db:Hub')).toBe(301);
     expect(
-      validateSchema(mapWith(poly, { permissions: { 'db:Hub': { actions: { read: null } } } }))
+      validateSchemaMap(mapWith(poly, { permissions: { 'db:Hub': { actions: { read: null } } } }))
         .warnings,
     ).toEqual([]);
   });
@@ -1295,8 +1318,8 @@ describe('under a list item only the declared paths exist', () => {
   });
 
   test('an undeclared to-one that came back on an item is gone from it', async () => {
-    const forged = createHydratorReadingEachRowThroughLoad({
-      map,
+    const forged = makeHydratorReadingEachRowThroughLoad({
+      schemaMap,
       load: async (resource, where) => db[resource]?.[where.id as string] ?? null,
       loadItems: async (resource, where) =>
         Object.values(db[resource] ?? {})
@@ -1314,7 +1337,7 @@ describe('one down boundary: an item holds only its declared tree', () => {
   const col = column('String');
   const items: SchemaMap = {
     permissions: {},
-    maps: {
+    fieldMaps: {
       db: {
         models: {
           Org: { fields: { id: col, name: col } },
@@ -1377,8 +1400,8 @@ describe('one down boundary: an item holds only its declared tree', () => {
     },
   };
   const loading = (permissionRules: unknown) =>
-    createHydratorReadingEachRowThroughLoad({
-      map: items,
+    makeHydratorReadingEachRowThroughLoad({
+      schemaMap: items,
       load: async (resource, where) => rows[resource]?.[where.id as string] ?? null,
       loadItems: async (resource, where) =>
         Object.values(rows[resource] ?? {})
@@ -1453,7 +1476,7 @@ describe('a row’s key', () => {
     const col = column('String');
     const keyed: SchemaMap = {
       permissions: {},
-      maps: {
+      fieldMaps: {
         db: {
           models: {
             Brand: {
@@ -1476,7 +1499,7 @@ describe('a row’s key', () => {
     const col = column('String');
     const pair = {
       permissions: {},
-      maps: {
+      fieldMaps: {
         db: {
           models: {
             Pair: { fields: { a: col, b: col }, indexes: [{ kind: 'id', fields: ['a', 'b'] }] },
@@ -1491,11 +1514,11 @@ describe('a row’s key', () => {
 });
 
 describe('the apps’ own maps', () => {
-  const zealot: SchemaMap = {
+  const zealot: SchemaMap = declaringSuppliedBridges({
     permissions: {},
-    maps: { db: { models: loadModels('zealot') } },
-    supplied: { actor: actorMap },
-  };
+    fieldMaps: { db: { models: loadModels('zealot') } },
+    suppliedFieldMaps: { actor: actorMap },
+  });
   const participantReads = (field: string): Rules => ({
     permissions: {
       'db:Conversation': {
@@ -1527,7 +1550,7 @@ describe('the apps’ own maps', () => {
     const fay: PermixLike = { check: () => false };
     actedBy.set(fay, { uuid: 'u-fay' });
     const declared = participantReads('forumUser.fanUser.userUuid');
-    expect(validateSchema(mapWith(zealot, declared)).ok).toBe(true);
+    expect(validateSchemaMap(mapWith(zealot, declared)).ok).toBe(true);
     expect(ask(fay, declared, { resource: 'db:Conversation', record }, 'act')).toBe(true);
     const landing: Rules = {
       permissions: {
@@ -1556,14 +1579,14 @@ describe('the apps’ own maps', () => {
       },
     };
     expect([
-      ...new Set(validateSchema(mapWith(zealot, landing)).errors.map((issue) => issue.code)),
+      ...new Set(validateSchemaMap(mapWith(zealot, landing)).errors.map((issue) => issue.code)),
     ]).toEqual(['down']);
   });
 
   test('Kingdom: a surface rule reads through its synthetic integrationResource relation', () => {
     const kingdom: SchemaMap = {
       permissions: {},
-      maps: { db: { models: loadModels('kingdom') } },
+      fieldMaps: { db: { models: loadModels('kingdom') } },
     };
     const schema: Rules = {
       permissions: {
@@ -1572,7 +1595,7 @@ describe('the apps’ own maps', () => {
         },
       },
     };
-    expect(validateSchema(mapWith(kingdom, schema)).ok).toBe(true);
+    expect(validateSchemaMap(mapWith(kingdom, schema)).ok).toBe(true);
     const surface = {
       operation: 'post',
       integrationResourceId: 'r1',

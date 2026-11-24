@@ -1,16 +1,17 @@
-import { createHydrator, type HydrateDeps } from '../index';
+import { makeHydrator, type SchemaMap } from '../index';
 import { idField } from '../src/core/recordId';
 import { listsOf, relationOf, type SpelledRelationTree } from '../src/core/relations';
 import { keysFrom } from '../src/core/rowKeys';
 import type { Row } from '../src/core/types';
+import { dbFieldMapOf } from './schemaMaps';
 
 /** A hydrator whose `load` brings a declared list by one read of the items, then one read per row under each. */
-export const createHydratorReadingEachRowThroughLoad = <R extends string>({
-  map,
+export const makeHydratorReadingEachRowThroughLoad = <R extends string>({
+  schemaMap,
   load,
   loadItems,
 }: {
-  map: HydrateDeps<R>['map'];
+  schemaMap: Pick<SchemaMap, 'fieldMaps'>;
   load: (resource: R, where: Row) => Promise<Row | null>;
   loadItems: (itemResource: R, where: Row) => Promise<Row[]>;
 }) => {
@@ -23,7 +24,7 @@ export const createHydratorReadingEachRowThroughLoad = <R extends string>({
     await Promise.all(
       Object.entries(tree).map(async ([name, below]) => {
         delete result[name];
-        const relation = relationOf(map, resource, name);
+        const relation = relationOf(schemaMap, resource, name);
         if (!relation) return;
         const key = Object.fromEntries(
           relation.from.map((column, index) => [relation.to[index] ?? idField(), row[column]]),
@@ -40,13 +41,13 @@ export const createHydratorReadingEachRowThroughLoad = <R extends string>({
     );
     return result;
   };
-  return createHydrator<R>({
-    map,
+  return makeHydrator<R>({
+    ...dbFieldMapOf(schemaMap),
     load: async (resource, where) => {
       const row = await load(resource, where);
       if (!row) return null;
       const result: Row = { ...row };
-      for (const [name, list] of listsOf(map, resource)) {
+      for (const [name, list] of listsOf(schemaMap, resource)) {
         const itemsWhere = keysFrom(list, row);
         const items =
           Object.keys(itemsWhere).length === list.from.length

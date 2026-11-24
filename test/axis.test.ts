@@ -76,10 +76,10 @@ const fieldMap: FieldMap = {
   },
 };
 
-const map: SchemaMap = {
+const schemaMap: SchemaMap = {
   permissions: {},
-  maps: { db: fieldMap },
-  polymorphism: {
+  fieldMaps: { db: fieldMap },
+  polymorphismRegistries: {
     db: {
       Integration: {
         axes: [
@@ -123,8 +123,8 @@ const schema: Rules = {
   },
 };
 
-const check = checkWithRules(map);
-const canGrant = canGrantWithRules(map);
+const check = checkWithRules(schemaMap);
+const canGrant = canGrantWithRules(schemaMap);
 
 const organizationOf = (id: string) => ({ id });
 const o1 = organizationOf('o1');
@@ -191,7 +191,7 @@ const theOrganizations = () =>
   underO1({ field: 'ownerModel', operator: 'equals', value: 'Organization' } as never);
 
 const may = async (writer: Awaited<ReturnType<typeof table>>, entry: EntitlementEntry) => {
-  const pseudoRecord = pseudoRecordsOfEntitlement(map, entry, o1);
+  const pseudoRecord = pseudoRecordsOfEntitlement(schemaMap, entry, o1);
   return pseudoRecord?.every((record) => canGrant(writer, schema, entry, record));
 };
 
@@ -249,14 +249,14 @@ describe('a holder grants what it holds onward, and no more', () => {
   test("an admin holding the organization's own does not grant every kind", async () => {
     const writer = await holdingAdmin(theOrganizations());
     expect(await may(writer, theOrganizations())).toBe(true);
-    expect(pseudoRecordsOfEntitlement(map, underO1(), o1)).toHaveLength(4);
+    expect(pseudoRecordsOfEntitlement(schemaMap, underO1(), o1)).toHaveLength(4);
     expect(await may(writer, underO1())).toBe(false);
   });
 });
 
 describe('the grant is judged on one pseudo record per kind the entry admits (R81)', () => {
   test('unfiltered: four pseudo records, each owner pseudoRecord under the anchor', () => {
-    const pseudoRecord = pseudoRecordsOfEntitlement(map, underO1(), o1);
+    const pseudoRecord = pseudoRecordsOfEntitlement(schemaMap, underO1(), o1);
     expect(pseudoRecord?.map((record) => record.ownerModel)).toEqual([
       'Organization',
       'Space',
@@ -277,7 +277,7 @@ describe('the grant is judged on one pseudo record per kind the entry admits (R8
   });
 
   test("an admin grants it narrowed to the organization's own", async () => {
-    expect(pseudoRecordsOfEntitlement(map, theOrganizations(), o1)?.length).toBe(1);
+    expect(pseudoRecordsOfEntitlement(schemaMap, theOrganizations(), o1)?.length).toBe(1);
     expect(await may(await admin(), theOrganizations())).toBe(true);
   });
 
@@ -288,7 +288,7 @@ describe('the grant is judged on one pseudo record per kind the entry admits (R8
       actions: { manage: true },
     };
     expect(
-      pseudoRecordsOfEntitlement(map, atSpace, s1)?.map((record) => record.ownerModel),
+      pseudoRecordsOfEntitlement(schemaMap, atSpace, s1)?.map((record) => record.ownerModel),
     ).toEqual(['Space', 'SpaceUser']);
   });
 });
@@ -300,7 +300,7 @@ describe('an owner is pseudoRecord under every record above it, not only its par
       anchor: { resource: 'db:Organization', id: 'o1', path: 'organizationUser.organization' },
       actions: { manage: true },
     };
-    const pseudoRecord = pseudoRecordsOfEntitlement(map, members, o1);
+    const pseudoRecord = pseudoRecordsOfEntitlement(schemaMap, members, o1);
     expect(pseudoRecord?.map((record) => record.ownerModel)).toEqual([
       'OrganizationUser',
       'SpaceUser',
@@ -316,7 +316,7 @@ describe('a kind whose owner cannot be pseudoRecord is still judged', () => {
   test('its record stays, the owner unknown, rather than the kind skipped', () => {
     const orphanMap: SchemaMap = {
       permissions: {},
-      maps: {
+      fieldMaps: {
         db: {
           models: {
             Organization: { fields: { id: scalar } },
@@ -333,7 +333,7 @@ describe('a kind whose owner cannot be pseudoRecord is still judged', () => {
           },
         },
       },
-      polymorphism: {
+      polymorphismRegistries: {
         db: {
           Thing: {
             axes: [
@@ -359,7 +359,8 @@ describe('a kind whose owner cannot be pseudoRecord is still judged', () => {
 
 describe('the root of the where narrows the kinds: each leaf checked on each pseudo record (R88)', () => {
   const kinds = (where: EntitlementEntry['where']) =>
-    pseudoRecordsOfEntitlement(map, underO1(where), o1)?.map((record) => record.ownerModel) ?? null;
+    pseudoRecordsOfEntitlement(schemaMap, underO1(where), o1)?.map((record) => record.ownerModel) ??
+    null;
 
   test('`in` keeps the kinds it names', () => {
     expect(
@@ -465,13 +466,13 @@ describe('a root leaf is judged only on the kind (R88 adversarial, R90)', () => 
 
   test("a leaf on a copy of the anchor's columns inside the owner narrows nothing", async () => {
     const leaf = { field: 'space.organization.name', operator: 'equals', value: 'Later' };
-    const pseudoRecord = pseudoRecordsOfEntitlement(map, withK(leaf), { ...o1, name: 'Now' });
+    const pseudoRecord = pseudoRecordsOfEntitlement(schemaMap, withK(leaf), { ...o1, name: 'Now' });
     expect(pseudoRecord?.map((record) => record.ownerModel)).toEqual(['Organization', 'Space']);
   });
 
   const billing: SchemaMap = {
-    ...map,
-    maps: {
+    ...schemaMap,
+    fieldMaps: {
       db: {
         models: {
           ...fieldMap.models,
@@ -496,7 +497,7 @@ describe('a root leaf is judged only on the kind (R88 adversarial, R90)', () => 
         },
       },
     },
-    polymorphism: {
+    polymorphismRegistries: {
       db: {
         Integration: {
           axes: [
@@ -533,7 +534,7 @@ describe('a root leaf is judged only on the kind (R88 adversarial, R90)', () => 
 describe("on a multi-hop path only the kind narrows: the first step's parent is pseudoRecord, not fixed (R88 adversarial)", () => {
   const things: SchemaMap = {
     permissions: {},
-    maps: {
+    fieldMaps: {
       db: {
         models: {
           Organization: { fields: { id: scalar } },
@@ -576,7 +577,7 @@ describe("on a multi-hop path only the kind narrows: the first step's parent is 
         },
       },
     },
-    polymorphism: {
+    polymorphismRegistries: {
       db: {
         Thing: {
           axes: [
@@ -608,7 +609,7 @@ describe('pseudoRecordsBelowAnchor narrows by its where the way a grant does', (
   test('no where: every kind; a root kind leaf: the kinds it admits', () => {
     const under = (where?: EntitlementEntry['where']) =>
       pseudoRecordsBelowAnchor(
-        map,
+        schemaMap,
         'db:Integration',
         'organization',
         'db:Organization',

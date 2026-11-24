@@ -248,22 +248,32 @@ describe('rebac check — bridge (cross-map) rel walks', () => {
     const granted = grantStub({ 'crm:Account:own': ['acc1'] });
     const data = { 'crm:Account': [{ id: 'acc1' }, { id: 'other' }] };
     expect(
-      c(granted, s, { resource: 'db:User', record: { id: 'u1', accountId: 'acc1' }, data }, 'read'),
+      c(
+        granted,
+        s,
+        { resource: 'db:User', record: { id: 'u1', accountId: 'acc1' }, bridgeData: data },
+        'read',
+      ),
     ).toBe(true);
     expect(
       c(
         granted,
         s,
-        { resource: 'db:User', record: { id: 'u1', accountId: 'other' }, data },
+        { resource: 'db:User', record: { id: 'u1', accountId: 'other' }, bridgeData: data },
         'read',
       ),
     ).toBe(false);
     expect(
-      c(granted, s, { resource: 'db:User', record: { id: 'u1', accountId: null }, data }, 'read'),
+      c(
+        granted,
+        s,
+        { resource: 'db:User', record: { id: 'u1', accountId: null }, bridgeData: data },
+        'read',
+      ),
     ).toBe(false);
   });
 
-  test('abac-after-bridge: the far record’s fields come from subject.data via the dictionary', () => {
+  test('abac-after-bridge: the far record’s fields come from subject.bridgeData via the dictionary', () => {
     const s: Rules = {
       bridges,
       permissions: {
@@ -277,7 +287,7 @@ describe('rebac check — bridge (cross-map) rel walks', () => {
     const subject = {
       resource: 'db:User',
       record: { id: 'u1', accountId: 'acc1' },
-      data: { 'crm:Account': [{ id: 'acc1', tier: 'gold' }] },
+      bridgeData: { 'crm:Account': [{ id: 'acc1', tier: 'gold' }] },
     };
     expect(c(stub(), s, subject, 'read')).toBe(true);
     // same walk without supplemental data → the far record has no fields → abac fails
@@ -315,7 +325,7 @@ describe('to-one constraint on bridge walks (adversarial: must not walk onto the
     const subject = {
       resource: 'crm:Account',
       record: { id: 'acc1' },
-      data: {
+      bridgeData: {
         'db:User': [
           { id: 'u2', accountId: 'acc1', active: true },
           { id: 'u1', accountId: 'acc1', active: false },
@@ -339,7 +349,7 @@ describe('to-one constraint on bridge walks (adversarial: must not walk onto the
     const subject = {
       resource: 'db:User',
       record: { id: 'u1', accountId: 'acc1' },
-      data: { 'crm:Account': [{ id: 'acc1', tier: 'gold' }] },
+      bridgeData: { 'crm:Account': [{ id: 'acc1', tier: 'gold' }] },
     };
     expect(c(stub(), s, subject, 'read')).toBe(true);
   });
@@ -381,7 +391,7 @@ describe('bridge — complex traversals (multi-hop, mixed-path, composition)', (
     const subject = {
       resource: 'db:User',
       record: { id: 'u1', accountId: 'acc1' },
-      data: {
+      bridgeData: {
         'crm:Account': [{ id: 'acc1', subscriptionId: 'sub1' }],
         'billing:Subscription': [{ id: 'sub1' }],
       },
@@ -431,7 +441,7 @@ describe('bridge — complex traversals (multi-hop, mixed-path, composition)', (
     const subject = {
       resource: 'db:User',
       record: { id: 'u1', accountId: 'acc1' },
-      data: { 'crm:Account': [{ id: 'acc1', owner: { id: 'c1' } }] },
+      bridgeData: { 'crm:Account': [{ id: 'acc1', owner: { id: 'c1' } }] },
     };
     expect(c(granted, s, subject, 'read')).toBe(true);
   });
@@ -464,13 +474,18 @@ describe('bridge — complex traversals (multi-hop, mixed-path, composition)', (
     const granted = grantStub({ 'crm:Account:own': ['acc1'] });
     const data = { 'crm:Account': [{ id: 'acc1' }, { id: 'other' }] };
     expect(
-      c(granted, s, { resource: 'db:User', record: { id: 'u1', accountId: 'acc1' }, data }, 'read'),
+      c(
+        granted,
+        s,
+        { resource: 'db:User', record: { id: 'u1', accountId: 'acc1' }, bridgeData: data },
+        'read',
+      ),
     ).toBe(true);
     expect(
       c(
         granted,
         s,
-        { resource: 'db:User', record: { id: 'u1', accountId: 'other' }, data },
+        { resource: 'db:User', record: { id: 'u1', accountId: 'other' }, bridgeData: data },
         'read',
       ),
     ).toBe(false);
@@ -501,7 +516,11 @@ describe('bridge — complex traversals (multi-hop, mixed-path, composition)', (
       c(
         granted,
         s,
-        { resource: 'db:User', record: { id: 'u1', accountId: 'acc1', isAdmin: false }, data },
+        {
+          resource: 'db:User',
+          record: { id: 'u1', accountId: 'acc1', isAdmin: false },
+          bridgeData: data,
+        },
         'read',
       ),
     ).toBe(true);
@@ -510,7 +529,11 @@ describe('bridge — complex traversals (multi-hop, mixed-path, composition)', (
       c(
         granted,
         s,
-        { resource: 'db:User', record: { id: 'u1', accountId: 'other', isAdmin: false }, data },
+        {
+          resource: 'db:User',
+          record: { id: 'u1', accountId: 'other', isAdmin: false },
+          bridgeData: data,
+        },
         'read',
       ),
     ).toBe(false);
@@ -542,7 +565,7 @@ describe('oneToOne bridge is walkable from both endpoints (symmetric)', () => {
     const subject = {
       resource: 'db:User',
       record: { id: 'u1', profileId: 'p1' },
-      data: { 'crm:Profile': [{ id: 'p1' }] },
+      bridgeData: { 'crm:Profile': [{ id: 'p1' }] },
     };
     expect(c(granted, s, subject, 'read')).toBe(true);
   });
@@ -561,7 +584,7 @@ describe('oneToOne bridge is walkable from both endpoints (symmetric)', () => {
     const subject = {
       resource: 'crm:Profile',
       record: { id: 'p1' },
-      data: { 'db:User': [{ id: 'u1', profileId: 'p1' }] },
+      bridgeData: { 'db:User': [{ id: 'u1', profileId: 'p1' }] },
     };
     expect(c(granted, s, subject, 'read')).toBe(true);
   });
@@ -592,7 +615,7 @@ describe('a bridge on a non-id far key never matches an id-keyed grant by the jo
   // An actor holds an id-keyed grant on the Team whose *id* happens to equal the join value.
   const granted = grantStub({ 'crm:Team:own': ['collidingValue'] });
 
-  test('an id-keyed grant colliding with a NON-id join value must NOT allow (no subject.data)', () => {
+  test('an id-keyed grant colliding with a NON-id join value must NOT allow (no subject.bridgeData)', () => {
     // record.teamCode joins crm:Team.code — it is NOT a Team id. The colliding id-grant must not apply.
     expect(
       c(
@@ -609,7 +632,7 @@ describe('a bridge on a non-id far key never matches an id-keyed grant by the jo
       resource: 'db:User',
       record: { id: 'u1', teamCode: 'collidingValue' },
       // The real Team joined by code has its own distinct id, on which the actor holds NO grant.
-      data: { 'crm:Team': [{ id: 'realTeam', code: 'collidingValue' }] },
+      bridgeData: { 'crm:Team': [{ id: 'realTeam', code: 'collidingValue' }] },
     };
     expect(c(granted, s, subject, 'read')).toBe(false);
   });
@@ -644,7 +667,7 @@ describe('an absent far row denies the bridge walk', () => {
     const withStatus = (status: string) => ({
       resource: 'db:User',
       record,
-      data: { 'crm:Account': [{ id: 'acc1', status }] },
+      bridgeData: { 'crm:Account': [{ id: 'acc1', status }] },
     });
     expect(c(stub(), s, withStatus('active'), 'read')).toBe(true);
     expect(c(stub(), s, withStatus('blocked'), 'read')).toBe(false);
@@ -660,7 +683,11 @@ describe('an absent far row denies the bridge walk', () => {
     };
     const granted = grantStub({ 'crm:Account:own': ['acc1'] });
     expect(c(granted, s, { resource: 'db:User', record }, 'read')).toBe(false);
-    const subject = { resource: 'db:User', record, data: { 'crm:Account': [{ id: 'acc1' }] } };
+    const subject = {
+      resource: 'db:User',
+      record,
+      bridgeData: { 'crm:Account': [{ id: 'acc1' }] },
+    };
     expect(c(granted, s, subject, 'read')).toBe(true);
   });
 });
@@ -723,7 +750,7 @@ describe('dictionary is built lazily (adversarial: malformed data must not crash
     const subject = {
       resource: 'db:User',
       record: { id: 'u1', userId: 'me' },
-      data: { 'crm:Account': [{ id: 'dup' }, { id: 'dup' }] },
+      bridgeData: { 'crm:Account': [{ id: 'dup' }, { id: 'dup' }] },
     };
     expect(c(stub(), s, subject, 'leave')).toBe(true);
   });
@@ -818,7 +845,7 @@ describe('the actor is data: a { rule } reads its row as actor:<Model>', () => {
     check(
       as,
       schemaOf(rule),
-      { resource: 'db:doc', record, data: actorData(actor?.model ?? null, actor?.record) },
+      { resource: 'db:doc', record, bridgeData: actorData(actor?.model ?? null, actor?.record) },
       'read',
     );
 

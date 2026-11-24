@@ -7,12 +7,13 @@ import {
   type Row,
   ruleFieldEqualsPath,
   type SchemaMap,
-  validateSchema,
+  validateSchemaMap,
 } from '../index';
 import {
   actorData,
   actorMap,
   checkWithRules,
+  declaringSuppliedBridges,
   mapWith,
   type Rules,
   stringColumn,
@@ -22,9 +23,9 @@ const toOne = (type: string, key: string) =>
   ({ kind: 'object', type, isList: false, fromFields: [key], toFields: ['id'] }) as const;
 
 // A token owned by an organization, a space (with its organization), a user, or no one (`default`).
-const map: SchemaMap = {
+const schemaMap: SchemaMap = declaringSuppliedBridges({
   permissions: {},
-  maps: {
+  fieldMaps: {
     db: {
       models: {
         Token: {
@@ -46,7 +47,7 @@ const map: SchemaMap = {
       enums: { TokenOwner: ['Organization', 'Space', 'User', 'default'] },
     },
   },
-  polymorphism: {
+  polymorphismRegistries: {
     db: {
       Token: {
         axes: [
@@ -63,10 +64,10 @@ const map: SchemaMap = {
       },
     },
   },
-  supplied: { actor: actorMap },
-};
-const kind = makeKindRules(map);
-const check = checkWithRules(map);
+  suppliedFieldMaps: { actor: actorMap },
+});
+const kind = makeKindRules(schemaMap);
+const check = checkWithRules(schemaMap);
 const permix: PermixLike = {
   check: (resource, action) => resource === 'db:Organization' && action === 'manage',
 };
@@ -82,7 +83,7 @@ const schemaOf = (manage: ActionRule): Rules => ({
   },
 });
 const manage = (rule: ActionRule, data: Record<string, Row[]>, record: Row) =>
-  check(permix, schemaOf(rule), { resource: 'db:Token', record, data }, 'manage');
+  check(permix, schemaOf(rule), { resource: 'db:Token', record, bridgeData: data }, 'manage');
 const isKind = (field: string, value: string): ActionRule => ({
   rule: { field, operator: Operator.equals, value },
 });
@@ -116,7 +117,7 @@ describe('the fan-out: each branch checks its own kind first', () => {
         isKind('ownerModel', 'default'),
       ],
     });
-    expect(validateSchema(mapWith(map, schemaOf(rule))).errors).toEqual([]);
+    expect(validateSchemaMap(mapWith(schemaMap, schemaOf(rule))).errors).toEqual([]);
   });
 
   test("a branch holds only on its own kind: a space-owned row never takes the organization's branch", () => {

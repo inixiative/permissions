@@ -4,15 +4,15 @@ import type { Condition } from '@inixiative/json-rules';
 import {
   type ActionRule,
   createPermissions,
-  createRebacCheck,
   type EntitlementEntry,
+  makeRebacCheck,
   pseudoRecordsOfEntitlement,
   type Row,
   type SchemaMap,
-  validateSchema,
+  validateSchemaMap,
 } from '../index';
-import { createHydratorReadingEachRowThroughLoad } from './createHydratorReadingEachRowThroughLoad';
 import { annotate, loadModels } from './fixtures/load';
+import { makeHydratorReadingEachRowThroughLoad } from './makeHydratorReadingEachRowThroughLoad';
 import { canGrantWithRules, checkWithRules, mapWith, type Rules, stringColumn } from './schemaMaps';
 
 // Kingdom's surface → integrationResource → integration slice (schemas/kingdom.prisma), read by
@@ -20,7 +20,7 @@ import { canGrantWithRules, checkWithRules, mapWith, type Rules, stringColumn } 
 const models = loadModels('kingdom');
 const mapOver = (over: typeof models): SchemaMap => ({
   permissions: {},
-  maps: { db: { models: over } },
+  fieldMaps: { db: { models: over } },
 });
 const withPseudoFields = mapOver(models);
 const withoutPseudoFields = mapOver(
@@ -113,19 +113,24 @@ const everyChannel: EntitlementEntry = {
   },
   actions: { '*': true },
 };
-const pseudoRecordsOn = (map: SchemaMap, entry: EntitlementEntry, anchor: Row = i1) =>
-  pseudoRecordsOfEntitlement(map, entry, anchor) as Row[];
-const granted = async (map: SchemaMap, rules: Rules, entry: EntitlementEntry, anchor = i1) => {
+const pseudoRecordsOn = (schemaMap: SchemaMap, entry: EntitlementEntry, anchor: Row = i1) =>
+  pseudoRecordsOfEntitlement(schemaMap, entry, anchor) as Row[];
+const granted = async (
+  schemaMap: SchemaMap,
+  rules: Rules,
+  entry: EntitlementEntry,
+  anchor = i1,
+) => {
   const writer = await orgOwner();
-  const canGrant = canGrantWithRules(map);
-  return pseudoRecordsOn(map, entry, anchor).every((record) =>
+  const canGrant = canGrantWithRules(schemaMap);
+  return pseudoRecordsOn(schemaMap, entry, anchor).every((record) =>
     canGrant(writer, rules, entry, record),
   );
 };
 
 describe('Kingdom’s wide row: every channel of integration i1', () => {
   test('the one-form schema validates', () => {
-    expect(validateSchema(mapWith(withPseudoFields, schema))).toEqual({
+    expect(validateSchemaMap(mapWith(withPseudoFields, schema))).toEqual({
       ok: true,
       errors: [],
       warnings: [],
@@ -186,8 +191,8 @@ describe('Kingdom’s wide row: every channel of integration i1', () => {
 
 describe('what fills a stand-in, and what never does', () => {
   const withWhere = (where: Condition): EntitlementEntry => ({ ...everyChannel, where });
-  const standIn = (map: SchemaMap, where: Condition, anchor: Row = i1) =>
-    (pseudoRecordsOn(map, withWhere(where), anchor)[0] as Row).integrationResource as Row;
+  const standIn = (schemaMap: SchemaMap, where: Condition, anchor: Row = i1) =>
+    (pseudoRecordsOn(schemaMap, withWhere(where), anchor)[0] as Row).integrationResource as Row;
 
   test('only a root conjunct: a leaf inside `any` is not true of every admitted record', () => {
     const where = {
@@ -264,7 +269,7 @@ describe('where the annotation is refused, when the map is first used', () => {
   const boot =
     (model: string, field: string, value: AnnoValue = true, base = models) =>
     () =>
-      createRebacCheck({
+      makeRebacCheck({
         ...mapOver(annotate(base, model, field, { pseudoField: value })),
         permissions: {},
       });
@@ -302,9 +307,11 @@ describe('where the annotation is refused, when the map is first used', () => {
       },
     };
     const thing = (field: string) => () =>
-      createRebacCheck({
-        maps: { db: { models: annotate(fieldMap.models, 'Thing', field, { pseudoField: true }) } },
-        polymorphism: { db: { Thing: { axes: [{ field: 'ownerModel', fkMap: {} }] } } },
+      makeRebacCheck({
+        fieldMaps: {
+          db: { models: annotate(fieldMap.models, 'Thing', field, { pseudoField: true }) },
+        },
+        polymorphismRegistries: { db: { Thing: { axes: [{ field: 'ownerModel', fkMap: {} }] } } },
         permissions: {},
       });
     expect(thing('ownerModel')).toThrow(/never sits on a discriminator/);
@@ -319,9 +326,9 @@ describe('a polymorphic stand-in: the pseudo field joins it, the path still sets
   const scalar = stringColumn;
   const toOne = (type: string, fromFields: string[], toFields: string[]) =>
     ({ kind: 'object', type, isList: false, fromFields, toFields }) as const;
-  const map: SchemaMap = {
+  const schemaMap: SchemaMap = {
     permissions: {},
-    maps: {
+    fieldMaps: {
       db: {
         models: {
           Organization: { fields: { id: scalar } },
@@ -353,7 +360,7 @@ describe('a polymorphic stand-in: the pseudo field joins it, the path still sets
         },
       },
     },
-    polymorphism: {
+    polymorphismRegistries: {
       db: {
         Integration: {
           axes: [
@@ -381,7 +388,7 @@ describe('a polymorphic stand-in: the pseudo field joins it, the path still sets
       },
       actions: { manage: true },
     };
-    const [pseudoRecord] = pseudoRecordsOfEntitlement(map, entry, s1) as Row[];
+    const [pseudoRecord] = pseudoRecordsOfEntitlement(schemaMap, entry, s1) as Row[];
     expect((pseudoRecord as Row).integration).toEqual({
       status: 'active',
       ownerModel: 'Space',
@@ -435,7 +442,7 @@ describe('Kingdom’s project scope: a grant anchored at the project-resource jo
   });
 
   test('granted once the rule reaches the resource through the link; pseudo fields play no part', async () => {
-    expect(validateSchema(mapWith(withPseudoFields, linked))).toEqual({
+    expect(validateSchemaMap(mapWith(withPseudoFields, linked))).toEqual({
       ok: true,
       errors: [],
       warnings: [],
@@ -648,8 +655,8 @@ describe('a junction list: a resource is reached through a project it is attache
   };
   const matches = (where: Row) => (row: Row) =>
     Object.entries(where).every(([key, value]) => row[key] === value);
-  const hydrate = createHydratorReadingEachRowThroughLoad({
-    map: junction,
+  const hydrate = makeHydratorReadingEachRowThroughLoad({
+    schemaMap: junction,
     load: async (of, where) => rows[of]?.find(matches(where)) ?? null,
     loadItems: async (of, where) => rows[of]?.filter(matches(where)) ?? [],
   });
@@ -665,11 +672,11 @@ describe('a junction list: a resource is reached through a project it is attache
     );
 
   test('the declaration carries what the rule walks, and a shorter one is reported', () => {
-    expect(validateSchema(mapWith(junction, rules)).errors).toEqual([]);
+    expect(validateSchemaMap(mapWith(junction, rules)).errors).toEqual([]);
     const short = mapOver(
       annotate(models, 'IntegrationResource', 'projects', { down: ['project'] }),
     );
-    expect(validateSchema(mapWith(short, rules)).errors.map((issue) => issue.code)).toEqual([
+    expect(validateSchemaMap(mapWith(short, rules)).errors.map((issue) => issue.code)).toEqual([
       'down',
     ]);
   });

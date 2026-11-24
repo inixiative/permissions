@@ -48,7 +48,10 @@ describe('paths and check agree on what admits', () => {
         'db:org': { actions: { read: { rel: 'defaultSpace', action: 'read' } } },
       },
     };
-    const map = mapOf({ 'db:space': { org: 'db:org' }, 'db:org': { defaultSpace: 'db:space' } });
+    const schemaMap = mapOf({
+      'db:space': { org: 'db:org' },
+      'db:org': { defaultSpace: 'db:space' },
+    });
     const org: Row = { id: 'o1' };
     const looped = { id: 's1', orgId: 'o1', org };
     org.defaultSpace = looped;
@@ -56,8 +59,8 @@ describe('paths and check agree on what admits', () => {
     await permix.setup({ resource: 'db:org', actions: { read: true } });
     const subject = { resource: 'db:space', record: looped } as const;
 
-    expect(checkWithRules(map)(permix, schema, subject, 'read')).toBe(true);
-    expect(pathsWithRules(map)(permix, schema, subject, 'read')).toEqual([[]]);
+    expect(checkWithRules(schemaMap)(permix, schema, subject, 'read')).toBe(true);
+    expect(pathsWithRules(schemaMap)(permix, schema, subject, 'read')).toEqual([[]]);
   });
 
   test('a loop in an any arm check never reached adds nothing', () => {
@@ -67,13 +70,13 @@ describe('paths and check agree on what admits', () => {
         'db:b': { actions: { read: { rel: 'a', action: 'read' } } },
       },
     };
-    const map = mapOf({ 'db:a': { b: 'db:b' }, 'db:b': { a: 'db:a' } });
+    const schemaMap = mapOf({ 'db:a': { b: 'db:b' }, 'db:b': { a: 'db:a' } });
     const a1: Row = { id: 'a1', bId: 'b1' };
     a1.b = { id: 'b1', aId: 'a1', a: a1 };
     const subject = { resource: 'db:a', record: a1 } as const;
 
-    expect(checkWithRules(map)(createPermissions(), schema, subject, 'read')).toBe(true);
-    expect(pathsWithRules(map)(createPermissions(), schema, subject, 'read')).toEqual([[]]);
+    expect(checkWithRules(schemaMap)(createPermissions(), schema, subject, 'read')).toBe(true);
+    expect(pathsWithRules(schemaMap)(createPermissions(), schema, subject, 'read')).toEqual([[]]);
   });
 
   test('empty all admits, empty any does not, in both', () => {
@@ -174,7 +177,7 @@ describe('chains', () => {
         },
       },
     };
-    const map = mapOf({ 'db:doc': { space: 'db:space', project: 'db:project' } });
+    const schemaMap = mapOf({ 'db:doc': { space: 'db:space', project: 'db:project' } });
     const projectOwner = createPermissions();
     await projectOwner.setup({ resource: 'db:project', id: 'p1', actions: { own: true } });
     const spaceOwner = await owning();
@@ -194,13 +197,13 @@ describe('chains', () => {
     const doc = { id: 'd1', spaceId: 's1', space: s1, projectId: 'p1', project: { id: 'p1' } };
 
     expect(
-      pathsWithRules(map)(holder, schema, { resource: 'db:doc', record: doc }, 'publish'),
+      pathsWithRules(schemaMap)(holder, schema, { resource: 'db:doc', record: doc }, 'publish'),
     ).toEqual([
       [['space-a'], ['project']],
       [['space-b'], ['project']],
     ]);
     expect(() =>
-      pathsWithRules(map, { limit: 1 })(
+      pathsWithRules(schemaMap, { limit: 1 })(
         holder,
         schema,
         { resource: 'db:doc', record: doc },

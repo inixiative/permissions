@@ -26,9 +26,9 @@ const schema: Rules = {
     },
   },
 };
-const map = mapOf({ 'db:doc': { space: 'db:space', project: 'db:project' } });
-const check = checkWithRules(map);
-const paths = pathsWithRules(map);
+const schemaMap = mapOf({ 'db:doc': { space: 'db:space', project: 'db:project' } });
+const check = checkWithRules(schemaMap);
+const paths = pathsWithRules(schemaMap);
 
 const s1 = { id: 's1' };
 const p1 = { id: 'p1' };
@@ -114,7 +114,7 @@ describe('paths', () => {
       [reads('db:space', 's1', 'y'), c],
       [reads('db:space', 's1', 'z'), top],
     );
-    const limited = pathsWithRules(map, { limit: 2 });
+    const limited = pathsWithRules(schemaMap, { limit: 2 });
 
     expect(limited(two, schema, space, 'read')).toHaveLength(2);
     expect(() => limited(three, schema, space, 'read')).toThrow(PathLimitError);

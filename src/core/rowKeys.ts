@@ -2,7 +2,7 @@ import { isScalarField } from '@inixiative/field-map';
 import { hasNoValue, idField } from './recordId';
 import { indexMap, type Relation } from './relations';
 import { fieldOfResource, modelOfResource } from './resourceNames';
-import type { SchemaMap } from './schemaMap';
+import type { FieldMapsWithPolymorphism } from './schemaMap';
 import type { Row } from './types';
 
 /** The foreign-key columns a child holds for `parent`, leaving out any the parent has no value for. */
@@ -24,15 +24,15 @@ export const keyFromResourceAndColumns = (resource: string, where: Row): string 
 // why: the engine id field is what the app loads by (Zealot's `uuid`), so it wins over the model's `isId`
 /** The columns that pick a row, with the values the row holds: the engine id field when the model has it and the row a value, else the model's id columns, else undefined. */
 export const identityColumnsOfRow = (
-  map: SchemaMap,
+  fieldMapsWithPolymorphism: FieldMapsWithPolymorphism,
   resource: string,
   record: Row,
   field = idField(),
 ): Row | undefined => {
-  const model = modelOfResource(map, resource);
-  if (fieldOfResource(map, resource, field) && !hasNoValue(record[field]))
+  const model = modelOfResource(fieldMapsWithPolymorphism, resource);
+  if (fieldOfResource(fieldMapsWithPolymorphism, resource, field) && !hasNoValue(record[field]))
     return { [field]: record[field] };
-  const { idColumns } = indexMap(map);
+  const { idColumns } = indexMap(fieldMapsWithPolymorphism);
   if (!idColumns.has(resource)) {
     const single = Object.entries(model?.fields ?? {})
       .filter(([, entry]) => isScalarField(entry) && entry.isId)
@@ -52,12 +52,12 @@ export const identityColumnsOfRow = (
 // why: a key is text, so `5` and `'5'` are one row here while `load` is asked with the value as held
 /** A row's key (`identityColumnsOfRow`, each value as a string, encoded with its resource), or undefined (the object). */
 export const identityKeyOfRow = (
-  map: SchemaMap,
+  fieldMapsWithPolymorphism: FieldMapsWithPolymorphism,
   resource: string,
   record: Row,
   field = idField(),
 ): string | undefined => {
-  const columns = identityColumnsOfRow(map, resource, record, field);
+  const columns = identityColumnsOfRow(fieldMapsWithPolymorphism, resource, record, field);
   if (!columns) return undefined;
   const asText: Row = {};
   for (const [column, value] of Object.entries(columns)) asText[column] = String(value);

@@ -1,3 +1,5 @@
+import type { FieldMap } from '@inixiative/field-map';
+import { mapNameIsNoName } from '../../core/errors';
 import { hasNoValue, idField } from '../../core/recordId';
 import {
   followedToOneRelationsOf,
@@ -8,7 +10,7 @@ import {
 } from '../../core/relations';
 import { modelOfResource } from '../../core/resourceNames';
 import { identityColumnsOfRow, keyFromResourceAndColumns } from '../../core/rowKeys';
-import type { SchemaMap } from '../../core/schemaMap';
+import type { FieldMapsWithPolymorphism } from '../../core/schemaMap';
 import type { Row } from '../../core/types';
 
 /** The declared paths under a list item, as nested relation names; a leaf is `{}`. */
@@ -18,7 +20,7 @@ export type DownPaths = { [relation: string]: DownPaths };
 export type Down = { [listField: string]: DownPaths };
 
 /**
- * What the hydrator needs: the schema map the checks walk, and `load`, one read of a `resource`'s
+ * What the hydrator needs: one field map with its name (`db`), and `load`, one read of a `resource`'s (`db:Model`)
  * record by its target columns (`{ id }` — `permissions.idField` — or every column of a composite key),
  * with the lists that resource declares. `load` is the cache seam; the hydrator only de-duplicates
  * loads within one hydration.
@@ -30,7 +32,8 @@ export type Down = { [listField: string]: DownPaths };
  * and the declared paths.
  */
 export type HydrateDeps<R extends string = string> = {
-  map: SchemaMap;
+  mapName: string;
+  fieldMap: FieldMap;
   load: (resource: R, where: Row, down: Down) => Promise<Row | null>;
 };
 
@@ -58,7 +61,11 @@ type Run = {
 };
 
 /** A hydrator that loads every to-one of every row, and each declared list (README, Helper: hydration). */
-export const createHydrator = <R extends string>({ map, load }: HydrateDeps<R>) => {
+export const makeHydrator = <R extends string>({ mapName, fieldMap, load }: HydrateDeps<R>) => {
+  if (!mapName || mapName.includes(':')) throw new Error(mapNameIsNoName(mapName));
+  const fieldMapsWithPolymorphism: FieldMapsWithPolymorphism = {
+    fieldMaps: { [mapName]: fieldMap },
+  };
   const countLoadAgainstBudget = (run: Run, resource: R) => {
     if (++run.loads > hydrationLimits.loads)
       throw new Error(
@@ -73,7 +80,8 @@ export const createHydrator = <R extends string>({ map, load }: HydrateDeps<R>) 
   };
   const downOf = (resource: R): Down => {
     const down: Down = {};
-    for (const [name, list] of listsOf(map, resource)) down[name] = downPathsOf(list.down);
+    for (const [name, list] of listsOf(fieldMapsWithPolymorphism, resource))
+      down[name] = downPathsOf(list.down);
     return down;
   };
   const loadOnce = (run: Run, resource: R, where: Row): Promise<Row | null> => {
@@ -116,7 +124,7 @@ export const createHydrator = <R extends string>({ map, load }: HydrateDeps<R>) 
   };
   // why: a list is taken only from a row `load` returned, never from the record a caller passed
   const putDeclaredListsOnto = (run: Run, resource: R, result: Row, stored: Row | null): void => {
-    for (const [name, list] of listsOf(map, resource)) {
+    for (const [name, list] of listsOf(fieldMapsWithPolymorphism, resource)) {
       const items = stored ? stored[name] : [];
       if (!Array.isArray(items))
         throw new Error(
@@ -135,8 +143,8 @@ export const createHydrator = <R extends string>({ map, load }: HydrateDeps<R>) 
     resource: R,
     record: Row,
   ): Promise<Row | null> => {
-    if (!listsOf(map, resource).length) return null;
-    const where = identityColumnsOfRow(map, resource, record);
+    if (!listsOf(fieldMapsWithPolymorphism, resource).length) return null;
+    const where = identityColumnsOfRow(fieldMapsWithPolymorphism, resource, record);
     return where ? loadOnce(run, resource, where) : null;
   };
   const loadFollowedToOnesOnto = async (
@@ -146,12 +154,14 @@ export const createHydrator = <R extends string>({ map, load }: HydrateDeps<R>) 
     record: Row,
   ): Promise<void> => {
     await Promise.all(
-      followedToOneRelationsOf(map, resource).map(async ([name, relation]) => {
-        delete result[name];
-        const where = whereOf(relation, record);
-        const row = where && (await storedRowAsOneSharedObject(run, relation, where));
-        if (row) result[name] = row;
-      }),
+      followedToOneRelationsOf(fieldMapsWithPolymorphism, resource).map(
+        async ([name, relation]) => {
+          delete result[name];
+          const where = whereOf(relation, record);
+          const row = where && (await storedRowAsOneSharedObject(run, relation, where));
+          if (row) result[name] = row;
+        },
+      ),
     );
   };
   // why: under an item only the declared paths exist, taken as `load` returned them and never linked
@@ -163,10 +173,12 @@ export const createHydrator = <R extends string>({ map, load }: HydrateDeps<R>) 
   ): Row => {
     countLoadAgainstBudget(run, resource);
     const result: Row = { ...row };
-    for (const [name, field] of Object.entries(modelOfResource(map, resource)?.fields ?? {}))
+    for (const [name, field] of Object.entries(
+      modelOfResource(fieldMapsWithPolymorphism, resource)?.fields ?? {},
+    ))
       if (field.kind === 'object') delete result[name];
     for (const [name, below] of Object.entries(tree)) {
-      const relation = relationOf(map, resource, name);
+      const relation = relationOf(fieldMapsWithPolymorphism, resource, name);
       const held = row[name];
       if (relation && isRow(held))
         result[name] = countThenCopyRowKeepingOnlyDownPaths(
@@ -179,6 +191,11 @@ export const createHydrator = <R extends string>({ map, load }: HydrateDeps<R>) 
     return result;
   };
   return async (resource: R, record: Row): Promise<Row> => {
+    // why: a resource of another map would come back holding whatever rows the caller put on it
+    if (!modelOfResource(fieldMapsWithPolymorphism, resource))
+      throw new Error(
+        `\`${resource}\` is not a model of the map \`${mapName}\` this hydrator was made for`,
+      );
     const run: Run = { raw: new Map(), rows: new Map(), work: [], loads: 0 };
     const result: Row = { ...record };
     const [ownStoredRow] = await Promise.all([

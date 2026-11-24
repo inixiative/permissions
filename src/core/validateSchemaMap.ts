@@ -1,37 +1,157 @@
-import { modelOf, own } from '@inixiative/field-map';
-import { isJoinedBridge } from '@inixiative/json-rules';
+import { endpointKey, type ValidationIssue, type ValidationResult } from '@inixiative/json-rules';
+import { bridgeHop } from './bridgeHop';
 import {
-  bridgeFromRecordHasNoJoin,
-  bridgeHasOneEndSupplied,
-  mapIsInBothMapsAndSupplied,
-  mapNameIsNoName,
-  polymorphismNamesNoMap,
-  polymorphismNamesNoModel,
-} from './errors';
-import { isSuppliedMap } from './resourceNames';
-import type { SchemaMap } from './schemaMap';
+  countRelationsOneRowHydrates,
+  type LensesAtRow,
+  lensesAtRow,
+  relationLensLimits,
+} from './lens';
+import { listsOf, relationOf } from './relations';
+import { resolvedSchemaMap } from './resolvedSchemaMap';
+import { modelOfResource } from './resourceNames';
+import {
+  isRefusedByACheck,
+  relIssues,
+  walkRelationPath,
+  whyResourceIsNoPlaceForARule,
+} from './ruleReads';
+import type { ResolvedSchemaMap, SchemaMap } from './schemaMap';
+import { problemsOfBridges, problemsOfMapNames } from './schemaMapProblems';
+import { bridgesWalkedFromRecords } from './supplied';
+import { issuesOfShapeAndCycle, validateActionRule } from './validateActionRule';
 
-/** What is wrong with the map's names, which stops it being indexed: a map name that is no name, a polymorphism entry for a map or model the maps do not have, a map in both groups. */
-export const problemsOfMapNames = (map: SchemaMap): string[] => [
-  ...[...Object.keys(map.maps), ...Object.keys(map.supplied ?? {})]
-    .filter((mapName) => !mapName || mapName.includes(':'))
-    .map(mapNameIsNoName),
-  ...Object.entries(map.polymorphism ?? {}).flatMap(([mapName, models]) => {
-    const fieldMap = own(map.maps, mapName);
-    if (!fieldMap) return [polymorphismNamesNoMap(mapName)];
-    return Object.keys(models ?? {})
-      .filter((model) => !modelOf(fieldMap, model))
-      .map((model) => polymorphismNamesNoModel(mapName, model));
-  }),
-  ...Object.keys(map.maps)
-    .filter((mapName) => isSuppliedMap(map, mapName))
-    .map(mapIsInBothMapsAndSupplied),
+/** A segment a `{ rel }` may take next, and the resource it lands on. */
+export type RelationHop = { segment: string; resource: string; bridge: boolean };
+
+/**
+ * The segments a `{ rel }` may take next from `at` after `walked` (dotted, '' for none), each with
+ * the resource it lands on: every to-one relation and bridge whose walk `validateSchemaMap` accepts.
+ * For an editor that offers only the hops a check takes.
+ */
+export const relationHopsFrom = (
+  schemaMap: SchemaMap,
+  at: LensesAtRow,
+  walked = '',
+): RelationHop[] => {
+  const prefix = walked ? walked.split('.') : [];
+  const reached = prefix.length
+    ? walkRelationPath(resolvedSchemaMap(schemaMap), at, walked, '$')
+    : { landed: at };
+  if ('issues' in reached && reached.issues.length) return [];
+  const current = 'landed' in reached ? reached.landed.resource : at.resource;
+  const fields = Object.keys(modelOfResource(resolvedSchemaMap(schemaMap), current)?.fields ?? {});
+  const crossed = bridgesWalkedFromRecords(resolvedSchemaMap(schemaMap));
+  const bridgeEnds = crossed.flatMap((bridge) => bridge.endpoints.map(endpointKey));
+  const candidates = [
+    ...fields
+      .filter((field) => relationOf(resolvedSchemaMap(schemaMap), current, field))
+      .map((segment) => ({ segment, bridge: false })),
+    ...[...new Set(bridgeEnds)]
+      .filter((end) => bridgeHop(crossed, current, end))
+      .map((segment) => ({ segment, bridge: true })),
+  ];
+  return candidates.flatMap(({ segment, bridge }) => {
+    const next = walkRelationPath(
+      resolvedSchemaMap(schemaMap),
+      at,
+      [...prefix, segment].join('.'),
+      '$',
+    );
+    return 'landed' in next ? [{ segment, resource: next.landed.resource, bridge }] : [];
+  });
+};
+
+/** The fields of `resource` that are declared lists (`/// @permissions(down: [...])`), which a list arm may cross. */
+export const declaredListsOf = (schemaMap: SchemaMap, resource: string): string[] =>
+  listsOf(resolvedSchemaMap(schemaMap), resource).map(([field]) => field);
+
+const issuesOfEveryActionRule = (
+  schemaMap: ResolvedSchemaMap,
+  judgedInItsMap: boolean,
+): ValidationIssue[] =>
+  Object.entries(schemaMap.permissions).flatMap(([resource, permission]) =>
+    Object.entries(permission?.actions ?? {}).flatMap(([action, rule]) =>
+      (judgedInItsMap
+        ? issuesOfShapeAndCycle(rule, { schemaMap, resource, action })
+        : validateActionRule(rule).errors
+      ).map((issue) => ({ ...issue, path: `${resource}.${action}${issue.path.slice(1)}` })),
+    ),
+  );
+
+/** Every action rule of a map that is not well formed and positive, by `resource.action`. */
+export const schemaRuleIssues = (schemaMap: SchemaMap): ValidationIssue[] =>
+  issuesOfEveryActionRule(resolvedSchemaMap(schemaMap), false);
+
+const lensIssue = (path: string, message: string): ValidationIssue => ({
+  path,
+  code: 'lens',
+  message,
+});
+
+const issuesOfBridges = (schemaMap: ResolvedSchemaMap): ValidationIssue[] =>
+  problemsOfBridges(schemaMap).map((message) => lensIssue('bridges', message));
+
+// why: a name that is no model has no lens, so nothing its rules read could be refused
+const issuesOfResourceNames = (schemaMap: ResolvedSchemaMap): ValidationIssue[] =>
+  Object.keys(schemaMap.permissions).flatMap((resource) => {
+    const why = whyResourceIsNoPlaceForARule(schemaMap, resource);
+    return why ? [lensIssue(resource, why)] : [];
+  });
+
+// Every read, action and operator issue of a map's well-formed rules, by `resource.action`.
+const readIssues = (schemaMap: ResolvedSchemaMap): ValidationIssue[] => [
+  ...issuesOfResourceNames(schemaMap),
+  ...Object.entries(schemaMap.permissions).flatMap(([resource, permission]) =>
+    Object.entries(permission?.actions ?? {}).flatMap(([action, rule]) =>
+      validateActionRule(rule).ok
+        ? relIssues(schemaMap, lensesAtRow(schemaMap, resource), rule, `${resource}.${action}`)
+        : [],
+    ),
+  ),
 ];
 
-/** What is wrong with the map's bridges: one with a single end supplied, or one crossed by a `rel` with no join. */
-export const problemsOfBridges = (map: SchemaMap): string[] =>
-  (map.bridges ?? []).flatMap((bridge) => {
-    const supplied = bridge.endpoints.filter((end) => isSuppliedMap(map, end.fieldMap)).length;
-    if (supplied === 1) return [bridgeHasOneEndSupplied(bridge)];
-    return supplied === 0 && !isJoinedBridge(bridge) ? [bridgeFromRecordHasNoJoin(bridge)] : [];
+/** Every issue of a map's rules and resource names that a check refuses on first use, by `resource.action`; the check throws a bridge problem itself. */
+export const schemaIssuesRefusedOnFirstUse = (schemaMap: ResolvedSchemaMap): ValidationIssue[] =>
+  readIssues(schemaMap).filter(isRefusedByACheck);
+
+// why: a row that hydrates this much is doing too much; it is reported, not refused
+const lensWarnings = (schemaMap: ResolvedSchemaMap): ValidationIssue[] =>
+  Object.keys(schemaMap.permissions).flatMap((resource) => {
+    const size = countRelationsOneRowHydrates(schemaMap, resource);
+    return size > relationLensLimits.report
+      ? [
+          {
+            path: resource,
+            code: 'countRelationsOneRowHydrates',
+            message: `a \`${resource}\` row hydrates ${size} relations (over ${relationLensLimits.report}): split the walk, or mark an edge \`hydrate: false\``,
+          },
+        ]
+      : [];
   });
+
+/**
+ * A whole map, for a test or boot. A map whose names are wrong cannot be indexed, so its name and
+ * bridge problems are all that is reported. Otherwise: its bridges, every rule well formed,
+ * positive and inside the lens, every action defined (`errors`), and every resource whose row
+ * hydrates too much (`warnings`). A malformed `@permissions` annotation still throws, from the index.
+ */
+export const validateSchemaMap = (
+  schemaMap: SchemaMap,
+): ValidationResult & { warnings: ValidationIssue[] } => {
+  const nameProblems = problemsOfMapNames(resolvedSchemaMap(schemaMap));
+  if (nameProblems.length)
+    return {
+      ok: false,
+      errors: [
+        ...nameProblems.map((message) => lensIssue('$', message)),
+        ...issuesOfBridges(resolvedSchemaMap(schemaMap)),
+      ],
+      warnings: [],
+    };
+  const errors = [
+    ...issuesOfEveryActionRule(resolvedSchemaMap(schemaMap), true),
+    ...issuesOfBridges(resolvedSchemaMap(schemaMap)),
+    ...readIssues(resolvedSchemaMap(schemaMap)),
+  ];
+  return { ok: errors.length === 0, errors, warnings: lensWarnings(resolvedSchemaMap(schemaMap)) };
+};
