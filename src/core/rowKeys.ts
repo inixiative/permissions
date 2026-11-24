@@ -2,7 +2,7 @@ import { isScalarField } from '@inixiative/field-map';
 import { hasNoValue, idField } from './recordId';
 import { indexMap, type Relation } from './relations';
 import { fieldOfResource, modelOfResource } from './resourceNames';
-import type { SchemaMap } from './schemaMap';
+import type { RecordFieldMaps } from './schemaMap';
 import type { Row } from './types';
 
 /** The foreign-key columns a child holds for `parent`, leaving out any the parent has no value for. */
@@ -24,7 +24,7 @@ export const keyFromResourceAndColumns = (resource: string, where: Row): string 
 // why: the engine id field is what the app loads by (Zealot's `uuid`), so it wins over the model's `isId`
 /** The columns that pick a row, with the values the row holds: the engine id field when the model has it and the row a value, else the model's id columns, else undefined. */
 export const identityColumnsOfRow = (
-  map: SchemaMap,
+  map: RecordFieldMaps,
   resource: string,
   record: Row,
   field = idField(),
@@ -52,7 +52,7 @@ export const identityColumnsOfRow = (
 // why: a key is text, so `5` and `'5'` are one row here while `load` is asked with the value as held
 /** A row's key (`identityColumnsOfRow`, each value as a string, encoded with its resource), or undefined (the object). */
 export const identityKeyOfRow = (
-  map: SchemaMap,
+  map: RecordFieldMaps,
   resource: string,
   record: Row,
   field = idField(),

@@ -8,7 +8,7 @@ import {
 } from '../../core/relations';
 import { modelOfResource } from '../../core/resourceNames';
 import { identityColumnsOfRow, keyFromResourceAndColumns } from '../../core/rowKeys';
-import type { SchemaMap } from '../../core/schemaMap';
+import type { RecordFieldMaps } from '../../core/schemaMap';
 import type { Row } from '../../core/types';
 
 /** The declared paths under a list item, as nested relation names; a leaf is `{}`. */
@@ -30,7 +30,7 @@ export type Down = { [listField: string]: DownPaths };
  * and the declared paths.
  */
 export type HydrateDeps<R extends string = string> = {
-  map: SchemaMap;
+  map: RecordFieldMaps;
   load: (resource: R, where: Row, down: Down) => Promise<Row | null>;
 };
 

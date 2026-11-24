@@ -23,6 +23,7 @@ export * from './src/core/redundantEntitlements';
 export type {
   PolymorphicAxis,
   Polymorphism,
+  RecordFieldMaps,
   SchemaMap,
   SchemaMapWithoutPermissions,
 } from './src/core/schemaMap';

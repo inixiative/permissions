@@ -1,7 +1,7 @@
 import { type FieldEntry, hasColumn, isScalarField } from '@inixiative/field-map';
 import { idField } from './recordId';
 import { axesOfResource, fieldOfResource, modelOfResource } from './resourceNames';
-import type { SchemaMap } from './schemaMap';
+import type { RecordFieldMaps } from './schemaMap';
 
 /** A field's `/// @permissions(...)` annotation, as field-map carries it. */
 export const permissionsAnnotation = (field: FieldEntry | undefined) =>
@@ -16,7 +16,7 @@ export const dottedPath = /^[A-Za-z_]\w*(\.[A-Za-z_]\w*)*$/;
 
 /** Why the field `name` of `resource` is no `pseudoField` with this value, or null. */
 export const whyFieldIsNoPseudoField = (
-  map: SchemaMap,
+  map: RecordFieldMaps,
   resource: string,
   name: string,
   value: unknown,

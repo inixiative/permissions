@@ -9,7 +9,7 @@ import {
 } from '@inixiative/field-map';
 import { endpointKey, parseEndpointKey, relationTargetOf } from '@inixiative/json-rules';
 import { nameHasNoMap, nameIsNoModelOfItsMap } from './errors';
-import type { PolymorphicAxis, SchemaMap } from './schemaMap';
+import type { PolymorphicAxis, RecordFieldMaps, SchemaMap } from './schemaMap';
 
 const whyNameHasNoMap = (name: string): string | null =>
   name.includes(':') ? null : nameHasNoMap(name);
@@ -26,18 +26,18 @@ export const isSuppliedMap = (map: SchemaMap, mapName: string): boolean =>
   Object.hasOwn(map.supplied ?? {}, mapName);
 
 /** The field map a record's resource is in, or undefined when its map is not in `maps`. */
-export const fieldMapOfResource = (map: SchemaMap, resource: string): FieldMap | undefined =>
+export const fieldMapOfResource = (map: RecordFieldMaps, resource: string): FieldMap | undefined =>
   own(map.maps, parseEndpointKey(resource, '').mapName);
 
 /** A record's model entry, or undefined when the map has no field map or no such model for it. */
-export const modelOfResource = (map: SchemaMap, resource: string): ModelEntry | undefined => {
+export const modelOfResource = (map: RecordFieldMaps, resource: string): ModelEntry | undefined => {
   const fieldMap = fieldMapOfResource(map, resource);
   return fieldMap ? modelOf(fieldMap, parseEndpointKey(resource, '').modelName) : undefined;
 };
 
 /** A field of a record's model. */
 export const fieldOfResource = (
-  map: SchemaMap,
+  map: RecordFieldMaps,
   resource: string,
   name: string,
 ): FieldEntry | undefined => {
@@ -61,7 +61,10 @@ export const resourceLedToBy = (resource: string, field: RelationField): string 
   return endpointKey({ fieldMap: led?.mapName ?? '', model: led?.modelName ?? field.type });
 };
 
-export const axesOfResource = (map: SchemaMap, resource: string): readonly PolymorphicAxis[] => {
+export const axesOfResource = (
+  map: RecordFieldMaps,
+  resource: string,
+): readonly PolymorphicAxis[] => {
   const { mapName, modelName } = parseEndpointKey(resource, '');
   return map.polymorphism?.[mapName]?.[modelName]?.axes ?? [];
 };
@@ -76,7 +79,7 @@ export const modelsNamedIn = (
 
 /** `resource`'s polymorphic axis on `field`, from `map.polymorphism`. */
 export const axisOf = <R extends string>(
-  map: SchemaMap,
+  map: RecordFieldMaps,
   resource: R,
   field: string,
 ): PolymorphicAxis | undefined =>

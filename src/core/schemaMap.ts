@@ -24,6 +24,9 @@ export type SchemaMapWithoutPermissions = {
   polymorphism?: Partial<Record<string, Polymorphism>>;
 };
 
+/** The part of the schema map hydration reads: the field maps of the records the app loads, and their polymorphism. */
+export type RecordFieldMaps = Pick<SchemaMapWithoutPermissions, 'maps' | 'polymorphism'>;
+
 /** The schema the checks walk: the data shape and the rules, by resource (`map:Model`). Indexed once per map object. */
 export type SchemaMap<R extends string = string> = SchemaMapWithoutPermissions & {
   permissions: Partial<Record<R, ResourcePermission>>;

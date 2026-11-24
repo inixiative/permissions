@@ -1,3 +1,30 @@
+## 0.29.0 — `make…` for everything that hands you a function; `bridgeData`; the hydrator only hydrates
+
+Breaking, with no compatibility path (no users).
+
+Why: Aron, 2026-11-23, standardising call sites across the library, transitions, rules-builder
+and template: "`make hydrator` gives you a hydrator, and then you run the hydrator. `make check`
+gives you a check… If all these things are giving you a thing, then they should be made." And:
+"the hydrator shouldn't be doing these checks inside of it… It should just hydrate. The validator
+should be doing the validate."
+
+- **`make…`**: `createRebacCheck`, `createRebacPaths`, `createCanGrantEntitlement` and
+  `createHydrator` are `makeRebacCheck`, `makeRebacPaths`, `makeCanGrantEntitlement` and
+  `makeHydrator`: each returns the function you then call. `createPermissions` keeps its name: it
+  builds a permix, not a function.
+- **`bridgeData`**: a subject's `data` is `bridgeData` (`{ resource, record, bridgeData? }`): the
+  rows of every bridge by `map:Model`, a joined bridge's far rows and each supplied model's row
+  (`actor:User`), as json-rules' `recordWithBridgeData` takes them.
+- **The hydrator only hydrates.** `makeHydrator({ map, load })` takes `RecordFieldMaps`
+  (`{ maps, polymorphism? }`), the part of the schema map hydration reads; a whole schema map is
+  one, and so is a map without rules. It no longer refuses a map whose names are wrong (a map
+  name that is no name, `polymorphism` naming a missing map or model, a map in both `maps` and
+  `supplied`): `validateSchema` reports those, and building a check (`makeRebacCheck`,
+  `makeRebacPaths`, `makeCanGrantEntitlement`) throws the first. It still reads `@permissions`
+  annotations strictly, since a `down` it cannot read is a list it cannot load.
+- The helpers that read no rule (`relationOf`, `listsOf`, the row keys) are typed on
+  `RecordFieldMaps`; a helper that reads rules, bridges or supplied maps still takes the whole map.
+
 ## 0.28.0 — one schema map; a resource is `map:Model`; one call validates a stored rule
 
 Breaking, with no compatibility path (no users).

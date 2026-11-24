@@ -12,7 +12,7 @@ import { bridgesWalkedFromRecords, joinedBridgesOfSupplied } from './supplied';
 import type { ActionRule, AdditionalRules, PermixLike, Row, Subject } from './types';
 import { validateActionRule } from './validateActionRule';
 import { schemaIssuesRefusedOnFirstUse, schemaRuleIssues } from './validateSchema';
-import { problemsOfBridges } from './validateSchemaMap';
+import { problemsOfBridges, problemsOfMapNames } from './validateSchemaMap';
 
 const refuse = (what: string) => {
   throw new Error(
@@ -43,6 +43,8 @@ export const makeWalker = <R extends string, T>(
   ignoreWheres = false,
   additionalRules?: AdditionalRules,
 ) => {
+  const [nameProblem] = problemsOfMapNames(map);
+  if (nameProblem) throw new Error(nameProblem);
   indexMap(map);
   // why: an inline rule passed again as the same object is judged once (and frozen); a fresh literal each call is judged each time
   const inlineKeys = new WeakMap<object, Map<string, object>>();

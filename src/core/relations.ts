@@ -17,8 +17,7 @@ import {
   modelsNamedIn,
   resourceLedToBy,
 } from './resourceNames';
-import type { PolymorphicAxis, SchemaMap } from './schemaMap';
-import { problemsOfMapNames } from './validateSchemaMap';
+import type { PolymorphicAxis, RecordFieldMaps } from './schemaMap';
 
 /** A to-one relation the hydrator follows: where it leads, its key, and on a polymorphic record the kinds it admits. */
 export type Relation<R extends string = string> = {
@@ -48,13 +47,11 @@ type MapIndex = {
   lensSizes: Map<string, number>;
 };
 
-const indexes = new WeakMap<SchemaMap, MapIndex>();
+const indexes = new WeakMap<RecordFieldMaps, MapIndex>();
 
-export const indexMap = (map: SchemaMap): MapIndex => {
+export const indexMap = (map: RecordFieldMaps): MapIndex => {
   const known = indexes.get(map);
   if (known) return known;
-  const [problem] = problemsOfMapNames(map);
-  if (problem) throw new Error(problem);
   const index: MapIndex = {
     lists: new Map(),
     pseudoFields: new Map(),
@@ -74,7 +71,7 @@ export const indexMap = (map: SchemaMap): MapIndex => {
 };
 
 // why: field-map keeps a malformed annotation value without complaint, so every one is read strictly here
-const indexAnnotations = (map: SchemaMap, index: MapIndex) => {
+const indexAnnotations = (map: RecordFieldMaps, index: MapIndex) => {
   for (const resource of modelsNamedIn(map.maps)) {
     const model = mapAndModelNamed(resource).modelName;
     const fields = modelOfResource(map, resource)?.fields ?? {};
@@ -106,7 +103,7 @@ const indexAnnotations = (map: SchemaMap, index: MapIndex) => {
 };
 
 const listDeclaredByDown = (
-  map: SchemaMap,
+  map: RecordFieldMaps,
   resource: string,
   name: string,
   down: unknown,
@@ -169,7 +166,7 @@ const listDeclaredByDown = (
 
 /** The declared list `segment` of `resource`, or null: an undeclared list is never crossed. */
 export const listOf = <R extends string>(
-  map: SchemaMap,
+  map: RecordFieldMaps,
   resource: R,
   segment: string,
 ): ListRelation<R> | null =>
@@ -177,7 +174,7 @@ export const listOf = <R extends string>(
 
 /** The declared lists of `resource`, by field name. */
 export const listsOf = <R extends string>(
-  map: SchemaMap,
+  map: RecordFieldMaps,
   resource: R,
 ): [string, ListRelation<R>][] =>
   [...indexMap(map).lists].flatMap(([key, list]) => {
@@ -186,7 +183,7 @@ export const listsOf = <R extends string>(
   });
 
 export const pseudoFieldsOf = <R extends string>(
-  map: SchemaMap,
+  map: RecordFieldMaps,
   resource: R,
 ): ReadonlySet<string> => indexMap(map).pseudoFields.get(resource) ?? new Set();
 
@@ -204,7 +201,7 @@ const followedToOneRelations = new WeakMap<MapIndex, Map<string, Relation | stri
 
 /** `segment` of `resource` as a relation the hydrator follows, or why it is not one; answered once per map. */
 export const followedToOneRelationOrWhyNot = <R extends string>(
-  map: SchemaMap,
+  map: RecordFieldMaps,
   resource: R,
   segment: string,
 ): Relation<R> | string =>
@@ -228,7 +225,7 @@ export const followedToOneRelationOrWhyNot = <R extends string>(
   }) as Relation<R> | string;
 
 export const relationOf = <R extends string>(
-  map: SchemaMap,
+  map: RecordFieldMaps,
   resource: R,
   segment: string,
 ): Relation<R> | null => {
@@ -238,7 +235,7 @@ export const relationOf = <R extends string>(
 
 /** Every to-one relation of `resource` the hydrator follows, by field name. */
 export const followedToOneRelationsOf = <R extends string>(
-  map: SchemaMap,
+  map: RecordFieldMaps,
   resource: R,
 ): [string, Relation<R>][] => {
   const { toOnes } = indexMap(map);
@@ -254,7 +251,7 @@ export const followedToOneRelationsOf = <R extends string>(
 };
 
 export const ownerRelationOf = <R extends string>(
-  map: SchemaMap,
+  map: RecordFieldMaps,
   resource: R,
   field: string,
   value: string,
