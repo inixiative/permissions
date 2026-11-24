@@ -1,5 +1,6 @@
-import type { ValidationIssue } from '@inixiative/json-rules';
+import { endpointKey, type ValidationIssue } from '@inixiative/json-rules';
 import { bridgeHop } from './bridgeHop';
+import { resourceHasNoFieldMap } from './errors';
 import {
   issueRefusesTheRead,
   issuesForReadsOutsideLens,
@@ -10,6 +11,7 @@ import {
   whyRelationPathCannotBeWalked,
 } from './lens';
 import { relationOf } from './relations';
+import { modelOfResource, whyNameIsNoModel } from './resourceNames';
 import type { ResolvedSchemaMap } from './schemaMap';
 import { bridgesWalkedFromRecords, suppliedModelAt } from './supplied';
 import type { ActionRule } from './types';
@@ -139,6 +141,20 @@ export const relIssues = (
 };
 
 /** Whether a check refuses on this issue: a read it cannot make, not an action that does not exist (it denies) nor an operator that does not fit. */
+/** What is wrong with `resource` as a place a rule sits, or null: it names no map, a model its map does not have, or neither a model of a field map nor the far end of a bridge from one. */
+export const whyResourceIsNoPlaceForARule = (
+  schemaMap: ResolvedSchemaMap,
+  resource: string,
+): string | null => {
+  const why = whyNameIsNoModel(schemaMap, resource);
+  if (why) return why;
+  if (modelOfResource(schemaMap, resource)) return null;
+  const far = bridgesWalkedFromRecords(schemaMap).some(({ endpoints }) =>
+    endpoints.some((end) => endpointKey(end) === resource),
+  );
+  return far ? null : resourceHasNoFieldMap(resource);
+};
+
 export const isRefusedByACheck = (issue: ValidationIssue): boolean =>
   issue.code !== 'action' && issueRefusesTheRead(issue);
 

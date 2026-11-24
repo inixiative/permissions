@@ -20,6 +20,7 @@ export * from './src/core/permix';
 export { pseudoRecordsBelowAnchor, pseudoRecordsOfEntitlement } from './src/core/pseudoRecords';
 export { reachableFrom } from './src/core/reachableFrom';
 export * from './src/core/redundantEntitlements';
+export { suppliedMapNamesOf } from './src/core/resolvedSchemaMap';
 export type {
   PolymorphicAxis,
   PolymorphismRegistry,

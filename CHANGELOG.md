@@ -82,6 +82,11 @@ helper for one individual map."
 - **A schema map whose key is replaced after a first use is read again.** Replacing
   `schemaMap.permissions`, `bridges`, `fieldMaps` or `polymorphismRegistries` is followed by every
   later call, and by a check made before the replacement.
+- **`validateActionRule` reports a resource the schema map does not have**: a name with no map, a
+  model its map does not have (an old lowercase `db:inquiry`), or a name that is neither a model
+  of a field map nor the far end of a bridge. It used to judge no read there and pass.
+- **`suppliedMapNamesOf(schemaMap)`** is exported: the names of the supplied maps, for an editor
+  that offers only maps of records as resources.
 - Requires `@inixiative/json-rules` ^4.7.0.
 
 ## 0.28.0 — one schema map; a resource is `map:Model`; one call validates a stored rule

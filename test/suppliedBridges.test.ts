@@ -9,6 +9,8 @@ import {
   type Row,
   ruleFieldEqualsPath,
   type SchemaMap,
+  suppliedMapNamesOf,
+  validateActionRule,
   validateSchemaMap,
 } from '../index';
 
@@ -345,5 +347,28 @@ describe('a hydrator hydrates its own field map', () => {
     expect(() => makeHydrator({ mapName: 'a:b', fieldMap: db, load })).toThrow(
       /a map is named `a:b`/,
     );
+  });
+});
+
+describe('found by the review of the consumers', () => {
+  const schemaMap = schemaMapOf({ 'db:Doc': { actions: { read: true } } });
+  const reading: ActionRule = { rule: { field: 'secret', operator: Operator.exists } };
+
+  test('a rule validated at a resource the schema map does not have is reported, not passed', () => {
+    const at = (resource: string) =>
+      validateActionRule(reading, { schemaMap, resource }).errors.map((issue) => issue.message);
+    expect(at('db:Doc').join()).toMatch(/secret/);
+    expect(at('db:doc').join()).toMatch(/`db:doc` is not a model of the map `db`/);
+    expect(at('Doc').join()).toMatch(/`Doc` names no map/);
+    expect(at('nope:Thing').join()).toMatch(/`nope:Thing` is not a model of a map in `fieldMaps`/);
+  });
+
+  test('an app can ask which maps are supplied', () => {
+    expect([...suppliedMapNamesOf(schemaMap)]).toEqual(['actor']);
+    const joined = schemaMapOf({ 'db:Doc': { actions: { read: true } } }, [
+      actorFromDb,
+      deviceOfActor,
+    ]);
+    expect([...suppliedMapNamesOf(joined)].sort()).toEqual(['actor', 'sec']);
   });
 });

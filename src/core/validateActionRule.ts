@@ -11,7 +11,7 @@ import {
 } from './issuesOfDelegationBackToOwnAction';
 import { idField } from './recordId';
 import { resolvedSchemaMap } from './resolvedSchemaMap';
-import { issuesForRuleReadsOutsideLens } from './ruleReads';
+import { issuesForRuleReadsOutsideLens, whyResourceIsNoPlaceForARule } from './ruleReads';
 import type { ActionRule } from './types';
 
 const hasOnly = (node: Record<string, unknown>, keys: string[]): boolean =>
@@ -97,6 +97,10 @@ export const validateActionRule = (
   rule: unknown,
   context?: ActionRuleContext,
 ): ValidationResult => {
+  const whyNoPlace = context
+    ? whyResourceIsNoPlaceForARule(resolvedSchemaMap(context.schemaMap), context.resource)
+    : null;
+  if (whyNoPlace) return { ok: false, errors: [{ path: '$', code: 'lens', message: whyNoPlace }] };
   const errors = issuesOfShapeOrElse(rule, () =>
     context
       ? [

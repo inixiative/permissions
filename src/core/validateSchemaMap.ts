@@ -1,6 +1,5 @@
 import { endpointKey, type ValidationIssue, type ValidationResult } from '@inixiative/json-rules';
 import { bridgeHop } from './bridgeHop';
-import { resourceHasNoFieldMap } from './errors';
 import {
   countRelationsOneRowHydrates,
   type LensesAtRow,
@@ -9,8 +8,13 @@ import {
 } from './lens';
 import { listsOf, relationOf } from './relations';
 import { resolvedSchemaMap } from './resolvedSchemaMap';
-import { modelOfResource, whyNameIsNoModel } from './resourceNames';
-import { isRefusedByACheck, relIssues, walkRelationPath } from './ruleReads';
+import { modelOfResource } from './resourceNames';
+import {
+  isRefusedByACheck,
+  relIssues,
+  walkRelationPath,
+  whyResourceIsNoPlaceForARule,
+} from './ruleReads';
 import type { ResolvedSchemaMap, SchemaMap } from './schemaMap';
 import { problemsOfBridges, problemsOfMapNames } from './schemaMapProblems';
 import { bridgesWalkedFromRecords } from './supplied';
@@ -88,17 +92,11 @@ const issuesOfBridges = (schemaMap: ResolvedSchemaMap): ValidationIssue[] =>
   problemsOfBridges(schemaMap).map((message) => lensIssue('bridges', message));
 
 // why: a name that is no model has no lens, so nothing its rules read could be refused
-const issuesOfResourceNames = (schemaMap: ResolvedSchemaMap): ValidationIssue[] => {
-  const far = new Set(
-    bridgesWalkedFromRecords(schemaMap).flatMap(({ endpoints }) => endpoints.map(endpointKey)),
-  );
-  return Object.keys(schemaMap.permissions).flatMap((resource) => {
-    const why = whyNameIsNoModel(schemaMap, resource);
-    if (why) return [lensIssue(resource, why)];
-    if (modelOfResource(schemaMap, resource) || far.has(resource)) return [];
-    return [lensIssue(resource, resourceHasNoFieldMap(resource))];
+const issuesOfResourceNames = (schemaMap: ResolvedSchemaMap): ValidationIssue[] =>
+  Object.keys(schemaMap.permissions).flatMap((resource) => {
+    const why = whyResourceIsNoPlaceForARule(schemaMap, resource);
+    return why ? [lensIssue(resource, why)] : [];
   });
-};
 
 // Every read, action and operator issue of a map's well-formed rules, by `resource.action`.
 const readIssues = (schemaMap: ResolvedSchemaMap): ValidationIssue[] => [

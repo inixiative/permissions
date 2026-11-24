@@ -34,6 +34,7 @@ what.
 | lens | `lensesAtRow`, `lensesAtListItem` | The json-rules lenses a read is judged in at one row (`lens` for a `where` or a path, `rule` with the supplied models the resource is given for a `{ rule }`); at an item of a declared list, or null for a list that is not declared. For an editor that authors rules in the lens they are judged in. |
 | offer | `relationHopsFrom`, `declaredListsOf` | The segments a `{ rel }` may take next from a row (to-one relations and bridges whose walk `validateSchemaMap` accepts), each with the resource it lands on; the declared lists a list arm may cross. |
 | compare | `coversEntitlement`, `withoutRedundantEntitlements` | Whether one entitlement covers another; a list without the entries another one covers. |
+| tell supplied maps apart | `suppliedMapNamesOf` | The names of a schema map's supplied maps: those a supplied bridge ends in, and those joined from one. For an editor that offers only maps of records as resources. |
 
 `PathLimitError` is thrown by `makeRebacPaths` when more paths admit an action than its limit.
 
