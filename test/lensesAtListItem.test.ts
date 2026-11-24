@@ -8,9 +8,9 @@ import {
   type SchemaMap,
   validateActionRule,
 } from '../index';
-import { actorMap, mapWith, type Rules } from './schemaMaps';
+import { actorMap, declaringSuppliedBridges, mapWith, type Rules } from './schemaMaps';
 
-const schemaMap: SchemaMap = {
+const schemaMap: SchemaMap = declaringSuppliedBridges({
   permissions: {},
   suppliedFieldMaps: { actor: actorMap },
   fieldMaps: {
@@ -61,7 +61,7 @@ const schemaMap: SchemaMap = {
       },
     },
   },
-};
+});
 
 const reads = (lens: ReturnType<typeof lensesAtRow>['rule'], field: string) =>
   lens ? validateRuleInLens({ field, operator: 'equals', value: 'x' }, lens).ok : false;

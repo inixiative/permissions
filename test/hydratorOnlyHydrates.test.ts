@@ -54,19 +54,17 @@ describe('the hydrator only hydrates, one field map at a time', () => {
   });
 
   test('what is wrong with the map’s names is the validator’s and the check’s, never the hydrator’s', async () => {
-    const actor = { models: { User: { fields: { id } } } };
     const schemaMap: SchemaMap = {
-      fieldMaps: { db: fieldMap },
-      suppliedFieldMaps: { db: actor },
+      fieldMaps: { db: fieldMap, 'bad:name': fieldMap },
       permissions: { 'db:Space': { actions: { read: true } } },
     };
     const hydrated = await makeHydrator({ mapName: 'db', fieldMap, load })('db:Space', space);
     expect((hydrated.organization as Row).name).toBe('Org');
     expect(validateSchemaMap(schemaMap).errors.map((issue) => issue.message)).toEqual([
-      '`db` is in both `fieldMaps` and `suppliedFieldMaps`: a map is one or the other',
+      "a map is named `bad:name`: a map's name is the part of `map:Model` before the colon",
     ]);
     expect(() =>
       makeRebacCheck(schemaMap)(nobody, { resource: 'db:Space', record: hydrated }, 'read'),
-    ).toThrow(/`db` is in both `fieldMaps` and `suppliedFieldMaps`/);
+    ).toThrow(/a map is named `bad:name`/);
   });
 });

@@ -10,6 +10,7 @@ import {
   type PlaceOfActionRule,
 } from './issuesOfDelegationBackToOwnAction';
 import { idField } from './recordId';
+import { resolvedSchemaMap } from './resolvedSchemaMap';
 import { issuesForRuleReadsOutsideLens } from './ruleReads';
 import type { ActionRule } from './types';
 
@@ -102,7 +103,11 @@ export const validateActionRule = (
           ...(context.action === undefined
             ? []
             : issuesOfDelegationBackToOwnAction(rule, { ...context, action: context.action })),
-          ...issuesForRuleReadsOutsideLens(context.schemaMap, context.resource, rule as ActionRule),
+          ...issuesForRuleReadsOutsideLens(
+            resolvedSchemaMap(context.schemaMap),
+            context.resource,
+            rule as ActionRule,
+          ),
         ]
       : [],
   );

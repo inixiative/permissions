@@ -1,3 +1,4 @@
+import { resolvedSchemaMap } from '.\/resolvedSchemaMap';
 import { hasColumn } from '@inixiative/field-map';
 import { type Condition, check as checkRule } from '@inixiative/json-rules';
 import { omit } from 'lodash-es';
@@ -15,7 +16,7 @@ import {
 } from './relations';
 import { fieldOfResource } from './resourceNames';
 import { keysFrom } from './rowKeys';
-import type { SchemaMap } from './schemaMap';
+import type { ResolvedSchemaMap, SchemaMap } from './schemaMap';
 import type { Row } from './types';
 import { type Leaf, rootLeaves } from './whereConjuncts';
 
@@ -42,7 +43,7 @@ const valuesWhereRequiresByEquals = (
 
 // why: an object or a list copied onto a pseudo record would be a relation or a list the walk then reads
 const ownColumnValuesWhereRequires = <R extends string>(
-  schemaMap: SchemaMap,
+  schemaMap: ResolvedSchemaMap,
   resource: R,
   leaves: Leaf[],
 ): Row =>
@@ -57,7 +58,7 @@ const whereAllowsKind = (leaves: Leaf[], field: string, value: string) =>
   );
 
 const rowsFromAnchorUpByResource = <R extends string>(
-  schemaMap: SchemaMap,
+  schemaMap: ResolvedSchemaMap,
   resource: R,
   row: Row,
   segments: string[],
@@ -70,7 +71,7 @@ const rowsFromAnchorUpByResource = <R extends string>(
   );
 
 const standInBuiltFromRowsAboveAnchor = <R extends string>(
-  schemaMap: SchemaMap,
+  schemaMap: ResolvedSchemaMap,
   resource: R,
   rowsAboveAnchor: ReadonlyMap<R, Row>,
   depth: number,
@@ -122,13 +123,17 @@ export const pseudoRecordsBelowAnchor = <R extends string>(
       .filter((value) => !top || whereAllowsKind(leaves, field, value))
       .flatMap((value) => {
         const row: Row = { ...base, [field]: value };
-        const ownerName = ownerRelationOf(schemaMap, current, field, value);
+        const ownerName = ownerRelationOf(resolvedSchemaMap(schemaMap), current, field, value);
         if (!ownerName || ownerName === segment) return [row];
-        const ownerRelation = relationOf(schemaMap, current, ownerName) as Relation<R>;
+        const ownerRelation = relationOf(
+          resolvedSchemaMap(schemaMap),
+          current,
+          ownerName,
+        ) as Relation<R>;
         const owner = standInBuiltFromRowsAboveAnchor(
-          schemaMap,
+          resolvedSchemaMap(schemaMap),
           ownerRelation.resource,
-          rowsFromAnchorUpByResource(schemaMap, relation.resource, parent, rest),
+          rowsFromAnchorUpByResource(resolvedSchemaMap(schemaMap), relation.resource, parent, rest),
           3,
           new Set(),
         );
@@ -139,9 +144,9 @@ export const pseudoRecordsBelowAnchor = <R extends string>(
   const recordsDownPath = (current: R, segments: string[], prefix: string): Row[] => {
     const [segment, ...rest] = segments;
     if (segment === undefined) return current === anchorResource ? [anchor] : [];
-    const relation = relationOf(schemaMap, current, segment);
+    const relation = relationOf(resolvedSchemaMap(schemaMap), current, segment);
     if (!relation) return [];
-    const pseudoFields = pseudoFieldsOf(schemaMap, current);
+    const pseudoFields = pseudoFieldsOf(resolvedSchemaMap(schemaMap), current);
     const pseudoFieldValues =
       prefix === ''
         ? {}
@@ -178,12 +183,12 @@ export const pseudoRecordsOfEntitlement = <R extends string>(
   if (entitlementProblem(entry) !== null || recordId(anchor) !== entry.anchor.id) return null;
   if (entry.anchor.path === undefined) return [anchor];
   const required = ownColumnValuesWhereRequires(
-    schemaMap,
+    resolvedSchemaMap(schemaMap),
     entry.resource as R,
     rootLeaves(entry.where),
   );
   const records = pseudoRecordsBelowAnchor(
-    schemaMap,
+    resolvedSchemaMap(schemaMap),
     entry.resource as R,
     entry.anchor.path,
     entry.anchor.resource as R,

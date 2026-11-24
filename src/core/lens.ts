@@ -1,3 +1,4 @@
+import { resolvedSchemaMap } from '.\/resolvedSchemaMap';
 import { type FieldMap, hasColumn } from '@inixiative/field-map';
 import {
   type Condition,
@@ -30,13 +31,14 @@ import {
   mapAndModelNamed,
   modelOfResource,
 } from './resourceNames';
-import type { SchemaMap } from './schemaMap';
+import type { ResolvedSchemaMap, SchemaMap } from './schemaMap';
 import {
   followedToOnesOfSupplied,
   stitchedSuppliedSet,
   suppliedListAt,
   suppliedModelAt,
   suppliedModelsAtRoot,
+  suppliedModelsGivenAt,
   suppliedSetAt,
 } from './supplied';
 import type { ActionRule } from './types';
@@ -61,7 +63,7 @@ export type LensesAtRow = {
 
 // why: supplied rows are filled at the row a rule is read on, so only that model bridges to them, at its root
 const lensAnchoredAtResource = (
-  schemaMap: SchemaMap,
+  schemaMap: ResolvedSchemaMap,
   resource: string,
   relations: SpelledRelationTree,
   supplied: boolean,
@@ -71,7 +73,7 @@ const lensAnchoredAtResource = (
   if (!supplied)
     return { parent: { maps: { [mapName]: fieldMap }, mapName, model }, root: { relations } };
   const far = Object.fromEntries(
-    suppliedModelsAtRoot(schemaMap).map((key) => [
+    suppliedModelsGivenAt(schemaMap, resource).map((key) => [
       key,
       { relations: suppliedChainsFrom(schemaMap, key) },
     ]),
@@ -82,10 +84,10 @@ const lensAnchoredAtResource = (
   };
 };
 
-const suppliedTrees = new WeakMap<SchemaMap, Map<string, SpelledRelationTree>>();
+const suppliedTrees = new WeakMap<ResolvedSchemaMap, Map<string, SpelledRelationTree>>();
 
 // The chains a supplied row leads on through, spelled once per map and key as a resource's are.
-const suppliedChainsFrom = (schemaMap: SchemaMap, key: string): SpelledRelationTree =>
+const suppliedChainsFrom = (schemaMap: ResolvedSchemaMap, key: string): SpelledRelationTree =>
   answerOnce(
     suppliedTrees,
     schemaMap,
@@ -95,7 +97,10 @@ const suppliedChainsFrom = (schemaMap: SchemaMap, key: string): SpelledRelationT
   );
 
 /** The rule lens on an item of a supplied list (`actor:Device`): its own columns and the chains it leads on through. */
-export const ruleLensAtSuppliedModel = (schemaMap: SchemaMap, key: string): LensNarrowing => {
+export const ruleLensAtSuppliedModel = (
+  schemaMap: ResolvedSchemaMap,
+  key: string,
+): LensNarrowing => {
   const { mapName, modelName } = parseEndpointKey(key, '');
   return {
     parent: { ...stitchedSuppliedSet(schemaMap), mapName, model: modelName },
@@ -149,7 +154,7 @@ const spellEveryFollowedRelationChain = (
 
 /** The lens and the rule lens at `key`, built once from `tree` (read only when they are built). */
 const lensesBuiltOnceAt = (
-  schemaMap: SchemaMap,
+  schemaMap: ResolvedSchemaMap,
   key: string,
   resource: string,
   tree: () => SpelledRelationTree,
@@ -164,7 +169,7 @@ const lensesBuiltOnceAt = (
   return { lens: lenses.get(key) ?? null, rule: lenses.get(`rule\u0000${key}`) ?? null };
 };
 
-const lensesAndSizeOfResource = (schemaMap: SchemaMap, resource: string) => {
+const lensesAndSizeOfResource = (schemaMap: ResolvedSchemaMap, resource: string) => {
   const { lensSizes } = indexMap(schemaMap);
   if (!modelOfResource(schemaMap, resource)) return null;
   const lenses = lensesBuiltOnceAt(schemaMap, resource, resource, () => {
@@ -178,12 +183,14 @@ const lensesAndSizeOfResource = (schemaMap: SchemaMap, resource: string) => {
 };
 
 /** The relations one row of `resource` hydrates, one kind of each polymorphic model counted. */
-export const countRelationsOneRowHydrates = (schemaMap: SchemaMap, resource: string): number =>
-  lensesAndSizeOfResource(schemaMap, resource)?.size ?? 0;
+export const countRelationsOneRowHydrates = (
+  schemaMap: ResolvedSchemaMap,
+  resource: string,
+): number => lensesAndSizeOfResource(schemaMap, resource)?.size ?? 0;
 
 /** The lenses at a landing under a list item: the rest of the list's declared paths below `prefix`. */
 const lensesAtLandingUnderListItem = (
-  schemaMap: SchemaMap,
+  schemaMap: ResolvedSchemaMap,
   under: PositionUnderListItem,
 ): LensesAtRow => {
   const key = `${under.list}\u0000${under.prefix.join('.')}`;
@@ -206,8 +213,8 @@ export const lensesAtRow = (
   resource: string,
   under?: PositionUnderListItem,
 ): LensesAtRow => {
-  if (under) return lensesAtLandingUnderListItem(schemaMap, under);
-  const lenses = lensesAndSizeOfResource(schemaMap, resource);
+  if (under) return lensesAtLandingUnderListItem(resolvedSchemaMap(schemaMap), under);
+  const lenses = lensesAndSizeOfResource(resolvedSchemaMap(schemaMap), resource);
   return { resource, lens: lenses?.lens ?? null, rule: lenses?.rule ?? null };
 };
 
@@ -217,9 +224,9 @@ export const lensesAtListItem = (
   resource: string,
   field: string,
 ): LensesAtRow | null => {
-  const listRelation = listOf(schemaMap, resource, field);
+  const listRelation = listOf(resolvedSchemaMap(schemaMap), resource, field);
   return listRelation
-    ? lensesAtRow(schemaMap, listRelation.resource, {
+    ? lensesAtRow(resolvedSchemaMap(schemaMap), listRelation.resource, {
         list: `${resource}.${field}`,
         listRelation,
         prefix: [],
@@ -228,7 +235,7 @@ export const lensesAtListItem = (
 };
 
 const messageForPathIntoRelationList = (
-  schemaMap: SchemaMap,
+  schemaMap: ResolvedSchemaMap,
   resource: string,
   segment: string,
 ): string =>
@@ -244,7 +251,7 @@ const messageForPathOutsideDeclaredPaths = (
 
 /** Why `path` leaves the lens at `at`, as `walkLensPath` resolves it, in the map's own words. */
 const whyPathLeavesLens = (
-  schemaMap: SchemaMap,
+  schemaMap: ResolvedSchemaMap,
   at: LensesAtRow,
   path: string,
   resolution: LensPathResolution = walkLensPath(at.lens as LensNarrowing, path),
@@ -294,7 +301,7 @@ const whyPathLeavesLens = (
 
 /** Why a `{ rel }` path from `at` is not one it may walk, or null; one hop off an item lands on any row the hydrator loads. */
 export const whyRelationPathCannotBeWalked = (
-  schemaMap: SchemaMap,
+  schemaMap: ResolvedSchemaMap,
   at: LensesAtRow,
   path: string,
 ): { code: 'lens' | 'down'; message: string } | null => {
@@ -336,7 +343,7 @@ export const issueRefusesTheRead = (issue: ValidationIssue): boolean =>
 
 /** Every path a condition reads at `at` outside the lens, and every operator or enum value that does not fit its field. */
 export const issuesForReadsOutsideLens = (
-  schemaMap: SchemaMap,
+  schemaMap: ResolvedSchemaMap,
   at: LensesAtRow,
   condition: Condition,
   path: string,
@@ -366,7 +373,7 @@ export const issuesForReadsOutsideLens = (
 };
 
 // Why a rule's read of a supplied row (`actor:User.devices.risk`) leaves the rule lens.
-const whyPathLeavesSuppliedRows = (schemaMap: SchemaMap, read: string): string => {
+const whyPathLeavesSuppliedRows = (schemaMap: ResolvedSchemaMap, read: string): string => {
   const [head = '', ...rest] = pathSegments(read);
   if (!suppliedModelAt(schemaMap, head))
     return `\`${head}\` is not a model of the supplied map \`${parseEndpointKey(head, '').mapName}\``;
@@ -391,7 +398,7 @@ const whyPathLeavesSuppliedRows = (schemaMap: SchemaMap, read: string): string =
 
 // The model of the items a supplied list holds (`actor:User.devices` → `actor:Device`), or why the path names none.
 const suppliedListItemAt = (
-  schemaMap: SchemaMap,
+  schemaMap: ResolvedSchemaMap,
   rel: string,
 ): { item: string } | { why: string } => {
   const [head = '', ...rest] = pathSegments(rel);
@@ -410,7 +417,7 @@ const suppliedListItemAt = (
 
 /** What is wrong with a list arm over a supplied list: its path, and a condition that is not rules (an item has no actions) or reads outside the item's lens. */
 export const issuesOfSuppliedListArm = (
-  schemaMap: SchemaMap,
+  schemaMap: ResolvedSchemaMap,
   rel: string,
   condition: ActionRule,
   path: string,
@@ -443,7 +450,7 @@ export const issuesOfSuppliedListArm = (
 
 /** Why an entitlement `where` read at `at` leaves the lens, or null. */
 export const whyWhereLeavesLensAtRow = (
-  schemaMap: SchemaMap,
+  schemaMap: ResolvedSchemaMap,
   at: LensesAtRow,
   where: Condition | undefined,
 ): string | null => {
@@ -463,4 +470,9 @@ export const whyEntitlementWhereLeavesLens = (
   schemaMap: SchemaMap,
   resource: string,
   where: Condition | undefined,
-): string | null => whyWhereLeavesLensAtRow(schemaMap, lensesAtRow(schemaMap, resource), where);
+): string | null =>
+  whyWhereLeavesLensAtRow(
+    resolvedSchemaMap(schemaMap),
+    lensesAtRow(resolvedSchemaMap(schemaMap), resource),
+    where,
+  );

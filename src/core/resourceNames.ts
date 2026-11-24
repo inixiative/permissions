@@ -9,7 +9,7 @@ import {
 } from '@inixiative/field-map';
 import { endpointKey, parseEndpointKey, relationTargetOf } from '@inixiative/json-rules';
 import { nameHasNoMap, nameIsNoModelOfItsMap } from './errors';
-import type { FieldMapsWithPolymorphism, PolymorphicAxis, SchemaMap } from './schemaMap';
+import type { FieldMapsWithPolymorphism, PolymorphicAxis, ResolvedSchemaMap } from './schemaMap';
 
 const whyNameHasNoMap = (name: string): string | null =>
   name.includes(':') ? null : nameHasNoMap(name);
@@ -22,7 +22,7 @@ export const mapAndModelNamed = (name: string): { mapName: string; modelName: st
 };
 
 /** Whether `mapName` is one of the map's supplied maps, whose rows a check is given. */
-export const isSuppliedMap = (schemaMap: SchemaMap, mapName: string): boolean =>
+export const isSuppliedMap = (schemaMap: ResolvedSchemaMap, mapName: string): boolean =>
   Object.hasOwn(schemaMap.suppliedFieldMaps ?? {}, mapName);
 
 /** The field map a record's resource is in, or undefined when its map is not in `maps`. */
@@ -52,7 +52,7 @@ export const fieldOfResource = (
 };
 
 /** Why `name` is not a resource of the map, or null: it names no map, or a model its map (in `maps` or `supplied`) does not have. A map in neither is not judged here. */
-export const whyNameIsNoModel = (schemaMap: SchemaMap, name: string): string | null => {
+export const whyNameIsNoModel = (schemaMap: ResolvedSchemaMap, name: string): string | null => {
   const { mapName, modelName } = parseEndpointKey(name, '');
   const fieldMap =
     fieldMapOfResource(schemaMap, name) ?? own(schemaMap.suppliedFieldMaps ?? {}, mapName);

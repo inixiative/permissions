@@ -1,3 +1,4 @@
+import { resolvedSchemaMap } from '.\/resolvedSchemaMap';
 import { endpointKey, type ValidationIssue, type ValidationResult } from '@inixiative/json-rules';
 import { bridgeHop } from './bridgeHop';
 import { resourceHasNoFieldMap } from './errors';
@@ -10,7 +11,7 @@ import {
 import { listsOf, relationOf } from './relations';
 import { modelOfResource, whyNameIsNoModel } from './resourceNames';
 import { isRefusedByACheck, relIssues, walkRelationPath } from './ruleReads';
-import type { SchemaMap } from './schemaMap';
+import type { ResolvedSchemaMap, SchemaMap } from './schemaMap';
 import { problemsOfBridges, problemsOfMapNames } from './schemaMapProblems';
 import { bridgesWalkedFromRecords } from './supplied';
 import { issuesOfShapeAndCycle, validateActionRule } from './validateActionRule';
@@ -29,32 +30,39 @@ export const relationHopsFrom = (
   walked = '',
 ): RelationHop[] => {
   const prefix = walked ? walked.split('.') : [];
-  const reached = prefix.length ? walkRelationPath(schemaMap, at, walked, '$') : { landed: at };
+  const reached = prefix.length
+    ? walkRelationPath(resolvedSchemaMap(schemaMap), at, walked, '$')
+    : { landed: at };
   if ('issues' in reached && reached.issues.length) return [];
   const current = 'landed' in reached ? reached.landed.resource : at.resource;
-  const fields = Object.keys(modelOfResource(schemaMap, current)?.fields ?? {});
-  const crossed = bridgesWalkedFromRecords(schemaMap);
+  const fields = Object.keys(modelOfResource(resolvedSchemaMap(schemaMap), current)?.fields ?? {});
+  const crossed = bridgesWalkedFromRecords(resolvedSchemaMap(schemaMap));
   const bridgeEnds = crossed.flatMap((bridge) => bridge.endpoints.map(endpointKey));
   const candidates = [
     ...fields
-      .filter((field) => relationOf(schemaMap, current, field))
+      .filter((field) => relationOf(resolvedSchemaMap(schemaMap), current, field))
       .map((segment) => ({ segment, bridge: false })),
     ...[...new Set(bridgeEnds)]
       .filter((end) => bridgeHop(crossed, current, end))
       .map((segment) => ({ segment, bridge: true })),
   ];
   return candidates.flatMap(({ segment, bridge }) => {
-    const next = walkRelationPath(schemaMap, at, [...prefix, segment].join('.'), '$');
+    const next = walkRelationPath(
+      resolvedSchemaMap(schemaMap),
+      at,
+      [...prefix, segment].join('.'),
+      '$',
+    );
     return 'landed' in next ? [{ segment, resource: next.landed.resource, bridge }] : [];
   });
 };
 
 /** The fields of `resource` that are declared lists (`/// @permissions(down: [...])`), which a list arm may cross. */
 export const declaredListsOf = (schemaMap: SchemaMap, resource: string): string[] =>
-  listsOf(schemaMap, resource).map(([field]) => field);
+  listsOf(resolvedSchemaMap(schemaMap), resource).map(([field]) => field);
 
 const issuesOfEveryActionRule = (
-  schemaMap: SchemaMap,
+  schemaMap: ResolvedSchemaMap,
   judgedInItsMap: boolean,
 ): ValidationIssue[] =>
   Object.entries(schemaMap.permissions).flatMap(([resource, permission]) =>
@@ -68,7 +76,7 @@ const issuesOfEveryActionRule = (
 
 /** Every action rule of a map that is not well formed and positive, by `resource.action`. */
 export const schemaRuleIssues = (schemaMap: SchemaMap): ValidationIssue[] =>
-  issuesOfEveryActionRule(schemaMap, false);
+  issuesOfEveryActionRule(resolvedSchemaMap(schemaMap), false);
 
 const lensIssue = (path: string, message: string): ValidationIssue => ({
   path,
@@ -76,11 +84,11 @@ const lensIssue = (path: string, message: string): ValidationIssue => ({
   message,
 });
 
-const issuesOfBridges = (schemaMap: SchemaMap): ValidationIssue[] =>
+const issuesOfBridges = (schemaMap: ResolvedSchemaMap): ValidationIssue[] =>
   problemsOfBridges(schemaMap).map((message) => lensIssue('bridges', message));
 
 // why: a name that is no model has no lens, so nothing its rules read could be refused
-const issuesOfResourceNames = (schemaMap: SchemaMap): ValidationIssue[] => {
+const issuesOfResourceNames = (schemaMap: ResolvedSchemaMap): ValidationIssue[] => {
   const far = new Set(
     bridgesWalkedFromRecords(schemaMap).flatMap(({ endpoints }) => endpoints.map(endpointKey)),
   );
@@ -93,7 +101,7 @@ const issuesOfResourceNames = (schemaMap: SchemaMap): ValidationIssue[] => {
 };
 
 // Every read, action and operator issue of a map's well-formed rules, by `resource.action`.
-const readIssues = (schemaMap: SchemaMap): ValidationIssue[] => [
+const readIssues = (schemaMap: ResolvedSchemaMap): ValidationIssue[] => [
   ...issuesOfResourceNames(schemaMap),
   ...Object.entries(schemaMap.permissions).flatMap(([resource, permission]) =>
     Object.entries(permission?.actions ?? {}).flatMap(([action, rule]) =>
@@ -105,11 +113,11 @@ const readIssues = (schemaMap: SchemaMap): ValidationIssue[] => [
 ];
 
 /** Every issue of a map's rules and resource names that a check refuses on first use, by `resource.action`; the check throws a bridge problem itself. */
-export const schemaIssuesRefusedOnFirstUse = (schemaMap: SchemaMap): ValidationIssue[] =>
+export const schemaIssuesRefusedOnFirstUse = (schemaMap: ResolvedSchemaMap): ValidationIssue[] =>
   readIssues(schemaMap).filter(isRefusedByACheck);
 
 // why: a row that hydrates this much is doing too much; it is reported, not refused
-const lensWarnings = (schemaMap: SchemaMap): ValidationIssue[] =>
+const lensWarnings = (schemaMap: ResolvedSchemaMap): ValidationIssue[] =>
   Object.keys(schemaMap.permissions).flatMap((resource) => {
     const size = countRelationsOneRowHydrates(schemaMap, resource);
     return size > relationLensLimits.report
@@ -132,20 +140,20 @@ const lensWarnings = (schemaMap: SchemaMap): ValidationIssue[] =>
 export const validateSchemaMap = (
   schemaMap: SchemaMap,
 ): ValidationResult & { warnings: ValidationIssue[] } => {
-  const nameProblems = problemsOfMapNames(schemaMap);
+  const nameProblems = problemsOfMapNames(resolvedSchemaMap(schemaMap));
   if (nameProblems.length)
     return {
       ok: false,
       errors: [
         ...nameProblems.map((message) => lensIssue('$', message)),
-        ...issuesOfBridges(schemaMap),
+        ...issuesOfBridges(resolvedSchemaMap(schemaMap)),
       ],
       warnings: [],
     };
   const errors = [
-    ...issuesOfEveryActionRule(schemaMap, true),
-    ...issuesOfBridges(schemaMap),
-    ...readIssues(schemaMap),
+    ...issuesOfEveryActionRule(resolvedSchemaMap(schemaMap), true),
+    ...issuesOfBridges(resolvedSchemaMap(schemaMap)),
+    ...readIssues(resolvedSchemaMap(schemaMap)),
   ];
-  return { ok: errors.length === 0, errors, warnings: lensWarnings(schemaMap) };
+  return { ok: errors.length === 0, errors, warnings: lensWarnings(resolvedSchemaMap(schemaMap)) };
 };

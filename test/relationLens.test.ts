@@ -20,6 +20,7 @@ import {
   whyWhereLeavesLensAtRow,
 } from '../src/core/lens';
 import { listOf } from '../src/core/relations';
+import { resolvedSchemaMap } from '../src/core/resolvedSchemaMap';
 import { identityKeyOfRow } from '../src/core/rowKeys';
 import { hydrationLimits } from '../src/helpers/hydration/hydrate';
 import { loadModels } from './fixtures/load';
@@ -30,6 +31,7 @@ import {
   canGrantWithRules,
   checkWithRules,
   dbFieldMapOf,
+  declaringSuppliedBridges,
   mapWith,
   pathsWithRules,
   type Rules,
@@ -142,11 +144,11 @@ const fieldMap: FieldMap = {
     },
   },
 };
-const schemaMap: SchemaMap = {
+const schemaMap: SchemaMap = declaringSuppliedBridges({
   permissions: {},
   fieldMaps: { db: fieldMap },
   suppliedFieldMaps: { actor: actorMap },
-};
+});
 
 const db: Record<string, Record<string, Row>> = {
   'db:Org': { o1: { id: 'o1', name: 'acme', creatorId: 'u1' } },
@@ -786,9 +788,13 @@ describe('the root, item paths, unknown resources and wheres on an item', () => 
       prefix: [],
     });
     expect(
-      whyWhereLeavesLensAtRow(schemaMap, lensesAtRow(schemaMap, 'db:Message'), where),
+      whyWhereLeavesLensAtRow(
+        resolvedSchemaMap(schemaMap),
+        lensesAtRow(schemaMap, 'db:Message'),
+        where,
+      ),
     ).toBeNull();
-    expect(whyWhereLeavesLensAtRow(schemaMap, item, where)).toMatch(
+    expect(whyWhereLeavesLensAtRow(resolvedSchemaMap(schemaMap), item, where)).toMatch(
       /loads no `conversation` under an item/,
     );
   });
@@ -1041,7 +1047,7 @@ describe('the limits throw; nothing is cut', () => {
         },
       },
     };
-    expect(() => countRelationsOneRowHydrates(dense, 'db:M0')).toThrow(
+    expect(() => countRelationsOneRowHydrates(resolvedSchemaMap(dense), 'db:M0')).toThrow(
       `the lens of \`db:M0\` hydrates more than ${relationLensLimits.refuse} relations a row`,
     );
   });
@@ -1068,7 +1074,7 @@ describe('the limits throw; nothing is cut', () => {
         },
       },
     };
-    expect(() => countRelationsOneRowHydrates(chain, 'db:C0')).toThrow(
+    expect(() => countRelationsOneRowHydrates(resolvedSchemaMap(chain), 'db:C0')).toThrow(
       `the lens of \`db:C0\` goes past ${relationLensLimits.depth} relations`,
     );
   });
@@ -1261,7 +1267,7 @@ describe('the actor and the size of a lens', () => {
         },
       },
     };
-    expect(countRelationsOneRowHydrates(poly, 'db:Hub')).toBe(301);
+    expect(countRelationsOneRowHydrates(resolvedSchemaMap(poly), 'db:Hub')).toBe(301);
     expect(
       validateSchemaMap(mapWith(poly, { permissions: { 'db:Hub': { actions: { read: null } } } }))
         .warnings,
@@ -1508,11 +1514,11 @@ describe('a row’s key', () => {
 });
 
 describe('the apps’ own maps', () => {
-  const zealot: SchemaMap = {
+  const zealot: SchemaMap = declaringSuppliedBridges({
     permissions: {},
     fieldMaps: { db: { models: loadModels('zealot') } },
     suppliedFieldMaps: { actor: actorMap },
-  };
+  });
   const participantReads = (field: string): Rules => ({
     permissions: {
       'db:Conversation': {

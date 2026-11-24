@@ -1,6 +1,7 @@
 import { fieldOf } from '@inixiative/field-map';
 import { type Condition, declaredEnumValues, Operator } from '@inixiative/json-rules';
 import { ownerRelationOf } from './relations';
+import { resolvedSchemaMap } from './resolvedSchemaMap';
 import { axisOf } from './resourceNames';
 import type { SchemaMap } from './schemaMap';
 import { suppliedModelAt } from './supplied';
@@ -39,21 +40,21 @@ export const ruleFieldEqualsPath = (field: string, path: string): ActionRule => 
 /**
  * The rule builders, each reading its kinds and their relations from the three tables it is given so no app restates
  * them. A side is a resource (`fieldMaps`) and its polymorphic axis (`polymorphismRegistries`), or a supplied
- * model (`suppliedFieldMaps`) and one of
+ * model (the far end of a supplied bridge in `bridges`) and one of
  * its enum fields (`'actor:Acting'`, `'model'`), whose values are its kinds.
  */
 export const makeKindRules = <R extends string = string>({
   fieldMaps,
-  suppliedFieldMaps,
   polymorphismRegistries,
-}: Pick<SchemaMap, 'fieldMaps' | 'suppliedFieldMaps' | 'polymorphismRegistries'>) => {
+  bridges,
+}: Pick<SchemaMap, 'fieldMaps' | 'polymorphismRegistries' | 'bridges'>) => {
   // why: the rules are built from these tables, so no schema map exists yet for the readers to take
-  const schemaMap: SchemaMap = {
+  const schemaMap = resolvedSchemaMap({
     fieldMaps,
-    suppliedFieldMaps,
     polymorphismRegistries,
+    bridges,
     permissions: {},
-  };
+  });
   const kindsOf = (side: string, field: string): string[] => {
     const supplied = suppliedModelAt(schemaMap, side);
     if (supplied) {

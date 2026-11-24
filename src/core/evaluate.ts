@@ -9,7 +9,7 @@ import type { PositionUnderListItem } from './lens';
 import { recordId } from './recordId';
 import { listOf, relationOf } from './relations';
 import { identityKeyOfRow } from './rowKeys';
-import type { SchemaMap } from './schemaMap';
+import type { ResolvedSchemaMap } from './schemaMap';
 import { bridgesWalkedFromRecords, recordWithSuppliedData, suppliedModelAt } from './supplied';
 import type { ActionRule, AdditionalRules, PermixLike, Row } from './types';
 import { validateActionRule } from './validateActionRule';
@@ -17,7 +17,7 @@ import { validateActionRule } from './validateActionRule';
 // One walk: the app's schema map, the schema, the bridge dictionary built on first use, and how
 // what it finds combines (a boolean for `check`, every admission for `paths`).
 export type Walk<R extends string, T = boolean> = {
-  schemaMap: SchemaMap<R>;
+  schemaMap: ResolvedSchemaMap<R>;
   getDict: () => BridgeDictionary | undefined;
   /** The supplied maps' joined bridges' rows, indexed once per check. */
   suppliedDictionary: () => BridgeDictionary | undefined;

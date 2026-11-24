@@ -51,7 +51,12 @@ const RULES: { verb: string; pattern: RegExp; owners: string[] }[] = [
   {
     verb: 'say which bridges a rule reads and which a rel crosses',
     pattern: /\.bridges\b/,
-    owners: ['src/core/supplied.ts', 'src/core/schemaMapProblems.ts', 'src/core/walker.ts'],
+    owners: [
+      'src/core/supplied.ts',
+      'src/core/schemaMapProblems.ts',
+      'src/core/resolvedSchemaMap.ts',
+      'src/core/walker.ts',
+    ],
   },
   {
     verb: 'freeze, then judge once',

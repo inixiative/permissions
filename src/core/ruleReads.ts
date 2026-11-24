@@ -10,13 +10,13 @@ import {
   whyRelationPathCannotBeWalked,
 } from './lens';
 import { relationOf } from './relations';
-import type { SchemaMap } from './schemaMap';
+import type { ResolvedSchemaMap } from './schemaMap';
 import { bridgesWalkedFromRecords, suppliedModelAt } from './supplied';
 import type { ActionRule } from './types';
 
 /** Walk a `{ rel }` path from `at` as a check hops it: the lenses where it lands, or why it cannot be walked. */
 export const walkRelationPath = (
-  schemaMap: SchemaMap,
+  schemaMap: ResolvedSchemaMap,
   at: LensesAtRow,
   rel: string,
   path: string,
@@ -67,7 +67,7 @@ export const walkRelationPath = (
 
 /** Every read, action and operator issue of a well-formed rule at `at`. */
 export const relIssues = (
-  schemaMap: SchemaMap,
+  schemaMap: ResolvedSchemaMap,
   at: LensesAtRow,
   rule: ActionRule,
   path: string,
@@ -144,7 +144,7 @@ export const isRefusedByACheck = (issue: ValidationIssue): boolean =>
 
 /** Every read of a well-formed action rule at `resource` that a check refuses: outside the lens, a relation it cannot walk, a list it does not declare. */
 export const issuesForRuleReadsOutsideLens = (
-  schemaMap: SchemaMap,
+  schemaMap: ResolvedSchemaMap,
   resource: string,
   rule: ActionRule,
   at = '$',

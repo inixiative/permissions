@@ -1,12 +1,12 @@
 import type { EntitlementEntry } from './permix';
 import { idField, recordId } from './recordId';
 import { followedToOneRelationsOf, relationOf } from './relations';
-import type { SchemaMap } from './schemaMap';
+import type { ResolvedSchemaMap } from './schemaMap';
 import type { Anchor, Row } from './types';
 
 /** The rows `segments` reaches from `row` by followed to-ones, start included; it stops at a missing one (with `kinds`, a kind its step does not admit). */
 export const rowsAlongAnchorPath = <R extends string>(
-  schemaMap: SchemaMap,
+  schemaMap: ResolvedSchemaMap,
   resource: R,
   row: Row,
   segments: readonly string[],
@@ -31,7 +31,7 @@ export const rowsAlongAnchorPath = <R extends string>(
 
 /** The row `anchor` names, when `row`'s path along `anchor.path` reaches it (with `kinds`, each step one its relation admits); else undefined. */
 export const anchorRowReachedFrom = <R extends string>(
-  schemaMap: SchemaMap,
+  schemaMap: ResolvedSchemaMap,
   resource: R,
   row: Row,
   anchor: Anchor,
@@ -47,7 +47,7 @@ export const anchorRowReachedFrom = <R extends string>(
 
 /** The hydrated rows above the records a granted entry reaches, by object; a self-anchored entry's own anchor left out. */
 export const rowsAbove = <R extends string>(
-  schemaMap: SchemaMap,
+  schemaMap: ResolvedSchemaMap,
   entry: EntitlementEntry,
   pseudoRecord: Row,
 ): ReadonlySet<Row> => {

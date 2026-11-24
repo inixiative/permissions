@@ -12,7 +12,12 @@ import {
   validateActionRule,
   validateSchemaMap,
 } from '../index';
-import { actorData, stringColumn } from './schemaMaps';
+import {
+  actorData,
+  declaringSuppliedBridges,
+  type SchemaMapWithSuppliedGroup,
+  stringColumn,
+} from './schemaMaps';
 
 const toOne = (type: string, key: string) =>
   ({ kind: 'object', type, isList: false, fromFields: [key], toFields: ['id'] }) as const;
@@ -52,7 +57,7 @@ const sec: FieldMap = {
   models: { Device: { fields: { serial: stringColumn, risk: stringColumn } } },
 };
 
-const withoutPermissions: Omit<SchemaMap, 'permissions'> = {
+const withoutPermissions: Omit<SchemaMapWithSuppliedGroup, 'permissions'> = {
   fieldMaps: { db },
   suppliedFieldMaps: { actor },
   polymorphismRegistries: {
@@ -60,16 +65,17 @@ const withoutPermissions: Omit<SchemaMap, 'permissions'> = {
   },
 };
 
-const mapOfRead = (read: ActionRule, more: Partial<SchemaMap> = {}): SchemaMap => ({
-  ...withoutPermissions,
-  ...more,
-  permissions: {
-    'db:Doc': { actions: { read } },
-    'db:Org': { actions: { read: false } },
-    'db:User': { actions: { read: false } },
-    ...more.permissions,
-  },
-});
+const mapOfRead = (read: ActionRule, more: Partial<SchemaMapWithSuppliedGroup> = {}): SchemaMap =>
+  declaringSuppliedBridges({
+    ...withoutPermissions,
+    ...more,
+    permissions: {
+      'db:Doc': { actions: { read } },
+      'db:Org': { actions: { read: false } },
+      'db:User': { actions: { read: false } },
+      ...more.permissions,
+    },
+  });
 
 const nobody: PermixLike = { check: () => false };
 const reads = (schemaMap: SchemaMap, record: Row, data?: Record<string, Row[]>) =>
@@ -104,14 +110,25 @@ describe('one schema map: maps, supplied, bridges, polymorphism, permissions', (
     expect(reads(schemaMap, { ownerId: 'u1' }, { 'app:User': [{ id: 'u1' }] })).toBe(true);
   });
 
-  test('a map name in both `fieldMaps` and `suppliedFieldMaps` throws, and validateSchemaMap reports it', () => {
-    const schemaMap = mapOfRead(mine, { suppliedFieldMaps: { db: actor } });
-    expect(() => reads(schemaMap, {})).toThrow(
-      /`db` is in both `fieldMaps` and `suppliedFieldMaps`/,
-    );
-    expect(validateSchemaMap(schemaMap).errors.map((issue) => issue.message)).toEqual([
-      '`db` is in both `fieldMaps` and `suppliedFieldMaps`: a map is one or the other',
-    ]);
+  test('a supplied bridge that ends in a map of records throws, and validateSchemaMap reports it', () => {
+    const schemaMap = mapOfRead(mine, {
+      bridges: [
+        {
+          endpoints: [
+            { fieldMap: 'db', model: 'Doc' },
+            { fieldMap: 'db', model: 'User' },
+          ],
+          cardinality: 'oneToOne',
+        },
+      ],
+    });
+    const refusal = /has no join, so its far end is supplied, but `db` holds records/;
+    expect(() => reads(schemaMap, {})).toThrow(refusal);
+    expect(
+      validateSchemaMap(schemaMap)
+        .errors.map((issue) => issue.message)
+        .join(),
+    ).toMatch(refusal);
   });
 
   test('a name with no map is refused: there is no map to default to', () => {
@@ -134,7 +151,7 @@ describe('one schema map: maps, supplied, bridges, polymorphism, permissions', (
 
   test('validateSchemaMap reports every name and bridge problem of a map that cannot be indexed', () => {
     const schemaMap = mapOfRead(mine, {
-      suppliedFieldMaps: { db: actor },
+      fieldMaps: { db, 'bad:name': db },
       polymorphismRegistries: { nope: {} },
       bridges: [
         {
@@ -146,19 +163,17 @@ describe('one schema map: maps, supplied, bridges, polymorphism, permissions', (
         },
       ],
     });
-    expect(() => reads(schemaMap, {})).toThrow(/`polymorphismRegistries` names the map `nope`/);
-    expect(validateSchemaMap(schemaMap).errors.map((issue) => issue.message.split(':')[0])).toEqual(
-      [
-        '`polymorphismRegistries` names the map `nope`, which is not in `fieldMaps`',
-        '`db` is in both `fieldMaps` and `suppliedFieldMaps`',
-        'a bridge between `db',
-      ],
+    expect(() => reads(schemaMap, {})).toThrow(/a map is named `bad:name`/);
+    const messages = validateSchemaMap(schemaMap).errors.map((issue) => issue.message);
+    expect(messages).toHaveLength(3);
+    expect(messages[0]).toMatch(/^a map is named `bad:name`/);
+    expect(messages[1]).toMatch(
+      /^`polymorphismRegistries` names the map `nope`, which is not a field map of records/,
     );
-    expect(validateSchemaMap(schemaMap).errors.map((issue) => issue.path)).toEqual([
-      '$',
-      '$',
-      'bridges',
-    ]);
+    expect(messages[2]).toMatch(
+      /^a bridge between `db:Doc` and `crm:Account` ends in the map `crm`, which is not in `fieldMaps`/,
+    );
+    expect(validateSchemaMap(schemaMap).errors.map((issue) => issue.path)).toEqual(['$', '$', '$']);
   });
 
   test('polymorphism names a map in `fieldMaps` and a model of it', () => {
@@ -166,10 +181,10 @@ describe('one schema map: maps, supplied, bridges, polymorphism, permissions', (
       reads(mapOfRead(true, { polymorphismRegistries }), {});
     const axes = [{ field: 'ownerModel', fkMap: { User: ['userId'] } }];
     expect(reading({ zz: { Doc: { axes } } })).toThrow(
-      /`polymorphismRegistries` names the map `zz`, which is not in `fieldMaps`/,
+      /`polymorphismRegistries` names the map `zz`, which is not a field map of records/,
     );
     expect(reading({ Doc: { axes } } as never)).toThrow(
-      /`polymorphismRegistries` names the map `Doc`, which is not in `fieldMaps`/,
+      /`polymorphismRegistries` names the map `Doc`, which is not a field map of records/,
     );
     expect(reading({ db: { Dok: { axes } } })).toThrow(
       /`polymorphismRegistries` names `db:Dok`, which is not a model of the map `db`/,
@@ -204,7 +219,9 @@ describe('one schema map: maps, supplied, bridges, polymorphism, permissions', (
   });
 
   test('kind rules are built from the map before it has rules, a record side and a supplied side', () => {
-    const kind = makeKindRules(withoutPermissions);
+    const kind = makeKindRules(
+      declaringSuppliedBridges({ ...withoutPermissions, permissions: {} }),
+    );
     expect(kind.ruleKindIsOneOf('db:Doc', 'ownerModel', ['Org'])).toEqual({
       rule: { field: 'ownerModel', operator: Operator.equals, value: 'Org' },
     });
@@ -289,16 +306,6 @@ describe('one list of bridges', () => {
         cardinality: 'oneToMany',
       },
     ],
-    [
-      'with no join',
-      {
-        endpoints: [
-          { fieldMap: 'db', model: 'Doc' },
-          { fieldMap: 'actor', model: 'User' },
-        ],
-        cardinality: 'oneToOne',
-      },
-    ],
   ] as [string, Bridge][])
     test(`a bridge ${what} with one end supplied and one a record is refused: no chain leads from a supplied row into the records`, () => {
       const schemaMap = mapOfRead(mine, { bridges: [bridge] });
@@ -311,7 +318,7 @@ describe('one list of bridges', () => {
       ).toMatch(refusal);
     });
 
-  test('a bridge crossed by a rel is joined', () => {
+  test('a bridge with no join is a supplied bridge: its far end has a field map', () => {
     const schemaMap = mapOfRead(true, {
       bridges: [
         {
@@ -328,7 +335,7 @@ describe('one list of bridges', () => {
         .errors.map((issue) => issue.message)
         .join(),
     ).toMatch(
-      /a bridge between `db:Doc` and `crm:Account` has no join: only a bridge between supplied maps is given its row/,
+      /a bridge between `db:Doc` and `crm:Account` ends in the map `crm`, which is not in `fieldMaps`/,
     );
   });
 });

@@ -1,5 +1,6 @@
+import { resolvedSchemaMap } from '.\/resolvedSchemaMap';
 import { type Admission, booleanAlgebra, pathsAlgebra } from './algebra';
-import type { SchemaMap } from './schemaMap';
+import type { ResolvedSchemaMap, SchemaMap } from './schemaMap';
 import type { ActionRule, CheckOptions, PermixLike, Subject } from './types';
 import { makeWalker } from './walker';
 
@@ -26,7 +27,7 @@ export const makeRebacCheck = <R extends string = string>(
   schemaMap: SchemaMap<R>,
   { additionalRules }: CheckOptions = {},
 ): RebacCheck<R> => {
-  const walker = makeWalker(schemaMap, booleanAlgebra, false, additionalRules);
+  const walker = makeWalker(resolvedSchemaMap(schemaMap), booleanAlgebra, false, additionalRules);
   return (permix, subject, actionOrRule) => walker(permix, subject, actionOrRule);
 };
 
@@ -49,7 +50,12 @@ export const makeRebacPaths = <R extends string = string>(
   schemaMap: SchemaMap<R>,
   { limit = 20, additionalRules }: PathsOptions = {},
 ): RebacPaths<R> => {
-  const walker = makeWalker(schemaMap, pathsAlgebra(limit), false, additionalRules);
+  const walker = makeWalker(
+    resolvedSchemaMap(schemaMap),
+    pathsAlgebra(limit),
+    false,
+    additionalRules,
+  );
   return (permix, subject, actionOrRule) => walker(permix, subject, actionOrRule);
 };
 

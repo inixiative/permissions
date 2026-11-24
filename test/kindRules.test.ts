@@ -13,6 +13,7 @@ import {
   actorData,
   actorMap,
   checkWithRules,
+  declaringSuppliedBridges,
   mapWith,
   type Rules,
   stringColumn,
@@ -22,7 +23,7 @@ const toOne = (type: string, key: string) =>
   ({ kind: 'object', type, isList: false, fromFields: [key], toFields: ['id'] }) as const;
 
 // A token owned by an organization, a space (with its organization), a user, or no one (`default`).
-const schemaMap: SchemaMap = {
+const schemaMap: SchemaMap = declaringSuppliedBridges({
   permissions: {},
   fieldMaps: {
     db: {
@@ -64,7 +65,7 @@ const schemaMap: SchemaMap = {
     },
   },
   suppliedFieldMaps: { actor: actorMap },
-};
+});
 const kind = makeKindRules(schemaMap);
 const check = checkWithRules(schemaMap);
 const permix: PermixLike = {

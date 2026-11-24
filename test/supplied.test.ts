@@ -12,13 +12,14 @@ import {
   actorData,
   actorMap,
   checkWithRules,
+  declaringSuppliedBridges,
   mapWith,
   type Rules,
   stringColumn,
 } from './schemaMaps';
 
 // Two supplied maps: who is acting, and the request's device posture from a security tool.
-const schemaMap: SchemaMap = {
+const schemaMap: SchemaMap = declaringSuppliedBridges({
   permissions: {},
   fieldMaps: {
     db: {
@@ -47,7 +48,7 @@ const schemaMap: SchemaMap = {
     actor: actorMap,
     device: { models: { Posture: { fields: { managed: stringColumn, risk: stringColumn } } } },
   },
-};
+});
 const check = checkWithRules(schemaMap);
 const nobody: PermixLike = { check: () => false };
 const schemaOf = (read: ActionRule): Rules => ({
@@ -146,7 +147,7 @@ describe('supplied maps: rows the call gives, read by every rule as <prefix>:<Mo
 
 // The actor's own relations, and bridges on from it: a security tool's devices joined by the
 // actor's id (a list), its posture of the request (one row), and each device's findings (a list).
-const chained: SchemaMap = {
+const chained: SchemaMap = declaringSuppliedBridges({
   ...schemaMap,
   suppliedFieldMaps: {
     actor: {
@@ -193,7 +194,7 @@ const chained: SchemaMap = {
       cardinality: 'oneToMany',
     },
   ],
-};
+});
 const chainedCheck = checkWithRules(chained);
 const readChained = (rule: ActionRule, record: Row, data: Record<string, Row[]>) =>
   chainedCheck(nobody, schemaOf(rule), { resource: 'db:Doc', record, bridgeData: data }, 'read');

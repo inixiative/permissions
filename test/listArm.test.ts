@@ -30,6 +30,7 @@ import {
   canGrantWithRules,
   checkWithRules,
   dbFieldMapOf,
+  declaringSuppliedBridges,
   mapWith,
   pathsWithRules,
   type Rules,
@@ -48,11 +49,12 @@ const models: typeof loaded = {
     fields: { ...loaded.ConversationParticipant.fields, status: stringColumn },
   },
 };
-const mapOver = (over: typeof models): SchemaMap => ({
-  permissions: {},
-  fieldMaps: { db: { models: over } },
-  suppliedFieldMaps: { actor: actorMap },
-});
+const mapOver = (over: typeof models): SchemaMap =>
+  declaringSuppliedBridges({
+    permissions: {},
+    fieldMaps: { db: { models: over } },
+    suppliedFieldMaps: { actor: actorMap },
+  });
 const schemaMap = mapOver(models);
 
 const actorIsUser = {

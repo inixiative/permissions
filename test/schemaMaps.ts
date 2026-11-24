@@ -1,5 +1,5 @@
 import type { FieldMap, ModelEntry } from '@inixiative/field-map';
-import { parseEndpointKey } from '@inixiative/json-rules';
+import { type Bridge, endpointKey, isJoinedBridge, parseEndpointKey } from '@inixiative/json-rules';
 import {
   type ActionRule,
   type Admission,
@@ -57,6 +57,66 @@ export type ListOf = { item: string; down: readonly string[] };
 /** The rules a test lays over a map: the map's `permissions`, and its `bridges` when the case has some. */
 export type Rules = Pick<SchemaMap, 'permissions' | 'bridges'>;
 
+/**
+ * A test's schema map written with its supplied field maps in a group of their own, as these
+ * suites were first written. `declaringSuppliedBridges` turns it into the schema map an app
+ * declares: every field map in `fieldMaps`, and a supplied bridge from each map of records to
+ * each supplied model that no joined bridge finds by key.
+ */
+export type SchemaMapWithSuppliedGroup = SchemaMap & {
+  suppliedFieldMaps?: Record<string, FieldMap>;
+  recordFieldMaps?: Record<string, FieldMap>;
+  fieldMapsAsDeclared?: Record<string, FieldMap>;
+  suppliedBridgesTheHelperDeclared?: readonly Bridge[];
+};
+
+export const declaringSuppliedBridges = (given: SchemaMapWithSuppliedGroup): SchemaMap => {
+  const supplied = given.suppliedFieldMaps ?? {};
+  const records =
+    given.recordFieldMaps && given.fieldMaps === given.fieldMapsAsDeclared
+      ? given.recordFieldMaps
+      : Object.fromEntries(
+          Object.entries(given.fieldMaps).filter(([mapName]) => !Object.hasOwn(supplied, mapName)),
+        );
+  const joined = (given.bridges ?? []).filter(isJoinedBridge);
+  const declaredByTheTest = (given.bridges ?? []).filter(
+    (bridge) =>
+      !isJoinedBridge(bridge) && !given.suppliedBridgesTheHelperDeclared?.includes(bridge),
+  );
+  const foundByKey = new Set(
+    joined
+      .filter(({ endpoints }) => endpoints.every((end) => Object.hasOwn(supplied, end.fieldMap)))
+      .map(({ endpoints: [, far] }) => endpointKey(far)),
+  );
+  const from = new Set([
+    ...Object.keys(records),
+    ...Object.keys(given.permissions).map((resource) => parseEndpointKey(resource, '').mapName),
+    ...joined.flatMap(({ endpoints }) => endpoints.map((end) => end.fieldMap)),
+  ]);
+  for (const mapName of Object.keys(supplied)) from.delete(mapName);
+  const given1 = Object.entries(supplied).flatMap(([mapName, fieldMap]) =>
+    Object.keys(fieldMap.models)
+      .filter((model) => !foundByKey.has(endpointKey({ fieldMap: mapName, model })))
+      .map((model) => ({ fieldMap: mapName, model })),
+  );
+  const fieldMaps = { ...records, ...supplied };
+  const declaredByTheHelper: Bridge[] = [...from].flatMap((near) =>
+    given1.map((far) => ({
+      endpoints: [{ fieldMap: near }, far] as [{ fieldMap: string }, typeof far],
+      cardinality: 'oneToOne' as const,
+    })),
+  );
+  const whole: SchemaMapWithSuppliedGroup = {
+    ...given,
+    recordFieldMaps: records,
+    fieldMaps,
+    fieldMapsAsDeclared: fieldMaps,
+    suppliedBridgesTheHelperDeclared: declaredByTheHelper,
+    bridges: [...joined, ...declaredByTheTest, ...declaredByTheHelper],
+  };
+  return whole;
+};
+
 /** The map with `rules` laid over it: one object, as every entry point takes. */
 export const mapWith = (schemaMap: SchemaMap, rules: Rules): SchemaMap => {
   let byRules = mapsWithRules.get(schemaMap);
@@ -66,11 +126,11 @@ export const mapWith = (schemaMap: SchemaMap, rules: Rules): SchemaMap => {
   }
   let whole = byRules.get(rules);
   if (!whole) {
-    whole = {
+    whole = declaringSuppliedBridges({
       ...schemaMap,
       permissions: rules.permissions,
       ...(rules.bridges ? { bridges: rules.bridges } : {}),
-    };
+    });
     byRules.set(rules, whole);
   }
   return whole;
@@ -157,13 +217,13 @@ export const mapOf = (
       },
     };
   }
-  return {
+  return declaringSuppliedBridges({
     permissions: {},
     fieldMaps: Object.fromEntries(
       Object.entries(models).map(([mapName, of]) => [mapName, { models: of }]),
     ),
     suppliedFieldMaps: { actor: actorMap },
-  };
+  });
 };
 
 /** Every admission over `map`, taking each case's rules beside the subject. */

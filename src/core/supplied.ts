@@ -20,27 +20,27 @@ import {
   mapAndModelNamed,
   modelsNamedIn,
 } from './resourceNames';
-import type { SchemaMap } from './schemaMap';
+import type { ResolvedSchemaMap } from './schemaMap';
 
 /** The bridges between two supplied maps, which a `{ rule }` reads along from a supplied row. */
-export const bridgesBetweenSuppliedMaps = (schemaMap: SchemaMap): Bridge[] =>
+export const bridgesBetweenSuppliedMaps = (schemaMap: ResolvedSchemaMap): Bridge[] =>
   (schemaMap.bridges ?? []).filter((bridge) =>
     bridge.endpoints.every((end) => isSuppliedMap(schemaMap, end.fieldMap)),
   );
 
 /** The joined bridges with no end supplied, which a `rel` walk crosses from a record. */
-export const bridgesWalkedFromRecords = (schemaMap: SchemaMap): JoinedBridge[] =>
+export const bridgesWalkedFromRecords = (schemaMap: ResolvedSchemaMap): JoinedBridge[] =>
   (schemaMap.bridges ?? []).filter(
     (bridge): bridge is JoinedBridge =>
       isJoinedBridge(bridge) &&
       !bridge.endpoints.some((end) => isSuppliedMap(schemaMap, end.fieldMap)),
   );
 
-const stitchedSets = new WeakMap<SchemaMap, Map<'', FieldMapSet>>();
+const stitchedSets = new WeakMap<ResolvedSchemaMap, Map<'', FieldMapSet>>();
 
 // why: stitched alone, the supplied maps hold no model of the records, so no chain leads back into them
 /** The supplied maps and the bridges between them, stitched. */
-export const stitchedSuppliedSet = (schemaMap: SchemaMap): FieldMapSet =>
+export const stitchedSuppliedSet = (schemaMap: ResolvedSchemaMap): FieldMapSet =>
   answerOnce(stitchedSets, schemaMap, '', () =>
     stitchFieldMaps({
       maps: schemaMap.suppliedFieldMaps ?? {},
@@ -49,7 +49,7 @@ export const stitchedSuppliedSet = (schemaMap: SchemaMap): FieldMapSet =>
   );
 
 /** The supplied model a key names (`actor:User`), or undefined when no supplied map has it. */
-export const suppliedModelAt = (schemaMap: SchemaMap, key: string) => {
+export const suppliedModelAt = (schemaMap: ResolvedSchemaMap, key: string) => {
   const { mapName, modelName } = parseEndpointKey(key, '');
   const fieldMap = own(stitchedSuppliedSet(schemaMap).maps, mapName);
   const model = fieldMap ? own(fieldMap.models, modelName) : undefined;
@@ -58,7 +58,7 @@ export const suppliedModelAt = (schemaMap: SchemaMap, key: string) => {
 
 /** The relations and to-one bridges a supplied model's row leads on through, by field: lists are crossed with the list arm. */
 export const followedToOnesOfSupplied = (
-  schemaMap: SchemaMap,
+  schemaMap: ResolvedSchemaMap,
   key: string,
 ): [string, { resource: string }][] => {
   const at = suppliedModelAt(schemaMap, key);
@@ -73,7 +73,7 @@ export const followedToOnesOfSupplied = (
 
 /** The supplied model a list field of a supplied row holds (`actor:User` `devices` → `actor:Device`), or undefined. */
 export const suppliedListAt = (
-  schemaMap: SchemaMap,
+  schemaMap: ResolvedSchemaMap,
   key: string,
   field: string,
 ): string | undefined => {
@@ -84,18 +84,29 @@ export const suppliedListAt = (
   return target ? endpointKey({ fieldMap: target.mapName, model: target.modelName }) : undefined;
 };
 
-/** The supplied models the call gives one row of, which every rule reads from its row: all but the far end of a joined bridge, whose rows are found by key. */
-export const suppliedModelsAtRoot = (schemaMap: SchemaMap): string[] => {
-  const { maps, bridges = [] } = stitchedSuppliedSet(schemaMap);
-  const found = new Set(
-    bridges.filter(isJoinedBridge).map(({ endpoints: [, far] }) => endpointKey(far)),
-  );
-  return modelsNamedIn(maps).filter((key) => !found.has(key));
+/** The supplied models the call gives one row of: the far end of a declared supplied bridge. A model joined from one is found by key, not given. */
+export const suppliedModelsAtRoot = (schemaMap: ResolvedSchemaMap): string[] => [
+  ...new Set(schemaMap.suppliedBridges.map(({ endpoints: [, far] }) => endpointKey(far))),
+];
+
+/** The supplied models a rule at `resource` reads from its row: those a supplied bridge leads to from its model, or from every model of its map. */
+export const suppliedModelsGivenAt = (schemaMap: ResolvedSchemaMap, resource: string): string[] => {
+  const { mapName, modelName } = mapAndModelNamed(resource);
+  return [
+    ...new Set(
+      schemaMap.suppliedBridges
+        .filter(
+          ({ endpoints: [near] }) =>
+            near.fieldMap === mapName && (!('model' in near) || near.model === modelName),
+        )
+        .map(({ endpoints: [, far] }) => endpointKey(far)),
+    ),
+  ];
 };
 
-const rootBridges = (schemaMap: SchemaMap, resource: string): SuppliedBridge[] => {
+const rootBridges = (schemaMap: ResolvedSchemaMap, resource: string): SuppliedBridge[] => {
   const { mapName: fieldMap, modelName: model } = mapAndModelNamed(resource);
-  return suppliedModelsAtRoot(schemaMap).map((key) => {
+  return suppliedModelsGivenAt(schemaMap, resource).map((key) => {
     const { mapName, modelName } = parseEndpointKey(key, '');
     return {
       endpoints: [
@@ -107,10 +118,10 @@ const rootBridges = (schemaMap: SchemaMap, resource: string): SuppliedBridge[] =
   });
 };
 
-const setsAt = new WeakMap<SchemaMap, Map<string, FieldMapSet>>();
+const setsAt = new WeakMap<ResolvedSchemaMap, Map<string, FieldMapSet>>();
 
-/** The maps a rule at `resource` reads: its own, the supplied ones with their bridges, and a bridge from it to every supplied model at the root. */
-export const suppliedSetAt = (schemaMap: SchemaMap, resource: string): FieldMapSet =>
+/** The maps a rule at `resource` reads: its own, the supplied ones with their bridges, and a bridge from it to each supplied model a declared supplied bridge gives it. */
+export const suppliedSetAt = (schemaMap: ResolvedSchemaMap, resource: string): FieldMapSet =>
   answerOnce(setsAt, schemaMap, resource, () => {
     stitchedSuppliedSet(schemaMap);
     const fieldMap = fieldMapOfResource(schemaMap, resource);
@@ -123,10 +134,10 @@ export const suppliedSetAt = (schemaMap: SchemaMap, resource: string): FieldMapS
     };
   });
 
-const rootSetsAt = new WeakMap<SchemaMap, Map<string, FieldMapSet>>();
+const rootSetsAt = new WeakMap<ResolvedSchemaMap, Map<string, FieldMapSet>>();
 
 // why: the lens bridges supplied rows at the root only, so the embed fills the root and never copies the rows below it
-const suppliedSetAtRoot = (schemaMap: SchemaMap, resource: string): FieldMapSet =>
+const suppliedSetAtRoot = (schemaMap: ResolvedSchemaMap, resource: string): FieldMapSet =>
   answerOnce(rootSetsAt, schemaMap, resource, () => {
     const { maps, bridges } = suppliedSetAt(schemaMap, resource);
     const { mapName, modelName } = mapAndModelNamed(resource);
@@ -137,12 +148,12 @@ const suppliedSetAtRoot = (schemaMap: SchemaMap, resource: string): FieldMapSet 
   });
 
 /** The joined bridges between supplied maps, whose rows a check indexes once. */
-export const joinedBridgesOfSupplied = (schemaMap: SchemaMap) =>
+export const joinedBridgesOfSupplied = (schemaMap: ResolvedSchemaMap) =>
   bridgesBetweenSuppliedMaps(schemaMap).filter(isJoinedBridge);
 
 /** The record a `{ rule }` at `resource` is checked on: its bridges to the supplied maps filled from `bridgeData`, and theirs in turn. */
 export const recordWithSuppliedData = (
-  schemaMap: SchemaMap,
+  schemaMap: ResolvedSchemaMap,
   resource: string,
   record: Row,
   bridgeData: Record<string, Row[]> | undefined,

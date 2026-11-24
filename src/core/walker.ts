@@ -7,7 +7,7 @@ import { idField } from './recordId';
 import { indexMap } from './relations';
 import { whyNameIsNoModel } from './resourceNames';
 import { issuesForRuleReadsOutsideLens } from './ruleReads';
-import type { SchemaMap } from './schemaMap';
+import type { ResolvedSchemaMap } from './schemaMap';
 import { problemsOfBridges, problemsOfMapNames } from './schemaMapProblems';
 import { bridgesWalkedFromRecords, joinedBridgesOfSupplied } from './supplied';
 import type { ActionRule, AdditionalRules, PermixLike, Row, Subject } from './types';
@@ -25,9 +25,10 @@ const outsideLens = ({ path, message }: { path: string; message: string }) => {
 };
 
 // why: a negated rule, or a read outside the lens, answers on what nothing loaded; the rules and bridges are frozen so the answer holds, the field maps are the app's and are not
-const assertMap = (schemaMap: SchemaMap) =>
+const assertMap = (schemaMap: ResolvedSchemaMap) =>
   freezeThenJudgeOnce(schemaMap.permissions, schemaMap, () => {
-    if (schemaMap.bridges) freezeThenJudgeOnce(schemaMap.bridges, schemaMap, () => true);
+    const declaredBridges = schemaMap.declared.bridges;
+    if (declaredBridges) freezeThenJudgeOnce(declaredBridges, schemaMap, () => true);
     const [bridge] = problemsOfBridges(schemaMap);
     if (bridge) throw new Error(`${bridge} (run validateSchemaMap)`);
     const [negated] = schemaRuleIssues(schemaMap);
@@ -38,7 +39,7 @@ const assertMap = (schemaMap: SchemaMap) =>
   });
 
 export const makeWalker = <R extends string, T>(
-  schemaMap: SchemaMap<R>,
+  schemaMap: ResolvedSchemaMap<R>,
   algebra: Algebra<T>,
   ignoreWheres = false,
   additionalRules?: AdditionalRules,
