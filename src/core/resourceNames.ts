@@ -25,7 +25,7 @@ export const mapAndModelNamed = (name: string): { mapName: string; modelName: st
 export const isSuppliedMap = (schemaMap: ResolvedSchemaMap, mapName: string): boolean =>
   Object.hasOwn(schemaMap.suppliedFieldMaps ?? {}, mapName);
 
-/** The field map a record's resource is in, or undefined when its map is not in `maps`. */
+/** The field map a record's resource is in, or undefined when its map is not a field map of records. */
 export const fieldMapOfResource = (
   fieldMapsWithPolymorphism: FieldMapsWithPolymorphism,
   resource: string,
@@ -51,7 +51,7 @@ export const fieldOfResource = (
   return fieldMap ? fieldOf(fieldMap, parseEndpointKey(resource, '').modelName, name) : undefined;
 };
 
-/** Why `name` is not a resource of the map, or null: it names no map, or a model its map (in `maps` or `supplied`) does not have. A map in neither is not judged here. */
+/** Why `name` is not a resource of the map, or null: it names no map, or a model its map (of records, or supplied) does not have. A map with no field map is not judged here. */
 export const whyNameIsNoModel = (schemaMap: ResolvedSchemaMap, name: string): string | null => {
   const { mapName, modelName } = parseEndpointKey(name, '');
   const fieldMap =

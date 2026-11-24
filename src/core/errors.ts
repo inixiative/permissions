@@ -14,6 +14,9 @@ export const mapNameIsNoName = (mapName: string) =>
 export const suppliedBridgeEndsInARecordMap = (bridge: Bridge, mapName: string) =>
   `${between(bridge)} has no join, so its far end is supplied, but \`${mapName}\` holds records (it has rules, or starts a supplied bridge): no chain leads from a supplied row into the records`;
 
+export const modelIsGivenAndFoundByKey = (key: string) =>
+  `\`${key}\` is given by a supplied bridge and found by key through a joined one: a model is one or the other`;
+
 export const suppliedBridgeEndsInNoFieldMap = (bridge: Bridge, mapName: string) =>
   `${between(bridge)} ends in the map \`${mapName}\`, which is not in \`fieldMaps\``;
 

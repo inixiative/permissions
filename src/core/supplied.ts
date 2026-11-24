@@ -1,10 +1,8 @@
 import { fieldOf, own } from '@inixiative/field-map';
 import {
-  type Bridge,
   type BridgeDictionary,
   endpointKey,
   type FieldMapSet,
-  isJoinedBridge,
   type JoinedBridge,
   parseEndpointKey,
   type Row,
@@ -14,26 +12,19 @@ import {
   stitchFieldMaps,
 } from '@inixiative/json-rules';
 import { answerOnce } from './freezeThenJudgeOnce';
-import {
-  fieldMapOfResource,
-  isSuppliedMap,
-  mapAndModelNamed,
-  modelsNamedIn,
-} from './resourceNames';
+import { fieldMapOfResource, isSuppliedMap, mapAndModelNamed } from './resourceNames';
 import type { ResolvedSchemaMap } from './schemaMap';
 
-/** The bridges between two supplied maps, which a `{ rule }` reads along from a supplied row. */
-export const bridgesBetweenSuppliedMaps = (schemaMap: ResolvedSchemaMap): Bridge[] =>
-  (schemaMap.bridges ?? []).filter((bridge) =>
+/** The joined bridges between two supplied maps, which a `{ rule }` reads along from a supplied row and a check indexes once. */
+export const bridgesBetweenSuppliedMaps = (schemaMap: ResolvedSchemaMap): JoinedBridge[] =>
+  schemaMap.bridges.filter((bridge) =>
     bridge.endpoints.every((end) => isSuppliedMap(schemaMap, end.fieldMap)),
   );
 
 /** The joined bridges with no end supplied, which a `rel` walk crosses from a record. */
 export const bridgesWalkedFromRecords = (schemaMap: ResolvedSchemaMap): JoinedBridge[] =>
-  (schemaMap.bridges ?? []).filter(
-    (bridge): bridge is JoinedBridge =>
-      isJoinedBridge(bridge) &&
-      !bridge.endpoints.some((end) => isSuppliedMap(schemaMap, end.fieldMap)),
+  schemaMap.bridges.filter(
+    (bridge) => !bridge.endpoints.some((end) => isSuppliedMap(schemaMap, end.fieldMap)),
   );
 
 const stitchedSets = new WeakMap<ResolvedSchemaMap, Map<'', FieldMapSet>>();
@@ -146,10 +137,6 @@ const suppliedSetAtRoot = (schemaMap: ResolvedSchemaMap, resource: string): Fiel
       ...(bridges ? { bridges } : {}),
     };
   });
-
-/** The joined bridges between supplied maps, whose rows a check indexes once. */
-export const joinedBridgesOfSupplied = (schemaMap: ResolvedSchemaMap) =>
-  bridgesBetweenSuppliedMaps(schemaMap).filter(isJoinedBridge);
 
 /** The record a `{ rule }` at `resource` is checked on: its bridges to the supplied maps filled from `bridgeData`, and theirs in turn. */
 export const recordWithSuppliedData = (

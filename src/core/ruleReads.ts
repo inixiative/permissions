@@ -112,7 +112,7 @@ export const relIssues = (
         },
       ];
     if (suppliedModelAt(schemaMap, rule.rel.split('.')[0] ?? ''))
-      return issuesOfSuppliedListArm(schemaMap, rule.rel, rule.condition, path);
+      return issuesOfSuppliedListArm(schemaMap, resource, rule.rel, rule.condition, path);
     const item = lensesAtListItem(schemaMap, resource, rule.rel);
     if (!item)
       return [

@@ -3,6 +3,7 @@ import type { FieldMap } from '@inixiative/field-map';
 import { type Bridge, Operator } from '@inixiative/json-rules';
 import {
   type ActionRule,
+  makeHydrator,
   makeRebacCheck,
   type PermixLike,
   type Row,
@@ -223,5 +224,126 @@ describe('what stays true of a supplied row', () => {
       'db:Doc': { actions: { read: { rel: 'actor:User', action: 'read' } } },
     });
     expect(messages(walked).length).toBeGreaterThan(0);
+  });
+});
+
+describe('found by an adversarial review of this change', () => {
+  test('a schema map whose rules are replaced after it was validated is checked on the new rules', () => {
+    const schemaMap = schemaMapOf({ 'db:Doc': { actions: { read: true } } });
+    expect(messages(schemaMap)).toEqual([]);
+    schemaMap.permissions = { 'db:Doc': { actions: { read: false } } };
+    expect(reads(schemaMap, 'db:Doc', {})).toBe(false);
+  });
+
+  test('a check made before its schema map’s rules are replaced follows them too', () => {
+    const schemaMap = schemaMapOf({ 'db:Doc': { actions: { read: true } } });
+    const check = makeRebacCheck(schemaMap);
+    expect(check(nobody, { resource: 'db:Doc', record: {} }, 'read')).toBe(true);
+    schemaMap.permissions = { 'db:Doc': { actions: { read: false } } };
+    expect(check(nobody, { resource: 'db:Doc', record: {} }, 'read')).toBe(false);
+  });
+
+  test('a list arm over a supplied row is refused where no supplied bridge gives that row', () => {
+    const grouped: SchemaMap['fieldMaps'] = {
+      db,
+      crm,
+      actor: {
+        models: {
+          User: {
+            fields: {
+              id,
+              groups: {
+                kind: 'object',
+                type: 'Group',
+                isList: true,
+                fromFields: [],
+                toFields: [],
+                annotations: { permissions: { down: [] } },
+              },
+            },
+          },
+          Group: { fields: { id, name: column } },
+        },
+      },
+    };
+    const inAGroup: ActionRule = {
+      rel: 'actor:User.groups',
+      arrayOperator: 'any',
+      condition: { rule: { field: 'name', operator: Operator.exists } },
+    };
+    const fromDocOnly = [supplied({ fieldMap: 'db', model: 'Doc' }, 'actor:User')];
+    const onDoc = schemaMapOf({ 'db:Doc': { actions: { read: inAGroup } } }, fromDocOnly, grouped);
+    expect(messages(onDoc)).toEqual([]);
+    const onOrg = schemaMapOf({ 'db:Org': { actions: { read: inAGroup } } }, fromDocOnly, grouped);
+    expect(messages(onOrg).join()).toMatch(/no supplied bridge gives `actor:User` at `db:Org`/);
+  });
+
+  test('a read of a supplied row where no bridge gives it says so', () => {
+    const schemaMap = schemaMapOf({
+      'db:Doc': { actions: { read: true } },
+      'crm:Account': { actions: { read: mine } },
+    });
+    expect(messages(schemaMap).join()).toMatch(
+      /no supplied bridge gives `actor:User` at `crm:Account`/,
+    );
+  });
+
+  test('a supplied bridge whose far end names no model of its map is reported, not thrown', () => {
+    const schemaMap = schemaMapOf({ 'db:Doc': { actions: { read: true } } }, [
+      supplied({ fieldMap: 'db' }, 'actor:Usr'),
+    ]);
+    expect(messages(schemaMap).join()).toMatch(/`actor:Usr` is not a model of the map `actor`/);
+  });
+
+  test('a supplied bridge that starts from a model its map does not have is reported', () => {
+    const schemaMap = schemaMapOf({ 'db:Doc': { actions: { read: true } } }, [
+      supplied({ fieldMap: 'db', model: 'Dco' }, 'actor:User'),
+    ]);
+    expect(messages(schemaMap).join()).toMatch(/`db:Dco` is not a model of the map `db`/);
+  });
+
+  test('a model is given or found by key, never both', () => {
+    const schemaMap = schemaMapOf({ 'db:Doc': { actions: { read: true } } }, [
+      actorFromDb,
+      deviceOfActor,
+      supplied({ fieldMap: 'db' }, 'sec:Device'),
+    ]);
+    expect(messages(schemaMap).join()).toMatch(
+      /`sec:Device` is given by a supplied bridge and found by key through a joined one/,
+    );
+  });
+
+  test('a rule asked on the spot at a resource with no bridge is refused', () => {
+    const schemaMap = schemaMapOf({
+      'db:Doc': { actions: { read: true } },
+      'crm:Account': { actions: { read: true } },
+    });
+    const check = makeRebacCheck(schemaMap);
+    expect(() =>
+      check(nobody, { resource: 'crm:Account', record: {}, bridgeData: u1 }, mine),
+    ).toThrow(/no supplied bridge gives `actor:User` at `crm:Account`/);
+    expect(
+      check(nobody, { resource: 'db:Doc', record: { ownerId: 'u1' }, bridgeData: u1 }, mine),
+    ).toBe(true);
+  });
+});
+
+describe('a hydrator hydrates its own field map', () => {
+  const load = async () => null;
+
+  test('a resource of another map is refused, not passed through with the caller’s rows', async () => {
+    const hydrate = makeHydrator({ mapName: 'db', fieldMap: db, load });
+    await expect(hydrate('crm:Account', { id: 'a1' })).rejects.toThrow(
+      /`crm:Account` is not a model of the map `db` this hydrator was made for/,
+    );
+    await expect(hydrate('db:Nope', { id: 'x' })).rejects.toThrow(
+      /`db:Nope` is not a model of the map `db` this hydrator was made for/,
+    );
+  });
+
+  test('a map name that is no name is refused when the hydrator is made', () => {
+    expect(() => makeHydrator({ mapName: 'a:b', fieldMap: db, load })).toThrow(
+      /a map is named `a:b`/,
+    );
   });
 });

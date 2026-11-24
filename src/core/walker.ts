@@ -5,11 +5,12 @@ import { withExactStrings } from './exactStrings';
 import { answerOnce, freezeThenJudgeOnce } from './freezeThenJudgeOnce';
 import { idField } from './recordId';
 import { indexMap } from './relations';
+import { resolvedSchemaMap } from './resolvedSchemaMap';
 import { whyNameIsNoModel } from './resourceNames';
 import { issuesForRuleReadsOutsideLens } from './ruleReads';
-import type { ResolvedSchemaMap } from './schemaMap';
+import type { ResolvedSchemaMap, SchemaMap } from './schemaMap';
 import { problemsOfBridges, problemsOfMapNames } from './schemaMapProblems';
-import { bridgesWalkedFromRecords, joinedBridgesOfSupplied } from './supplied';
+import { bridgesBetweenSuppliedMaps, bridgesWalkedFromRecords } from './supplied';
 import type { ActionRule, AdditionalRules, PermixLike, Row, Subject } from './types';
 import { validateActionRule } from './validateActionRule';
 import { schemaIssuesRefusedOnFirstUse, schemaRuleIssues } from './validateSchemaMap';
@@ -27,8 +28,10 @@ const outsideLens = ({ path, message }: { path: string; message: string }) => {
 // why: a negated rule, or a read outside the lens, answers on what nothing loaded; the rules and bridges are frozen so the answer holds, the field maps are the app's and are not
 const assertMap = (schemaMap: ResolvedSchemaMap) =>
   freezeThenJudgeOnce(schemaMap.permissions, schemaMap, () => {
-    const declaredBridges = schemaMap.declared.bridges;
+    const { declaredBridges } = schemaMap;
     if (declaredBridges) freezeThenJudgeOnce(declaredBridges, schemaMap, () => true);
+    const [nameProblem] = problemsOfMapNames(schemaMap);
+    if (nameProblem) throw new Error(nameProblem);
     const [bridge] = problemsOfBridges(schemaMap);
     if (bridge) throw new Error(`${bridge} (run validateSchemaMap)`);
     const [negated] = schemaRuleIssues(schemaMap);
@@ -39,29 +42,32 @@ const assertMap = (schemaMap: ResolvedSchemaMap) =>
   });
 
 export const makeWalker = <R extends string, T>(
-  schemaMap: ResolvedSchemaMap<R>,
+  declared: SchemaMap<R>,
   algebra: Algebra<T>,
   ignoreWheres = false,
   additionalRules?: AdditionalRules,
 ) => {
-  const [nameProblem] = problemsOfMapNames(schemaMap);
+  const whenMade = resolvedSchemaMap(declared);
+  const [nameProblem] = problemsOfMapNames(whenMade);
   if (nameProblem) throw new Error(nameProblem);
-  indexMap(schemaMap);
+  indexMap(whenMade);
   // why: an inline rule passed again as the same object is judged once (and frozen); a fresh literal each call is judged each time
   const inlineKeys = new WeakMap<object, Map<string, object>>();
-  const inlineKey = (resource: string): object =>
-    answerOnce(inlineKeys, schemaMap.permissions, resource, () => ({}));
+  const inlineKey = (permissions: object, resource: string): object =>
+    answerOnce(inlineKeys, permissions, resource, () => ({}));
   return (
     permix: PermixLike,
     subject: Subject<R>,
     actionOrRule: ActionRule,
     above?: ReadonlySet<Row>,
   ): T => {
+    // why: resolved on each call, so a check made before the app replaced its rules follows the new ones
+    const schemaMap = resolvedSchemaMap(declared);
     const why = whyNameIsNoModel(schemaMap, subject.resource);
     if (why) throw new Error(why);
     assertMap(schemaMap);
     if (typeof actionOrRule === 'object' && actionOrRule !== null)
-      freezeThenJudgeOnce(actionOrRule, inlineKey(subject.resource), () => {
+      freezeThenJudgeOnce(actionOrRule, inlineKey(schemaMap.permissions, subject.resource), () => {
         if (!validateActionRule(actionOrRule).ok) refuse('the rule asked');
         const [outside] = issuesForRuleReadsOutsideLens(schemaMap, subject.resource, actionOrRule);
         if (outside) outsideLens(outside);
@@ -84,7 +90,7 @@ export const makeWalker = <R extends string, T>(
       };
     };
     const getDict = dictionaryOnceOver(bridgesWalkedFromRecords(schemaMap));
-    const suppliedDictionary = dictionaryOnceOver(joinedBridgesOfSupplied(schemaMap));
+    const suppliedDictionary = dictionaryOnceOver(bridgesBetweenSuppliedMaps(schemaMap));
     return withExactStrings(() =>
       evaluate(
         {

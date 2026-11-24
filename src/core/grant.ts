@@ -1,4 +1,3 @@
-import { resolvedSchemaMap } from '.\/resolvedSchemaMap';
 import { isEqual } from 'lodash-es';
 import { actionsEntryHolds } from './actionsEntryHolds';
 import { booleanAlgebra } from './algebra';
@@ -8,7 +7,8 @@ import { asOwner } from './identity';
 import { whyEntitlementWhereLeavesLens } from './lens';
 import type { EntitlementEntry } from './permix';
 import { reachableFrom } from './reachableFrom';
-import type { ResolvedSchemaMap, SchemaMap } from './schemaMap';
+import { resolvedSchemaMap } from './resolvedSchemaMap';
+import type { SchemaMap } from './schemaMap';
 import type { Anchor, CheckOptions, Entitlement, PermixLike, Row } from './types';
 import { makeWalker } from './walker';
 import { conjuncts } from './whereConjuncts';
@@ -41,8 +41,8 @@ export const makeCanGrantEntitlement = <R extends string = string>(
   schemaMap: SchemaMap<R>,
   { additionalRules }: Pick<CheckOptions, 'additionalRules'> = {},
 ): CanGrantEntitlement => {
-  const check = makeWalker(resolvedSchemaMap(schemaMap), booleanAlgebra, false, additionalRules);
-  const backs = makeWalker(resolvedSchemaMap(schemaMap), booleanAlgebra, true, additionalRules);
+  const check = makeWalker(schemaMap, booleanAlgebra, false, additionalRules);
+  const backs = makeWalker(schemaMap, booleanAlgebra, true, additionalRules);
 
   return (permix, entry, pseudoRecord) => {
     if (

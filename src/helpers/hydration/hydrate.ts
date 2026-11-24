@@ -1,4 +1,5 @@
 import type { FieldMap } from '@inixiative/field-map';
+import { mapNameIsNoName } from '../../core/errors';
 import { hasNoValue, idField } from '../../core/recordId';
 import {
   followedToOneRelationsOf,
@@ -61,6 +62,7 @@ type Run = {
 
 /** A hydrator that loads every to-one of every row, and each declared list (README, Helper: hydration). */
 export const makeHydrator = <R extends string>({ mapName, fieldMap, load }: HydrateDeps<R>) => {
+  if (!mapName || mapName.includes(':')) throw new Error(mapNameIsNoName(mapName));
   const fieldMapsWithPolymorphism: FieldMapsWithPolymorphism = {
     fieldMaps: { [mapName]: fieldMap },
   };
@@ -189,6 +191,11 @@ export const makeHydrator = <R extends string>({ mapName, fieldMap, load }: Hydr
     return result;
   };
   return async (resource: R, record: Row): Promise<Row> => {
+    // why: a resource of another map would come back holding whatever rows the caller put on it
+    if (!modelOfResource(fieldMapsWithPolymorphism, resource))
+      throw new Error(
+        `\`${resource}\` is not a model of the map \`${mapName}\` this hydrator was made for`,
+      );
     const run: Run = { raw: new Map(), rows: new Map(), work: [], loads: 0 };
     const result: Row = { ...record };
     const [ownStoredRow] = await Promise.all([

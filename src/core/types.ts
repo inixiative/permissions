@@ -9,7 +9,7 @@ export type RelationCheck = { rel: string; action: string }; // walk a relation,
  * `any` is the only operator, since every other one holds on a list with no rows.
  */
 export type ListCheck = { rel: string; arrayOperator: 'any'; condition: ActionRule };
-/** ABAC (json-rules) over the record, and the supplied rows the check's `data` gives (`actor:User.id`). */
+/** ABAC (json-rules) over the record, and the supplied rows the check's `bridgeData` gives (`actor:User.id`). */
 export type RuleCheck = { rule: Condition };
 
 /** The serializable permission algebra: rebac (`rel`) + abac (`rule`) + rbac (`string` delegation). */

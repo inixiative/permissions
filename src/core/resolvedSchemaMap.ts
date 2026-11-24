@@ -53,21 +53,29 @@ export const suppliedMapNamesOf = (schemaMap: SchemaMap): Set<string> => {
 export const resolvedSchemaMap = <R extends string = string>(
   schemaMap: SchemaMap<R> | ResolvedSchemaMap<R>,
 ): ResolvedSchemaMap<R> => {
-  const known = resolved.get(schemaMap);
-  if (known) return known as ResolvedSchemaMap<R>;
+  const known = resolved.get(schemaMap) as ResolvedSchemaMap<R> | undefined;
+  if (known === schemaMap) return known;
   const declared = schemaMap as SchemaMap<R>;
+  // why: an app may replace a key of its schema map after a first use; what was resolved from the old value must not answer for the new
+  if (
+    known &&
+    known.permissions === declared.permissions &&
+    known.declaredBridges === declared.bridges &&
+    known.declaredFieldMaps === declared.fieldMaps &&
+    known.polymorphismRegistries === declared.polymorphismRegistries
+  )
+    return known;
   const supplied = suppliedMapNamesOf(declared);
   const bridges = declared.bridges ?? [];
   const made: ResolvedSchemaMap<R> = {
     fieldMaps: pickBy(declared.fieldMaps, (_, mapName) => !supplied.has(mapName)),
     suppliedFieldMaps: pickBy(declared.fieldMaps, (_, mapName) => supplied.has(mapName)),
-    ...(declared.polymorphismRegistries
-      ? { polymorphismRegistries: declared.polymorphismRegistries }
-      : {}),
+    polymorphismRegistries: declared.polymorphismRegistries,
     bridges: bridges.filter((bridge): bridge is JoinedBridge => isJoinedBridge(bridge)),
     suppliedBridges: bridges.filter((bridge): bridge is SuppliedBridge => !isJoinedBridge(bridge)),
     permissions: declared.permissions,
-    declared,
+    declaredFieldMaps: declared.fieldMaps,
+    declaredBridges: declared.bridges,
   };
   resolved.set(declared, made);
   resolved.set(made, made);

@@ -1,4 +1,3 @@
-import { resolvedSchemaMap } from '.\/resolvedSchemaMap';
 import { type FieldMap, hasColumn } from '@inixiative/field-map';
 import {
   type Condition,
@@ -24,6 +23,7 @@ import {
   relationOf,
   type SpelledRelationTree,
 } from './relations';
+import { resolvedSchemaMap } from './resolvedSchemaMap';
 import {
   fieldMapOfResource,
   fieldOfResource,
@@ -365,7 +365,7 @@ export const issuesForReadsOutsideLens = (
           code: 'lens',
           message: !supplied
             ? `\`${issue.path}\`: a \`where\` reads the record alone; supplied rows are not on it`
-            : whyPathLeavesSuppliedRows(schemaMap, issue.path),
+            : whyPathLeavesSuppliedRows(schemaMap, at.resource, issue.path),
         },
       ];
     return [{ path, ...whyPathLeavesLens(schemaMap, at, issue.path, resolution) }];
@@ -373,12 +373,18 @@ export const issuesForReadsOutsideLens = (
 };
 
 // Why a rule's read of a supplied row (`actor:User.devices.risk`) leaves the rule lens.
-const whyPathLeavesSuppliedRows = (schemaMap: ResolvedSchemaMap, read: string): string => {
+const whyPathLeavesSuppliedRows = (
+  schemaMap: ResolvedSchemaMap,
+  resource: string,
+  read: string,
+): string => {
   const [head = '', ...rest] = pathSegments(read);
   if (!suppliedModelAt(schemaMap, head))
     return `\`${head}\` is not a model of the supplied map \`${parseEndpointKey(head, '').mapName}\``;
   if (!suppliedModelsAtRoot(schemaMap).includes(head))
     return `\`${head}\` is found by key through a joined bridge: read it through the row it joins from`;
+  if (!suppliedModelsGivenAt(schemaMap, resource).includes(head))
+    return `no supplied bridge gives \`${head}\` at \`${resource}\`: declare one from it, or from its map`;
   let key = head;
   const passed = [head];
   for (const [index, segment] of rest.entries()) {
@@ -399,16 +405,21 @@ const whyPathLeavesSuppliedRows = (schemaMap: ResolvedSchemaMap, read: string): 
 // The model of the items a supplied list holds (`actor:User.devices` → `actor:Device`), or why the path names none.
 const suppliedListItemAt = (
   schemaMap: ResolvedSchemaMap,
+  resource: string,
   rel: string,
 ): { item: string } | { why: string } => {
   const [head = '', ...rest] = pathSegments(rel);
   const last = rest.at(-1);
-  if (!suppliedModelAt(schemaMap, head) || !suppliedModelsAtRoot(schemaMap).includes(head) || !last)
-    return { why: whyPathLeavesSuppliedRows(schemaMap, rel) };
+  if (
+    !suppliedModelAt(schemaMap, head) ||
+    !suppliedModelsGivenAt(schemaMap, resource).includes(head) ||
+    !last
+  )
+    return { why: whyPathLeavesSuppliedRows(schemaMap, resource, rel) };
   let key = head;
   for (const segment of rest.slice(0, -1)) {
     const next = followedToOnesOfSupplied(schemaMap, key).find(([name]) => name === segment)?.[1];
-    if (!next) return { why: whyPathLeavesSuppliedRows(schemaMap, rel) };
+    if (!next) return { why: whyPathLeavesSuppliedRows(schemaMap, resource, rel) };
     key = next.resource;
   }
   const item = suppliedListAt(schemaMap, key, last);
@@ -418,11 +429,12 @@ const suppliedListItemAt = (
 /** What is wrong with a list arm over a supplied list: its path, and a condition that is not rules (an item has no actions) or reads outside the item's lens. */
 export const issuesOfSuppliedListArm = (
   schemaMap: ResolvedSchemaMap,
+  resource: string,
   rel: string,
   condition: ActionRule,
   path: string,
 ): ValidationIssue[] => {
-  const found = suppliedListItemAt(schemaMap, rel);
+  const found = suppliedListItemAt(schemaMap, resource, rel);
   if ('why' in found) return [{ path, code: 'lens', message: found.why }];
   const lens = ruleLensAtSuppliedModel(schemaMap, found.item);
   const issuesOf = (rule: ActionRule, at: string): ValidationIssue[] => {

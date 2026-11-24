@@ -34,12 +34,14 @@ export type SchemaMap<R extends string = string> = {
 export type ResolvedSchemaMap<R extends string = string> = {
   fieldMaps: Record<string, FieldMap>;
   suppliedFieldMaps: Record<string, FieldMap>;
-  polymorphismRegistries?: Partial<Record<string, PolymorphismRegistry>>;
+  polymorphismRegistries: Partial<Record<string, PolymorphismRegistry>> | undefined;
   bridges: JoinedBridge[];
   suppliedBridges: SuppliedBridge[];
   permissions: Partial<Record<R, ResourcePermission>>;
-  /** The schema map this was made from: its bridges are frozen with its rules on first use. */
-  declared: SchemaMap<R>;
+  /** Every field map the schema map declares, records and supplied alike. */
+  declaredFieldMaps: Record<string, FieldMap>;
+  /** The schema map's own list of bridges, frozen with its rules on first use. */
+  declaredBridges: Bridge[] | undefined;
 };
 
 /** What the relation readers read: field maps by map name, and their polymorphism registries. */

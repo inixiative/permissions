@@ -1,4 +1,3 @@
-import { resolvedSchemaMap } from '.\/resolvedSchemaMap';
 import { hasColumn } from '@inixiative/field-map';
 import { type Condition, check as checkRule } from '@inixiative/json-rules';
 import { omit } from 'lodash-es';
@@ -14,6 +13,7 @@ import {
   type Relation,
   relationOf,
 } from './relations';
+import { resolvedSchemaMap } from './resolvedSchemaMap';
 import { fieldOfResource } from './resourceNames';
 import { keysFrom } from './rowKeys';
 import type { ResolvedSchemaMap, SchemaMap } from './schemaMap';

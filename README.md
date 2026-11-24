@@ -1079,7 +1079,7 @@ owns its foreign key (the record's ownership closure) before checking, instead o
 per-action include shapes. Then a missing relation can only mean the key is null: a real deny, not a
 loading artifact.
 
-`makeHydrator` is that pattern over the **same field maps** the checks walk, so the two can't drift. It takes one field map and its name, `makeHydrator({ mapName, fieldMap, load })`: one hydrator per field map, every resource it reads and loads named `<mapName>:<Model>`. It only hydrates: it does not check the schema map's names, which `validateSchemaMap` reports and building a check refuses. It still reads `@permissions` annotations strictly, since a `down` it cannot read is a list it cannot load.
+`makeHydrator` is that pattern over the **same field maps** the checks walk, so the two can't drift. It takes one field map and its name, `makeHydrator({ mapName, fieldMap, load })`: it hydrates that map's resources and throws for any other; one hydrator per field map, every resource it reads and loads named `<mapName>:<Model>`. It only hydrates: it does not check the schema map's names, which `validateSchemaMap` reports and building a check refuses. It still reads `@permissions` annotations strictly, since a `down` it cannot read is a list it cannot load.
 `load` is one read of a resource's record by its target columns (`{ id }`, or every
 column of a composite key). `load` is the cache seam: the hydrator de-duplicates loads within one
 hydration, your wrapper caches across calls.

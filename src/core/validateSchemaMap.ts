@@ -1,4 +1,3 @@
-import { resolvedSchemaMap } from '.\/resolvedSchemaMap';
 import { endpointKey, type ValidationIssue, type ValidationResult } from '@inixiative/json-rules';
 import { bridgeHop } from './bridgeHop';
 import { resourceHasNoFieldMap } from './errors';
@@ -9,6 +8,7 @@ import {
   relationLensLimits,
 } from './lens';
 import { listsOf, relationOf } from './relations';
+import { resolvedSchemaMap } from './resolvedSchemaMap';
 import { modelOfResource, whyNameIsNoModel } from './resourceNames';
 import { isRefusedByACheck, relIssues, walkRelationPath } from './ruleReads';
 import type { ResolvedSchemaMap, SchemaMap } from './schemaMap';

@@ -1,6 +1,5 @@
-import { resolvedSchemaMap } from '.\/resolvedSchemaMap';
 import { type Admission, booleanAlgebra, pathsAlgebra } from './algebra';
-import type { ResolvedSchemaMap, SchemaMap } from './schemaMap';
+import type { SchemaMap } from './schemaMap';
 import type { ActionRule, CheckOptions, PermixLike, Subject } from './types';
 import { makeWalker } from './walker';
 
@@ -11,7 +10,7 @@ export type RebacCheck<R extends string = string> = (
 ) => boolean;
 
 /**
- * Build the rebac check over the app's schema map: its field maps, supplied maps, bridges,
+ * Build the rebac check over the app's schema map: its field maps, bridges,
  * polymorphism and rules, in the one object.
  *
  * A `rel` hop reads the relation field from the resource's model in `map.maps` and lands on the
@@ -27,7 +26,7 @@ export const makeRebacCheck = <R extends string = string>(
   schemaMap: SchemaMap<R>,
   { additionalRules }: CheckOptions = {},
 ): RebacCheck<R> => {
-  const walker = makeWalker(resolvedSchemaMap(schemaMap), booleanAlgebra, false, additionalRules);
+  const walker = makeWalker(schemaMap, booleanAlgebra, false, additionalRules);
   return (permix, subject, actionOrRule) => walker(permix, subject, actionOrRule);
 };
 
@@ -50,12 +49,7 @@ export const makeRebacPaths = <R extends string = string>(
   schemaMap: SchemaMap<R>,
   { limit = 20, additionalRules }: PathsOptions = {},
 ): RebacPaths<R> => {
-  const walker = makeWalker(
-    resolvedSchemaMap(schemaMap),
-    pathsAlgebra(limit),
-    false,
-    additionalRules,
-  );
+  const walker = makeWalker(schemaMap, pathsAlgebra(limit), false, additionalRules);
   return (permix, subject, actionOrRule) => walker(permix, subject, actionOrRule);
 };
 
