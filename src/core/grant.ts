@@ -9,7 +9,7 @@ import type { EntitlementEntry } from './permix';
 import { reachableFrom } from './reachableFrom';
 import type { SchemaMap } from './schemaMap';
 import type { Anchor, CheckOptions, Entitlement, PermixLike, Row } from './types';
-import { createWalker } from './walker';
+import { makeWalker } from './walker';
 import { conjuncts } from './whereConjuncts';
 
 export type CanGrantEntitlement = (
@@ -36,12 +36,12 @@ const narrows = (held: Entitlement, entry: EntitlementEntry) => {
  * Failing that, the entry narrows one entitlement the writer holds, and its granter still takes
  * each action on `pseudoRecord` in a walk that counts every `where` as holding.
  */
-export const createCanGrantEntitlement = <R extends string = string>(
+export const makeCanGrantEntitlement = <R extends string = string>(
   map: SchemaMap<R>,
   { additionalRules }: Pick<CheckOptions, 'additionalRules'> = {},
 ): CanGrantEntitlement => {
-  const check = createWalker(map, booleanAlgebra, false, additionalRules);
-  const backs = createWalker(map, booleanAlgebra, true, additionalRules);
+  const check = makeWalker(map, booleanAlgebra, false, additionalRules);
+  const backs = makeWalker(map, booleanAlgebra, true, additionalRules);
 
   return (permix, entry, pseudoRecord) => {
     if (

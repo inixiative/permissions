@@ -58,7 +58,7 @@ type Run = {
 };
 
 /** A hydrator that loads every to-one of every row, and each declared list (README, Helper: hydration). */
-export const createHydrator = <R extends string>({ map, load }: HydrateDeps<R>) => {
+export const makeHydrator = <R extends string>({ map, load }: HydrateDeps<R>) => {
   const countLoadAgainstBudget = (run: Run, resource: R) => {
     if (++run.loads > hydrationLimits.loads)
       throw new Error(

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { createHydrator, type Row, type SchemaMap } from '../index';
+import { makeHydrator, type Row, type SchemaMap } from '../index';
 import { mapOf } from './schemaMaps';
 
 type Store = Record<string, Row[]>;
@@ -22,7 +22,7 @@ const relation = (type: string, from: string[], to: string[], extra: Row = {}) =
   ...extra,
 });
 
-describe('createHydrator: the to-one, foreign-key-owning closure from the schema map', () => {
+describe('makeHydrator: the to-one, foreign-key-owning closure from the schema map', () => {
   const map = mapOf({
     'db:membership': { space: 'db:space' },
     'db:space': { organization: 'db:organization' },
@@ -34,7 +34,7 @@ describe('createHydrator: the to-one, foreign-key-owning closure from the schema
 
   test('attaches each parent, recursively, loading each once by its target columns', async () => {
     const loads: string[] = [];
-    const hydrate = createHydrator({ map, load: loaderOver(store, loads) });
+    const hydrate = makeHydrator({ map, load: loaderOver(store, loads) });
     const record = await hydrate('db:membership', { id: 'm1', spaceId: 's1' });
     expect(((record.space as Row).organization as Row).name).toBe('Org');
     expect(loads).toEqual(['db:space:{"id":"s1"}', 'db:organization:{"id":"o1"}']);
@@ -42,14 +42,14 @@ describe('createHydrator: the to-one, foreign-key-owning closure from the schema
 
   test('a null foreign key stops the walk: a real deny, not a loading artifact', async () => {
     const loads: string[] = [];
-    const hydrate = createHydrator({ map, load: loaderOver(store, loads) });
+    const hydrate = makeHydrator({ map, load: loaderOver(store, loads) });
     const record = await hydrate('db:membership', { id: 'm2', spaceId: null });
     expect(record.space).toBeUndefined();
     expect(loads).toEqual([]);
   });
 
   test('a relation whose parent is missing is left off', async () => {
-    const hydrate = createHydrator({ map, load: loaderOver(store) });
+    const hydrate = makeHydrator({ map, load: loaderOver(store) });
     expect((await hydrate('db:membership', { id: 'm3', spaceId: 'gone' })).space).toBeUndefined();
   });
 });
@@ -80,7 +80,7 @@ describe('composite and non-id foreign keys', () => {
 
   test('loads by every column of the key, named as the target names them', async () => {
     const loads: string[] = [];
-    const hydrate = createHydrator({ map, load: loaderOver(store, loads) });
+    const hydrate = makeHydrator({ map, load: loaderOver(store, loads) });
     const record = await hydrate('db:SpaceUser', { id: 'su1', organizationId: 'o1', userId: 'u1' });
     expect((record.organizationUser as Row).role).toBe('owner');
     expect(loads).toEqual(['db:OrganizationUser:{"organizationId":"o1","userId":"u1"}']);
@@ -88,7 +88,7 @@ describe('composite and non-id foreign keys', () => {
 
   test('a key with one column missing loads nothing', async () => {
     const loads: string[] = [];
-    const hydrate = createHydrator({ map, load: loaderOver(store, loads) });
+    const hydrate = makeHydrator({ map, load: loaderOver(store, loads) });
     await hydrate('db:SpaceUser', { id: 'su2', organizationId: 'o1', userId: null });
     expect(loads).toEqual([]);
   });
@@ -123,7 +123,7 @@ describe('what the walk does not follow', () => {
 
   test('a relation tagged @permissions(hydrate: false), a list, a back-relation, or a model outside the map', async () => {
     const loads: string[] = [];
-    const hydrate = createHydrator({ map, load: loaderOver(store, loads) });
+    const hydrate = makeHydrator({ map, load: loaderOver(store, loads) });
     const record = await hydrate('db:Flag', {
       id: 'f1',
       segmentId: 'g1',
@@ -166,7 +166,7 @@ describe('polymorphic records: every relation whose columns are set, whatever th
   const store: Store = { 'db:User': [{ id: 'u1' }], 'db:Organization': [{ id: 'o1' }] };
 
   test('a User token that also carries an organization gets both', async () => {
-    const hydrate = createHydrator({ map, load: loaderOver(store) });
+    const hydrate = makeHydrator({ map, load: loaderOver(store) });
     const record = await hydrate('db:Token', {
       id: 't1',
       ownerModel: 'User',
@@ -183,7 +183,7 @@ describe('cycles and shared parents', () => {
 
   test('a self-referential key loads the stored row once, which then holds itself', async () => {
     const loads: string[] = [];
-    const hydrate = createHydrator({
+    const hydrate = makeHydrator({
       map,
       load: loaderOver({ 'db:user': [{ id: 'u1', managerId: 'u1', name: 'Una' }] }, loads),
     });
@@ -201,7 +201,7 @@ describe('cycles and shared parents', () => {
         { id: 'b', managerId: 'a' },
       ],
     };
-    const hydrate = createHydrator({ map, load: loaderOver(store) });
+    const hydrate = makeHydrator({ map, load: loaderOver(store) });
     const record = await hydrate('db:user', { id: 'a', managerId: 'b' });
     const b = record.manager as Row;
     expect(b.id).toBe('b');
@@ -222,7 +222,7 @@ describe('cycles and shared parents', () => {
       'db:other': [{ id: 'g', rootId: 'r' }],
       'db:root': [{ id: 'r', name: 'Root' }],
     };
-    const hydrate = createHydrator({ map: diamond, load: loaderOver(store, loads) });
+    const hydrate = makeHydrator({ map: diamond, load: loaderOver(store, loads) });
     const record = await hydrate('db:grant', { id: 'x', leftId: 'l', rightId: 'g' });
     expect(((record.left as Row).root as Row).name).toBe('Root');
     expect(((record.right as Row).root as Row).name).toBe('Root');

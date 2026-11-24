@@ -3,9 +3,9 @@ import { Operator } from '@inixiative/json-rules';
 import { map as chainMap, schema as chainSchema, model, nobody, pool } from '../bench/fixtures';
 import {
   type ActionRule,
-  createHydrator,
   createPermissions,
   type EntitlementEntry,
+  makeHydrator,
   PathLimitError,
   type PermissionEntry,
   type PermixLike,
@@ -186,7 +186,7 @@ const s1 = { id: 's1', organizationId: 'o1', organization: { id: 'o1' } };
 const paths = (admissions: readonly (readonly (readonly (string | null)[])[])[]) =>
   admissions.map((admission) => admission.map((chain) => chain.join('>')));
 
-describe('createRebacPaths with a reused answer', () => {
+describe('makeRebacPaths with a reused answer', () => {
   test('a node two arms reach is walked once and gives every path; a limit of one throws', async () => {
     const { holder } = await twoHeld();
     const subject = { resource: 'db:space', record: s1 };
@@ -402,7 +402,7 @@ describe('two objects of one row', () => {
     'db:space': { id: 's1', organizationId: 'o1' },
   };
   const hydratedO1 = () =>
-    createHydrator({ map: loopMap, load: async (resource: string) => stored[resource] ?? null })(
+    makeHydrator({ map: loopMap, load: async (resource: string) => stored[resource] ?? null })(
       'db:organization',
       { id: 'o1', primarySpaceId: 's1' },
     );

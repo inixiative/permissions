@@ -451,7 +451,7 @@ describe("R103's case grants when the held row is marked grantsBelow", () => {
       rebac(
         writer,
         schema,
-        { resource: 'db:organization', record: o1, data: actorData('User', { id: 'w1' }) },
+        { resource: 'db:organization', record: o1, bridgeData: actorData('User', { id: 'w1' }) },
         'token.create',
       ),
     ).toBe(true);
@@ -922,7 +922,9 @@ describe('what counts as above: rows the anchor holds under a to-one relation th
     const writer = await permixOf([
       { entries: [manageA1], owner: [{ entries: [grant('crm:Account', 'a1', ['manage'])] }] },
     ]);
-    expect(checkWithRules(lib)(writer, bridged, { ...subject, data }, 'manage')).toBe(true);
+    expect(checkWithRules(lib)(writer, bridged, { ...subject, bridgeData: data }, 'manage')).toBe(
+      true,
+    );
     const row = entry('db:integration', underS1, ['manage']);
     const pseudoRecord = pseudoRecordsOfEntitlement(lib, row, space);
     expect(pseudoRecord).not.toBeNull();

@@ -75,7 +75,7 @@ const check = (
   record: Row,
   action: string,
   data: Record<string, Row[]> = actorData('User', { id: 'h1' }),
-) => rebac(permix, schema, { resource, record, data }, action);
+) => rebac(permix, schema, { resource, record, bridgeData: data }, action);
 
 const o1 = { id: 'o1' };
 const s1 = { id: 's1', organizationId: 'o1', organization: o1 };

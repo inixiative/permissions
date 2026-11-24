@@ -427,7 +427,7 @@ describe('entitlements: an action on a model from an anchor, owner on the row', 
       check(
         holder,
         schema,
-        { resource: 'db:user', record: u1, data: actorData(model, record) },
+        { resource: 'db:user', record: u1, bridgeData: actorData(model, record) },
         'token.create',
       );
     expect(as('Token', { id: 't1' })).toBe(false);

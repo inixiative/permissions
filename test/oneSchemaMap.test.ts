@@ -3,8 +3,8 @@ import type { FieldMap } from '@inixiative/field-map';
 import { type Bridge, Operator } from '@inixiative/json-rules';
 import {
   type ActionRule,
-  createRebacCheck,
   makeKindRules,
+  makeRebacCheck,
   type PermixLike,
   type Row,
   ruleFieldEqualsPath,
@@ -74,7 +74,11 @@ const mapOfRead = (read: ActionRule, more: Partial<SchemaMap> = {}): SchemaMap =
 
 const nobody: PermixLike = { check: () => false };
 const reads = (map: SchemaMap, record: Row, data?: Record<string, Row[]>) =>
-  createRebacCheck(map)(nobody, { resource: 'db:Doc', record, ...(data ? { data } : {}) }, 'read');
+  makeRebacCheck(map)(
+    nobody,
+    { resource: 'db:Doc', record, ...(data ? { bridgeData: data } : {}) },
+    'read',
+  );
 const mine = ruleFieldEqualsPath('ownerId', 'actor:User.id');
 const has = (field: string): ActionRule => ({ rule: { field, operator: Operator.exists } });
 const valueIs = (field: string, value: string): ActionRule => ({
@@ -111,7 +115,7 @@ describe('one schema map: maps, supplied, bridges, polymorphism, permissions', (
 
   test('a name with no map is refused: there is no map to default to', () => {
     const map = mapOfRead(true);
-    expect(() => createRebacCheck(map)(nobody, { resource: 'Doc', record: {} }, 'read')).toThrow(
+    expect(() => makeRebacCheck(map)(nobody, { resource: 'Doc', record: {} }, 'read')).toThrow(
       /`Doc` names no map: a resource is `map:Model`/,
     );
     const bare = mapOfRead(true, { permissions: { Doc: { actions: { read: true } } } });
@@ -121,7 +125,7 @@ describe('one schema map: maps, supplied, bridges, polymorphism, permissions', (
   });
 
   test('a subject whose map has no such model throws: a misspelt name never denies quietly', () => {
-    const check = createRebacCheck(mapOfRead(true));
+    const check = makeRebacCheck(mapOfRead(true));
     expect(() => check(nobody, { resource: 'db:Dok', record: {} }, 'read')).toThrow(
       /`db:Dok` is not a model of the map `db`/,
     );
@@ -253,11 +257,11 @@ describe('one list of bridges', () => {
       'sec:Device': [{ serial: 's1', risk }],
       'crm:Account': [{ id: 'a1' }],
     });
-    const check = createRebacCheck(map);
+    const check = makeRebacCheck(map);
     const subject = (risk: string) => ({
       resource: 'db:Doc',
       record: { id: 'd1', accountId: 'a1' },
-      data: data(risk),
+      bridgeData: data(risk),
     });
     expect(check(owner, subject('low'), 'read')).toBe(true);
     expect(check(owner, subject('high'), 'read')).toBe(false);

@@ -132,12 +132,12 @@ const suppliedSetAtRoot = (map: SchemaMap, resource: string): FieldMapSet =>
 export const joinedBridgesOfSupplied = (map: SchemaMap) =>
   bridgesBetweenSuppliedMaps(map).filter(isJoinedBridge);
 
-/** The record a `{ rule }` at `resource` is checked on: its bridges to the supplied maps filled from `data`, and theirs in turn. */
+/** The record a `{ rule }` at `resource` is checked on: its bridges to the supplied maps filled from `bridgeData`, and theirs in turn. */
 export const recordWithSuppliedData = (
   map: SchemaMap,
   resource: string,
   record: Row,
-  data: Record<string, Row[]> | undefined,
+  bridgeData: Record<string, Row[]> | undefined,
   dictionary: BridgeDictionary | undefined,
 ): Row =>
-  recordWithBridgeData(suppliedSetAtRoot(map, resource), resource, record, data, dictionary);
+  recordWithBridgeData(suppliedSetAtRoot(map, resource), resource, record, bridgeData, dictionary);

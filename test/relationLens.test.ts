@@ -3,9 +3,9 @@ import type { FieldMap, RelationField, ScalarField, ScalarType } from '@inixiati
 import type { Condition } from '@inixiative/json-rules';
 import {
   type ActionRule,
-  createHydrator,
   type EntitlementEntry,
   entitlementProblem,
+  makeHydrator,
   type PermixLike,
   pseudoRecordsOfEntitlement,
   type Row,
@@ -22,8 +22,8 @@ import {
 import { listOf } from '../src/core/relations';
 import { identityKeyOfRow } from '../src/core/rowKeys';
 import { hydrationLimits } from '../src/helpers/hydration/hydrate';
-import { createHydratorReadingEachRowThroughLoad } from './createHydratorReadingEachRowThroughLoad';
 import { loadModels } from './fixtures/load';
+import { makeHydratorReadingEachRowThroughLoad } from './makeHydratorReadingEachRowThroughLoad';
 import {
   actorData,
   actorMap,
@@ -157,7 +157,7 @@ const db: Record<string, Record<string, Row>> = {
   'db:Conversation': { c1: { id: 'c1', orgId: 'o1', permissionRules: null } },
   'db:Message': { m1: { id: 'm1', conversationId: 'c1', authorId: 'u1', mentions: ['aron'] } },
 };
-const hydrate = createHydratorReadingEachRowThroughLoad({
+const hydrate = makeHydratorReadingEachRowThroughLoad({
   map,
   load: async (resource, where) => db[resource]?.[where.id as string] ?? null,
   loadItems: async (resource, where) =>
@@ -165,15 +165,24 @@ const hydrate = createHydratorReadingEachRowThroughLoad({
       Object.entries(where).every(([key, value]) => row[key] === value),
     ),
 });
-// Who a permix stands for: a check is told it through the subject's `data`.
+// Who a permix stands for: a check is told it through the subject's `bridgeData`.
 const actedBy = new WeakMap<object, Row>();
-const acting = <Subject extends { data?: Record<string, Row[]> }, Rest extends unknown[], Out>(
+const acting = <
+  Subject extends { bridgeData?: Record<string, Row[]> },
+  Rest extends unknown[],
+  Out,
+>(
   ask: (permix: PermixLike, schema: Rules, subject: Subject, ...rest: Rest) => Out,
 ) => {
   return (permix: PermixLike, schema: Rules, subject: Subject, ...rest: Rest): Out => {
     const record = actedBy.get(permix);
     const data = record === undefined ? {} : actorData('User', record);
-    return ask(permix, schema, { ...subject, data: { ...data, ...subject.data } }, ...rest);
+    return ask(
+      permix,
+      schema,
+      { ...subject, bridgeData: { ...data, ...subject.bridgeData } },
+      ...rest,
+    );
   };
 };
 const check = acting(checkWithRules(map));
@@ -718,7 +727,7 @@ describe('the root, item paths, unknown resources and wheres on an item', () => 
       },
       'db:Org': { o1: { id: 'o1', name: 'acme' } },
     };
-    const load = createHydratorReadingEachRowThroughLoad({
+    const load = makeHydratorReadingEachRowThroughLoad({
       map: people,
       load: async (resource, where) => rows[resource]?.[where.id as string] ?? null,
       loadItems: async (resource, where) =>
@@ -782,7 +791,7 @@ describe('the root, item paths, unknown resources and wheres on an item', () => 
 
 describe('the starting record: a row is known by resource and id', () => {
   const loads: string[] = [];
-  const counting = createHydratorReadingEachRowThroughLoad({
+  const counting = makeHydratorReadingEachRowThroughLoad({
     map,
     load: async (resource, where) => {
       loads.push(`${resource}:${where.id}`);
@@ -891,7 +900,7 @@ describe('the starting record: a row is known by resource and id', () => {
       },
     };
     const seen: string[] = [];
-    const load = createHydrator({
+    const load = makeHydrator({
       map: nodes,
       load: async (_resource, where) => {
         seen.push(String(where.id));
@@ -937,7 +946,7 @@ describe('the starting record: a row is known by resource and id', () => {
       },
     } satisfies SchemaMap;
     const stored = { org: 'o', key: 'k', name: 'Una', parentOrg: 'o', parentKey: 'k' };
-    const load = createHydrator({ map: nodes, load: async () => stored });
+    const load = makeHydrator({ map: nodes, load: async () => stored });
     const forged = await load('db:Node', { ...stored, name: 'EVIL' });
     const reads: Rules = {
       permissions: {
@@ -1071,7 +1080,7 @@ describe('the limits throw; nothing is cut', () => {
         },
       },
     };
-    const endless = createHydrator({
+    const endless = makeHydrator({
       map: nodes,
       load: async (_resource, where) => {
         const i = Number(String(where.id).slice(1));
@@ -1295,7 +1304,7 @@ describe('under a list item only the declared paths exist', () => {
   });
 
   test('an undeclared to-one that came back on an item is gone from it', async () => {
-    const forged = createHydratorReadingEachRowThroughLoad({
+    const forged = makeHydratorReadingEachRowThroughLoad({
       map,
       load: async (resource, where) => db[resource]?.[where.id as string] ?? null,
       loadItems: async (resource, where) =>
@@ -1377,7 +1386,7 @@ describe('one down boundary: an item holds only its declared tree', () => {
     },
   };
   const loading = (permissionRules: unknown) =>
-    createHydratorReadingEachRowThroughLoad({
+    makeHydratorReadingEachRowThroughLoad({
       map: items,
       load: async (resource, where) => rows[resource]?.[where.id as string] ?? null,
       loadItems: async (resource, where) =>

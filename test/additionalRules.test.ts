@@ -52,7 +52,7 @@ const contactOf = (owner: Row, fields: Row = {}): Row => ({
   ...fields,
 });
 const can = (record: Row, action: string, resource = 'db:contact') =>
-  check(permix, schema, { resource, record, data: stranger }, action);
+  check(permix, schema, { resource, record, bridgeData: stranger }, action);
 
 describe('additional rules for a record', () => {
   test('widen the action they name on that record, and nothing else', () => {
@@ -78,7 +78,7 @@ describe('additional rules for a record', () => {
       walked(
         permix,
         viaOrganization,
-        { resource: 'db:contact', record: contactOf(owner), data: stranger },
+        { resource: 'db:contact', record: contactOf(owner), bridgeData: stranger },
         'read',
       );
     expect(at(organization('org-1'))).toBe(false);
@@ -152,7 +152,7 @@ describe('additional rules for a record', () => {
       paths(
         permix,
         schema,
-        { resource: 'db:contact', record: contactOf(owner), data: stranger },
+        { resource: 'db:contact', record: contactOf(owner), bridgeData: stranger },
         'read',
       );
     expect(at(organization('org-1'))).toHaveLength(0);

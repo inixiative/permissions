@@ -21,8 +21,8 @@ export type Walk<R extends string, T = boolean> = {
   getDict: () => BridgeDictionary | undefined;
   /** The supplied maps' joined bridges' rows, indexed once per check. */
   suppliedDictionary: () => BridgeDictionary | undefined;
-  /** The check's `data`: every bridge's rows, the supplied models' read by each `{ rule }`. */
-  data?: Record<string, Row[]>;
+  /** The check's `bridgeData`: every bridge's rows, the supplied models' read by each `{ rule }`. */
+  bridgeData?: Record<string, Row[]>;
   algebra: Algebra<T>;
   /** The app's extra rule sets for a record, ORed in beside its own `permissionRules`. */
   additionalRules?: AdditionalRules;
@@ -290,7 +290,7 @@ const walkRule = <R extends string, T>(
         walk.map,
         resource,
         record,
-        walk.data,
+        walk.bridgeData,
         walk.suppliedDictionary(),
       );
       const items = pathSegments(rule.rel).reduce<unknown>(
@@ -352,7 +352,7 @@ const walkRule = <R extends string, T>(
       walk.map,
       resource,
       record,
-      walk.data,
+      walk.bridgeData,
       walk.suppliedDictionary(),
     );
     return checkRule(rule.rule, filled) === true ? algebra.unit : algebra.none;

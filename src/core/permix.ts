@@ -70,7 +70,7 @@ const validate = (entry: PermissionEntry, owner: PermixLike | undefined): void =
  * whoever granted it), and a superadmin bypass. Who is acting is not held here: the check reads it
  * from the supplied rows of its call's `data`.
  * App code populates it from roles/entitlements (hydration stays app-side); the rebac
- * {@link createRebacCheck} engine reads it back through the {@link PermixLike} slice.
+ * {@link makeRebacCheck} engine reads it back through the {@link PermixLike} slice.
  */
 export type Permix<Action extends string = string> = {
   check: (resource: string, action: Action, id?: string, data?: unknown) => boolean;

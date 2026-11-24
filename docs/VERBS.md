@@ -13,9 +13,9 @@ what.
 
 | Verb | Name | What it does |
 | --- | --- | --- |
-| check | `createRebacCheck` | Build the check for a schema map (the field maps, the supplied maps, the bridges, the polymorphism and the rules, in one object): may these permissions take this action on this record. |
-| check | `createRebacPaths` | Build the same walk returning every path that admits the action, for attribution; throws `PathLimitError` past its limit. |
-| check a grant | `createCanGrantEntitlement` | Build the grant check: may this writer hand out this entitlement on one pseudo record. |
+| check | `makeRebacCheck` | Build the check for a schema map (the field maps, the supplied maps, the bridges, the polymorphism and the rules, in one object): may these permissions take this action on this record. |
+| check | `makeRebacPaths` | Build the same walk returning every path that admits the action, for attribution; throws `PathLimitError` past its limit. |
+| check a grant | `makeCanGrantEntitlement` | Build the grant check: may this writer hand out this entitlement on one pseudo record. |
 | install | `createPermissions` | Create a permix: the installed form of one holder's grants and entitlements that a check reads. |
 | install | `installPermissions`, `permixOf` | Install a `Permissions` value (groups of entries, each backed by its owner) into a permix; build the permix of one group. |
 | delegate | `delegate` | The entries a token or integration acts from: its owner's in full, capped at a ceiling, or its own entitlements. |
@@ -23,7 +23,7 @@ what.
 | reach | `reachableFrom` | The actions on a resource whose holding grants an action by pure delegation, itself included. |
 | narrow a grant | `delegatedWhere` | The `where` of a grant passed on from a held one: the added conditions, then the held `where`'s conjuncts, flat. |
 | build pseudo records | `pseudoRecordsOfEntitlement`, `pseudoRecordsBelowAnchor` | The pseudo records a grant is checked on, built below its hydrated anchor along the entry's path; the first for an entitlement entry, the second for a record about to be created. |
-| hydrate | `createHydrator` | Build the loader that puts on a record every relation the lens follows, so a check never reads a relation that was not loaded; `hydrationLimits` is its load budget. |
+| hydrate | `makeHydrator` | Build the loader that puts on a record every relation the lens follows, so a check never reads a relation that was not loaded; `hydrationLimits` is its load budget. |
 | build an include | `prismaIncludeOfDown` | Turn the `down` that `load` is given into a Prisma `include` for the read of the row; undefined when the resource declares no list. The hydrator itself knows no ORM. |
 | validate | `validateActionRule` | What a check refuses in one action rule: not well formed or positive; given where it sits (`{ map, resource, action?, rowRules?, additionalRules? }`), also a delegation back to its own action and every read outside the lens at its resource. The one call for a stored rule, a draft, or a rule kept outside the map (a transition's permission side). |
 | validate | `validateSchema`, `schemaRuleIssues` | Every issue in a schema against its map (shape, cycles, reads outside the lens, undefined actions); the shape issues alone, reading only the map's rules. |
@@ -35,7 +35,7 @@ what.
 | offer | `relationHopsFrom`, `declaredListsOf` | The segments a `{ rel }` may take next from a row (to-one relations and bridges whose walk `validateSchema` accepts), each with the resource it lands on; the declared lists a list arm may cross. |
 | compare | `coversEntitlement`, `withoutRedundantEntitlements` | Whether one entitlement covers another; a list without the entries another one covers. |
 
-`PathLimitError` is thrown by `createRebacPaths` when more paths admit an action than its limit.
+`PathLimitError` is thrown by `makeRebacPaths` when more paths admit an action than its limit.
 
 ## Internal verbs and their owners
 
@@ -52,7 +52,7 @@ what.
 | spell a relation tree | `src/core/lens.ts` (`spellEveryFollowedRelationChain`) | json-rules' model defaults enter each model once; every route is spelled under `root` here, as json-rules' docs say to. |
 | freeze, then judge once | `src/core/freezeThenJudgeOnce.ts` | `Object.freeze` nowhere else: a schema, an inline rule and a `where` are frozen by the one function that memoises their judgement. |
 | remember an answer by two keys | `src/core/freezeThenJudgeOnce.ts` (`answerOnce`) | — (used by `freezeThenJudgeOnce`, `reachableFrom`, `followedToOneRelationOrWhyNot`, the lenses built once per map, the supplied sets, the walker's inline-rule keys and the per-check row caches) |
-| walk a rule | `src/core/evaluate.ts` (`evaluate`), entered through `src/core/walker.ts` (`createWalker`) | — (one engine walk for `check`, `paths` and both grant passes) |
+| walk a rule | `src/core/evaluate.ts` (`evaluate`), entered through `src/core/walker.ts` (`makeWalker`) | — (one engine walk for `check`, `paths` and both grant passes) |
 | hop to a related row | `src/core/evaluate.ts` (`{ rel }` and the list arm), `src/core/bridgeHop.ts` (a bridge) | — |
 | remember a node's answer for one check | `src/core/evaluate.ts` (`walkAction`; `isNodeOnPath` is the counted test for a node on the path, `entitled`'s owner test included; a remembered answer's footprint is read against `visited` uncounted; the per-check state is `WhatOneCheckRemembers`) | — (a node reached after a hop: kept when no test in its walk found a node on the path, reused while no answer in its footprint is on the path; nothing outlives the check) |
 | consult an entitlement | `src/core/entitled.ts` (`entitled`) | — |

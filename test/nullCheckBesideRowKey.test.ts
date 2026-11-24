@@ -85,7 +85,7 @@ const check = (
   record: Row,
   action: string,
   data: Record<string, Row[]> = actorData('User', { id: 'u1' }),
-) => rebac(permix, rules, { resource, record, data }, action);
+) => rebac(permix, rules, { resource, record, bridgeData: data }, action);
 
 const holding = async (entries: PermissionEntry[]) => {
   const permix = createPermissions();

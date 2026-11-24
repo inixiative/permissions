@@ -189,7 +189,7 @@ export const outcomesOfWalkCase = async (walkCase: WalkCase) => {
   const subject = {
     resource: resourceName(walkCase.objects[walkCase.query.object]?.res ?? 0),
     record,
-    data: actorData(walkCase.tables[0]?.actor ?? null, { id: 'actor0' }),
+    bridgeData: actorData(walkCase.tables[0]?.actor ?? null, { id: 'actor0' }),
   };
   const action = structuredClone(walkCase.query.action);
   const pseudoRecord = rows[walkCase.grant.pseudoRecord] ?? record;

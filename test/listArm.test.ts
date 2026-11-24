@@ -4,11 +4,11 @@ import { engineGlobals, type JoinedBridge } from '@inixiative/json-rules';
 import {
   type ActionRule,
   capAtRole,
-  createHydrator,
   createPermissions,
-  createRebacCheck,
   type Down,
   type EntitlementEntry,
+  makeHydrator,
+  makeRebacCheck,
   PathLimitError,
   type PermissionEntry,
   type PermixLike,
@@ -22,8 +22,8 @@ import {
 } from '../index';
 import { identityKeyOfRow } from '../src/core/rowKeys';
 import { hydrationLimits } from '../src/helpers/hydration/hydrate';
-import { createHydratorReadingEachRowThroughLoad } from './createHydratorReadingEachRowThroughLoad';
 import { annotate, loadModels } from './fixtures/load';
+import { makeHydratorReadingEachRowThroughLoad } from './makeHydratorReadingEachRowThroughLoad';
 import {
   actorData,
   actorMap,
@@ -192,7 +192,7 @@ const matches = (where: Row) => (row: Row) =>
   Object.entries(where).every(([key, value]) => row[key] === value);
 
 const hydratorOver = (data: Store, over: SchemaMap = map, loads: string[] = []) =>
-  createHydratorReadingEachRowThroughLoad({
+  makeHydratorReadingEachRowThroughLoad({
     map: over,
     load: async (resource, where) => {
       loads.push(`load ${resource} ${JSON.stringify(where)}`);
@@ -207,15 +207,24 @@ const hydratorOver = (data: Store, over: SchemaMap = map, loads: string[] = []) 
 const conversation = async (uuid: string, data: Store = store()) =>
   hydratorOver(data)('db:Conversation', data['db:Conversation']?.find(matches({ uuid })) as Row);
 
-// Who a `person` permix stands for: a check is told it through the subject's `data`.
+// Who a `person` permix stands for: a check is told it through the subject's `bridgeData`.
 const actedBy = new WeakMap<object, string>();
-const acting = <Subject extends { data?: Record<string, Row[]> }, Rest extends unknown[], Out>(
+const acting = <
+  Subject extends { bridgeData?: Record<string, Row[]> },
+  Rest extends unknown[],
+  Out,
+>(
   ask: (permix: PermixLike, schema: Rules, subject: Subject, ...rest: Rest) => Out,
 ) => {
   return (permix: PermixLike, schema: Rules, subject: Subject, ...rest: Rest): Out => {
     const uuid = actedBy.get(permix);
     const data = uuid === undefined ? {} : actorData('User', { uuid });
-    return ask(permix, schema, { ...subject, data: { ...data, ...subject.data } }, ...rest);
+    return ask(
+      permix,
+      schema,
+      { ...subject, bridgeData: { ...data, ...subject.bridgeData } },
+      ...rest,
+    );
   };
 };
 
@@ -616,7 +625,7 @@ describe('validateSchema: what a list arm may cross and read', () => {
 
 describe('the declaration, read strictly when the map is first used', () => {
   const boot = (model: string, field: string, permissions: Record<string, AnnoValue>) => () =>
-    createRebacCheck(mapWith(mapOver(annotate(models, model, field, permissions)), schema));
+    makeRebacCheck(mapWith(mapOver(annotate(models, model, field, permissions)), schema));
   const down = (value: AnnoValue) => boot('Conversation', 'participants', { down: value });
 
   test('a value field-map keeps mangled is refused, not guessed at', () => {
@@ -646,13 +655,13 @@ describe('the declaration, read strictly when the map is first used', () => {
       ...copy,
       ConversationParticipant: { ...copy.ConversationParticipant, fields },
     };
-    expect(() => createRebacCheck(mapWith(mapOver(withoutBack), schema))).toThrow(
+    expect(() => makeRebacCheck(mapWith(mapOver(withoutBack), schema))).toThrow(
       /exactly one foreign key back/,
     );
   });
 });
 
-describe('createHydrator: one jump down', () => {
+describe('makeHydrator: one jump down', () => {
   test('one list load, then only the declared paths under each item', async () => {
     const loads: string[] = [];
     const data = store();
@@ -749,7 +758,7 @@ describe('what a record may carry into a check', () => {
 
   test('under an item too: a declared relation holds the loaded row or nothing', async () => {
     const data = store();
-    const hydrate = createHydratorReadingEachRowThroughLoad({
+    const hydrate = makeHydratorReadingEachRowThroughLoad({
       map,
       load: async (resource, where) => data[resource]?.find(matches(where)) ?? null,
       loadItems: async () =>
@@ -1077,7 +1086,7 @@ describe('the declaration carries what the rule walks', () => {
 describe('validation edges under an item', () => {
   test('`down` beside `hydrate: false` is refused', () => {
     const both = annotate(models, 'Conversation', 'participants', { down: [], hydrate: false });
-    expect(() => createRebacCheck(mapWith(mapOver(both), schema))).toThrow(
+    expect(() => makeRebacCheck(mapWith(mapOver(both), schema))).toThrow(
       /`hydrate: false` says not to/,
     );
   });
@@ -1128,7 +1137,7 @@ describe('validation edges under an item', () => {
     expect(issue).toMatchObject({ code: 'down' });
     expect(issue?.message).toMatch(/stays on the declared relations/);
     const record = { uuid: 'c1', participants: [{ uuid: 'p1', accountId: 'acc1' }] };
-    const subject = { ...on(record), data: { 'crm:Account': [{ id: 'acc1' }] } };
+    const subject = { ...on(record), bridgeData: { 'crm:Account': [{ id: 'acc1' }] } };
     const otto = await person('u-otto');
     expect(() => check(otto, bridged({}), subject, viaBridge)).toThrow(
       /stays on the declared relations/,
@@ -1143,7 +1152,7 @@ describe('validation edges under an item', () => {
     // control: off an item the same hop reaches the far row
     const item = { resource: 'db:ConversationParticipant', record: record.participants[0] as Row };
     const hop: ActionRule = { rel: 'crm:Account', action: 'open' };
-    expect(check(otto, bridged({}), { ...item, data: subject.data }, hop)).toBe(true);
+    expect(check(otto, bridged({}), { ...item, bridgeData: subject.bridgeData }, hop)).toBe(true);
   });
 
   test("a bridge in an item's own row rule is not crossed under the list arm", async () => {
@@ -1187,7 +1196,7 @@ describe('validation edges under an item', () => {
     };
     const subject = {
       ...on({ uuid: 'c1', participants: [participant] }),
-      data: { 'crm:Account': [{ id: 'acc1' }] },
+      bridgeData: { 'crm:Account': [{ id: 'acc1' }] },
     };
     expect(check(await person('u-otto'), bridged, subject, 'throughAnAccount')).toBe(false);
   });
@@ -1221,7 +1230,7 @@ describe('what the hydrator does not follow, no check reads', () => {
       permissions: {},
       maps: { db: fieldMap },
     };
-    const hydrate = createHydrator({ map: lib, load: async () => null });
+    const hydrate = makeHydrator({ map: lib, load: async () => null });
     const hydrated = await hydrate('db:Message', {
       id: 'm1',
       conversationId: 'c1',
@@ -1289,7 +1298,7 @@ describe('load brings the lists a resource declares', () => {
     asked: Asked[] = [],
     data: Store = store(),
   ) =>
-    createHydrator({
+    makeHydrator({
       map,
       load: async (resource, where, down) => {
         asked.push({ resource, where, down });
@@ -1463,7 +1472,7 @@ describe('load brings the lists a resource declares', () => {
     const budget = hydrationLimits.loads;
     const data = store();
     const before = { loads: 0 };
-    const counting = createHydrator({
+    const counting = makeHydrator({
       map,
       load: async (resource, where, down) => {
         before.loads++;
@@ -1549,7 +1558,7 @@ describe('a resource that declares two lists on different columns', () => {
   test('the record’s own row is read by its id, so one empty join column empties neither list', async () => {
     const asked: Row[] = [];
     const toldToBring: Down[] = [];
-    const hydrate = createHydrator({
+    const hydrate = makeHydrator({
       map: twoLists,
       load: async (_resource, where, down) => {
         asked.push(where);
@@ -1570,7 +1579,7 @@ describe('a resource that declares two lists on different columns', () => {
     };
     delete withoutTargetColumns.maps.db.models.Kid?.fields.parent?.toFields;
     const asked: Row[] = [];
-    const hydrate = createHydrator({
+    const hydrate = makeHydrator({
       map: withoutTargetColumns as unknown as SchemaMap,
       load: async (_resource, where) => {
         asked.push(where);
@@ -1583,7 +1592,7 @@ describe('a resource that declares two lists on different columns', () => {
 
   test('a record with no id of its own is never read by an empty where', async () => {
     const asked: Row[] = [];
-    const hydrate = createHydrator({
+    const hydrate = makeHydrator({
       map: twoLists,
       load: async (_resource, where) => {
         asked.push(where);
@@ -1641,7 +1650,7 @@ describe('the record’s own row and a to-one that reaches it are one read', () 
 
   test('the row is read once, by its id as the record holds it, when its own to-one leads back to it', async () => {
     const asked: Row[] = [];
-    const hydrate = createHydrator({
+    const hydrate = makeHydrator({
       map: family,
       load: async (resource, where) => {
         if (resource === 'db:Kid') return { id: 'k1', parentId: 5 };
@@ -1693,7 +1702,7 @@ describe('a row’s identity: read with the value as held, keyed as text', () =>
   } as unknown as SchemaMap;
   const readsOf = async (record: Row): Promise<Row[]> => {
     const asked: Row[] = [];
-    await createHydrator({
+    await makeHydrator({
       map: numbered,
       load: async (_resource, where) => {
         asked.push(where);

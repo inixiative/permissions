@@ -54,7 +54,12 @@ const schemaOf = (read: ActionRule): Rules => ({
   permissions: { 'db:Doc': { actions: { read } }, 'db:Org': { actions: { read: false } } },
 });
 const read = (rule: ActionRule, record: Row, data?: Record<string, Row[]>) =>
-  check(nobody, schemaOf(rule), { resource: 'db:Doc', record, ...(data ? { data } : {}) }, 'read');
+  check(
+    nobody,
+    schemaOf(rule),
+    { resource: 'db:Doc', record, ...(data ? { bridgeData: data } : {}) },
+    'read',
+  );
 const issues = (rule: ActionRule) =>
   validateSchema(mapWith(map, schemaOf(rule))).errors.map((issue) => issue.message);
 const exists = (field: string) => ({ field, operator: Operator.exists });
@@ -191,7 +196,7 @@ const chained: SchemaMap = {
 };
 const chainedCheck = checkWithRules(chained);
 const readChained = (rule: ActionRule, record: Row, data: Record<string, Row[]>) =>
-  chainedCheck(nobody, schemaOf(rule), { resource: 'db:Doc', record, data }, 'read');
+  chainedCheck(nobody, schemaOf(rule), { resource: 'db:Doc', record, bridgeData: data }, 'read');
 const chainedIssues = (rule: ActionRule) =>
   validateSchema(mapWith(chained, schemaOf(rule))).errors.map((issue) => issue.message);
 const value = (field: string, operator: Operator, v: string): ActionRule => ({

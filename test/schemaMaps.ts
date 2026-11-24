@@ -4,10 +4,10 @@ import {
   type ActionRule,
   type Admission,
   type CheckOptions,
-  createCanGrantEntitlement,
-  createRebacCheck,
-  createRebacPaths,
   type EntitlementEntry,
+  makeCanGrantEntitlement,
+  makeRebacCheck,
+  makeRebacPaths,
   type PathsOptions,
   type PermixLike,
   type Row,
@@ -82,7 +82,7 @@ const mapsWithRules = new WeakMap<SchemaMap, WeakMap<Rules, SchemaMap>>();
 export const checkWithRules =
   (map: SchemaMap, options?: CheckOptions) =>
   (permix: PermixLike, rules: Rules, subject: Subject, actionOrRule: ActionRule): boolean =>
-    createRebacCheck(mapWith(map, rules), options)(permix, subject, actionOrRule);
+    makeRebacCheck(mapWith(map, rules), options)(permix, subject, actionOrRule);
 
 const split = (resource: string) => {
   if (!resource.includes(':'))
@@ -170,10 +170,10 @@ export const mapOf = (
 export const pathsWithRules =
   (map: SchemaMap, options?: PathsOptions) =>
   (permix: PermixLike, rules: Rules, subject: Subject, actionOrRule: ActionRule): Admission[] =>
-    createRebacPaths(mapWith(map, rules), options)(permix, subject, actionOrRule);
+    makeRebacPaths(mapWith(map, rules), options)(permix, subject, actionOrRule);
 
 /** The grant check over `map`, taking each case's rules beside the entry. */
 export const canGrantWithRules =
   (map: SchemaMap, options?: Pick<CheckOptions, 'additionalRules'>) =>
   (permix: PermixLike, rules: Rules, entry: EntitlementEntry, pseudoRecord: Row): boolean =>
-    createCanGrantEntitlement(mapWith(map, rules), options)(permix, entry, pseudoRecord);
+    makeCanGrantEntitlement(mapWith(map, rules), options)(permix, entry, pseudoRecord);

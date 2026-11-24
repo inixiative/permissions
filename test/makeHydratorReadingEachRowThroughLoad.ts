@@ -1,11 +1,11 @@
-import { createHydrator, type HydrateDeps } from '../index';
+import { type HydrateDeps, makeHydrator } from '../index';
 import { idField } from '../src/core/recordId';
 import { listsOf, relationOf, type SpelledRelationTree } from '../src/core/relations';
 import { keysFrom } from '../src/core/rowKeys';
 import type { Row } from '../src/core/types';
 
 /** A hydrator whose `load` brings a declared list by one read of the items, then one read per row under each. */
-export const createHydratorReadingEachRowThroughLoad = <R extends string>({
+export const makeHydratorReadingEachRowThroughLoad = <R extends string>({
   map,
   load,
   loadItems,
@@ -40,7 +40,7 @@ export const createHydratorReadingEachRowThroughLoad = <R extends string>({
     );
     return result;
   };
-  return createHydrator<R>({
+  return makeHydrator<R>({
     map,
     load: async (resource, where) => {
       const row = await load(resource, where);

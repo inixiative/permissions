@@ -37,7 +37,7 @@ const assertMap = (map: SchemaMap) =>
     return true;
   });
 
-export const createWalker = <R extends string, T>(
+export const makeWalker = <R extends string, T>(
   map: SchemaMap<R>,
   algebra: Algebra<T>,
   ignoreWheres = false,
@@ -66,7 +66,7 @@ export const createWalker = <R extends string, T>(
       });
     const record = subject.record;
     // Each built lazily, once per check: a check that never crosses a bridge must not pay for, or
-    // be crashed by (indexBridges throws on malformed `data`), a dictionary it never reads.
+    // be crashed by (indexBridges throws on malformed `bridgeData`), a dictionary it never reads.
     const dictionaryOnceOver = (bridges: JoinedBridge[]) => {
       let built = false;
       let dict: BridgeDictionary | undefined;
@@ -74,7 +74,7 @@ export const createWalker = <R extends string, T>(
         if (!built) {
           built = true;
           dict = bridges.length
-            ? indexBridges({ maps: {}, bridges }, subject.data ?? {})
+            ? indexBridges({ maps: {}, bridges }, subject.bridgeData ?? {})
             : undefined;
         }
         return dict;
@@ -88,7 +88,7 @@ export const createWalker = <R extends string, T>(
           map,
           getDict,
           suppliedDictionary,
-          ...(subject.data ? { data: subject.data } : {}),
+          ...(subject.bridgeData ? { bridgeData: subject.bridgeData } : {}),
           algebra,
           ignoreWheres,
           ...(additionalRules ? { additionalRules } : {}),

@@ -82,7 +82,7 @@ const schemaOf = (manage: ActionRule): Rules => ({
   },
 });
 const manage = (rule: ActionRule, data: Record<string, Row[]>, record: Row) =>
-  check(permix, schemaOf(rule), { resource: 'db:Token', record, data }, 'manage');
+  check(permix, schemaOf(rule), { resource: 'db:Token', record, bridgeData: data }, 'manage');
 const isKind = (field: string, value: string): ActionRule => ({
   rule: { field, operator: Operator.equals, value },
 });

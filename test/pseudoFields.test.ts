@@ -4,15 +4,15 @@ import type { Condition } from '@inixiative/json-rules';
 import {
   type ActionRule,
   createPermissions,
-  createRebacCheck,
   type EntitlementEntry,
+  makeRebacCheck,
   pseudoRecordsOfEntitlement,
   type Row,
   type SchemaMap,
   validateSchema,
 } from '../index';
-import { createHydratorReadingEachRowThroughLoad } from './createHydratorReadingEachRowThroughLoad';
 import { annotate, loadModels } from './fixtures/load';
+import { makeHydratorReadingEachRowThroughLoad } from './makeHydratorReadingEachRowThroughLoad';
 import { canGrantWithRules, checkWithRules, mapWith, type Rules, stringColumn } from './schemaMaps';
 
 // Kingdom's surface → integrationResource → integration slice (schemas/kingdom.prisma), read by
@@ -264,7 +264,7 @@ describe('where the annotation is refused, when the map is first used', () => {
   const boot =
     (model: string, field: string, value: AnnoValue = true, base = models) =>
     () =>
-      createRebacCheck({
+      makeRebacCheck({
         ...mapOver(annotate(base, model, field, { pseudoField: value })),
         permissions: {},
       });
@@ -302,7 +302,7 @@ describe('where the annotation is refused, when the map is first used', () => {
       },
     };
     const thing = (field: string) => () =>
-      createRebacCheck({
+      makeRebacCheck({
         maps: { db: { models: annotate(fieldMap.models, 'Thing', field, { pseudoField: true }) } },
         polymorphism: { db: { Thing: { axes: [{ field: 'ownerModel', fkMap: {} }] } } },
         permissions: {},
@@ -648,7 +648,7 @@ describe('a junction list: a resource is reached through a project it is attache
   };
   const matches = (where: Row) => (row: Row) =>
     Object.entries(where).every(([key, value]) => row[key] === value);
-  const hydrate = createHydratorReadingEachRowThroughLoad({
+  const hydrate = makeHydratorReadingEachRowThroughLoad({
     map: junction,
     load: async (of, where) => rows[of]?.find(matches(where)) ?? null,
     loadItems: async (of, where) => rows[of]?.filter(matches(where)) ?? [],

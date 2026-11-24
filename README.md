@@ -10,7 +10,7 @@ One check, over your own data, that covers:
 - **RuBAC:** rules as data: every condition is a serializable [`@inixiative/json-rules`](https://github.com/inixiative/json-rules) rule, positive by design (`validateActionRule` refuses the rest), the same AST everywhere it appears.
 - **Delegation (entitlements):** attenuated grants a holder passes on (copied, narrowed, lowered, never widened), each re-checked live at every link of its chain and at every tenant boundary it crosses.
 
-It decides on your own records: the checks walk them through the one schema map you pass (your models' relations and foreign keys as [`@inixiative/field-map`](https://github.com/inixiative/field-map) maps, the polymorphic models' kinds, and the rules), reached through a `load` you provide. There is no separate authorization store and no relationship tuples to sync. Nothing in it imports a database layer: the `createHydrator` helper walks the schema map and calls your `load`, which is also where caching goes. The core is small enough to read, and it depends only on json-rules, field-map and lodash-es; the optional helpers for delegation and hydration sit outside it. MIT licensed.
+It decides on your own records: the checks walk them through the one schema map you pass (your models' relations and foreign keys as [`@inixiative/field-map`](https://github.com/inixiative/field-map) maps, the polymorphic models' kinds, and the rules), reached through a `load` you provide. There is no separate authorization store and no relationship tuples to sync. Nothing in it imports a database layer: the `makeHydrator` helper walks the schema map and calls your `load`, which is also where caching goes. The core is small enough to read, and it depends only on json-rules, field-map and lodash-es; the optional helpers for delegation and hydration sit outside it. MIT licensed.
 
 Everything you configure it with is plain JSON: the schema's rules, role grants, entitlements, `Permissions`. So
 they can live in your database, be composed like any other data, and be authored at runtime. A
@@ -45,7 +45,7 @@ The full comparison, with sources for every cell and where the others are ahead:
 The code is split the same way you can use it:
 
 - **`src/core`**: the algebra, `check`, the permix, entitlements, the grant check and validation. This is the library. It never imports a helper, and a test keeps it that way.
-- **`src/helpers`**: optional building blocks on top of the core. **Delegation** (`delegate`, `capAtRole`, `installPermissions`, `permixOf`, `wellFormedEntitlements`) resolves a token's or integration's permissions from its owner's. **Hydration** (`createHydrator`) loads a record with the relations a check walks.
+- **`src/helpers`**: optional building blocks on top of the core. **Delegation** (`delegate`, `capAtRole`, `installPermissions`, `permixOf`, `wellFormedEntitlements`) resolves a token's or integration's permissions from its owner's. **Hydration** (`makeHydrator`) loads a record with the relations a check walks.
 
 Want your own delegation model or your own loading? Skip the helpers and call `check` with a permix you set up and a record you loaded.
 
@@ -170,7 +170,7 @@ A row rule opens one record. An app may have other places a rule comes from: a t
 every record it owns, say. The library does not know what a tenant is, so the app hands it the rules:
 
 ```ts
-const check = createRebacCheck(map, {
+const check = makeRebacCheck(map, {
   additionalRules: (resource, record) => rulesTheOwnersOf(record).map((rules) => rules[resource]),
 });
 ```
@@ -178,7 +178,7 @@ const check = createRebacCheck(map, {
 Each entry is a rule set shaped like `permissionRules` (`action → ActionRule`). The function is
 asked for every record the walk reaches. `check` ORs each rule with the schema rule and the record's
 own rule, so it only widens, and it cannot add an action the schema lacks. Each rule is validated
-before it is merged, exactly as a row rule is. `createRebacPaths` and `createCanGrantEntitlement`
+before it is merged, exactly as a row rule is. `makeRebacPaths` and `makeCanGrantEntitlement`
 take the same option. Validate each rule with `validateActionRule` before the app saves it, giving
 the other rule sets that reach the record so a cycle through them is caught:
 
@@ -332,14 +332,14 @@ Rules outside the schema are judged against the declaration too: see
 
 ```ts
 import { engineGlobals } from '@inixiative/json-rules';
-import { createRebacCheck, type SchemaMap } from '@inixiative/permissions';
+import { makeRebacCheck, type SchemaMap } from '@inixiative/permissions';
 
 // the one map the walk reads: the models' relations and foreign keys (an @inixiative/field-map
 // FieldMap, as `field-map generate` writes it), the polymorphic models' kinds, and the rules
 const map: SchemaMap = { maps: { db: prismaMap }, polymorphism: { db: polymorphism }, permissions };
 // the field a record's grants are keyed by: `id` unless set (`uuid`, `_id`, `ID`…), once, at boot
 engineGlobals.set('permissions.idField', 'uuid');
-const check = createRebacCheck(map);
+const check = makeRebacCheck(map);
 
 check(permix, { resource: 'db:Membership', record }, 'manage');
 // string → permix grant or schema delegation; { rel } walks `record.organization` (or a bridge,
@@ -358,13 +358,13 @@ from the foreign key. `validateActionRule` rejects `self`.
 
 The check takes a **subject**, `{ resource, record, data? }`, rather than a bare record; `data` is the
 supplemental rows that back cross-source bridge hops and the supplied rows (below). A
-`subject.resource` with no `map:` throws. `createRebacCheck` is generic over the resource key
+`subject.resource` with no `map:` throws. `makeRebacCheck` is generic over the resource key
 (default `string`). Pass your resource union and the map's `permissions` keys and
 `subject.resource` both enforce it, so your own types need no casts:
 
 ```ts
 type Resource = 'db:Organization' | 'db:Membership' | 'db:Document';
-const check = createRebacCheck<Resource>(map); // map: SchemaMap<Resource>
+const check = makeRebacCheck<Resource>(map); // map: SchemaMap<Resource>
 // now `map.permissions` is keyed by Resource, and `subject.resource: Resource`: a typo is a compile error.
 ```
 
@@ -377,14 +377,14 @@ walked, so an entitlement's owner revisiting the same node is not a cycle. A loo
 data (two holders owning each other's entitlements) is not a schema bug and does not throw: the
 back edge contributes nothing, and only a chain that reaches a real grant allows.
 
-### Every path: `createRebacPaths`
+### Every path: `makeRebacPaths`
 
 `check` answers whether anything admits and stops at the first thing that does. To know which
 entitlements admitted, for routing a use, charging it or explaining it, run the same walk without
 stopping:
 
 ```ts
-const paths = createRebacPaths(map, { limit: 20 });
+const paths = makeRebacPaths(map, { limit: 20 });
 paths(permix, { resource: 'db:Space', record: space }, 'read');
 // [[['d-from-b', 'b']], [['d-from-c', 'c']]]
 ```
@@ -689,7 +689,7 @@ check with the same map as the rebac check, build the entry's pseudo records fro
 anchor, and ask of each:
 
 ```ts
-const canGrantEntitlement = createCanGrantEntitlement(map);
+const canGrantEntitlement = makeCanGrantEntitlement(map);
 
 const entry = {
   resource: 'db:Integration',
@@ -1040,7 +1040,7 @@ owns its foreign key (the record's ownership closure) before checking, instead o
 per-action include shapes. Then a missing relation can only mean the key is null: a real deny, not a
 loading artifact.
 
-`createHydrator` is that pattern over the **same schema map** the checks walk, so the two can't drift.
+`makeHydrator` is that pattern over the **same schema map** the checks walk, so the two can't drift.
 Give it the map and
 `load`, one read of a resource's record by its target columns (`{ id }`, or every
 column of a composite key). `load` is the cache seam: the hydrator de-duplicates loads within one
@@ -1061,8 +1061,8 @@ include). Return the row with every list on it:
 ```ts
 import { parseEndpointKey } from '@inixiative/json-rules';
 import {
-  createHydrator,
-  createRebacCheck,
+  makeHydrator,
+  makeRebacCheck,
   prismaIncludeOfDown,
   type SchemaMap,
 } from '@inixiative/permissions';
@@ -1079,8 +1079,8 @@ const map: SchemaMap = {
 // `db:Document` is read through `prisma.document`
 const delegateOf = (resource: string) => prisma[lowerFirst(parseEndpointKey(resource, '').modelName)];
 
-const check = createRebacCheck(map);
-const hydrate = createHydrator({
+const check = makeRebacCheck(map);
+const hydrate = makeHydrator({
   map,
   load: (resource, where, down) =>
     cached(resource, where, () =>

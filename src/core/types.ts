@@ -27,7 +27,7 @@ export type ActionRule =
 export type ResourcePermission = { actions: Record<string, ActionRule> };
 
 /**
- * What the check evaluates against: the `record`, its (map-qualified) `resource`, and `data` — the
+ * What the check evaluates against: the `record`, its (map-qualified) `resource`, and `bridgeData` — the
  * rows of every bridge per `map:Model`, the shape json-rules' `indexBridges` takes: a joined bridge's
  * far rows, which a `rel` walk across it finds by key, and each supplied model's one row (`actor:User`),
  * which every `{ rule }` on the walk reads. The engine fills them; a record never brings its own.
@@ -35,7 +35,7 @@ export type ResourcePermission = { actions: Record<string, ActionRule> };
 export type Subject<R extends string = string> = {
   resource: R;
   record: Row;
-  data?: Record<string, Row[]>;
+  bridgeData?: Record<string, Row[]>;
 };
 
 /**
