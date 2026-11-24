@@ -10,7 +10,7 @@ One check, over your own data, that covers:
 - **RuBAC:** rules as data: every condition is a serializable [`@inixiative/json-rules`](https://github.com/inixiative/json-rules) rule, positive by design (`validateActionRule` refuses the rest), the same AST everywhere it appears.
 - **Delegation (entitlements):** attenuated grants a holder passes on (copied, narrowed, lowered, never widened), each re-checked live at every link of its chain and at every tenant boundary it crosses.
 
-It decides on your own records: the checks walk them through the one schema map you pass (your models' relations and foreign keys as [`@inixiative/field-schemaMap`](https://github.com/inixiative/field-map) maps, the polymorphic models' kinds, and the rules), reached through a `load` you provide. There is no separate authorization store and no relationship tuples to sync. Nothing in it imports a database layer: the `makeHydrator` helper walks the schema map and calls your `load`, which is also where caching goes. The core is small enough to read, and it depends only on json-rules, field-map and lodash-es; the optional helpers for delegation and hydration sit outside it. MIT licensed.
+It decides on your own records: the checks walk them through the one schema map you pass (your models' relations and foreign keys as [`@inixiative/field-map`](https://github.com/inixiative/field-map) maps, the polymorphic models' kinds, and the rules), reached through a `load` you provide. There is no separate authorization store and no relationship tuples to sync. Nothing in it imports a database layer: the `makeHydrator` helper walks your field map and calls your `load`, which is also where caching goes. The core is small enough to read, and it depends only on json-rules, field-map and lodash-es; the optional helpers for delegation and hydration sit outside it. MIT licensed.
 
 Everything you configure it with is plain JSON: the schema's rules, role grants, entitlements, `Permissions`. So
 they can live in your database, be composed like any other data, and be authored at runtime. A
@@ -56,9 +56,9 @@ The nouns are below. The verbs, one per operation with the name that says the ac
 
 | Word | Means |
 |---|---|
-| **resource** | a model of one of your field maps, named `map:Model` with the model spelled as its field map spells it (`db:Organization`, `actor:User`); a record is one row of it. Every model of a map in `fieldMaps` is a resource: nothing lists them, and a relation the app does not want loaded says so on the field (`/// @permissions(hydrate: false)`) |
+| **resource** | a model of one of your field maps, named `map:Model` with the model spelled as its field map spells it (`db:Organization`, `crm:Account`); a record is one row of it. Every model of a map in `fieldMaps` that is not supplied is a resource: nothing lists them, and a relation the app does not want loaded says so on the field (`/// @permissions(hydrate: false)`) |
 | **action** | a verb on a resource, defined by the schema (`own`, `manage`, `operate`, `read`, or your own) |
-| **schema map** | the one object every entry point takes: the field maps (`fieldMaps`, `suppliedFieldMaps`), the `bridges`, the `polymorphismRegistries`, and the rules (`permissions`) |
+| **schema map** | the one object every entry point takes: the field maps (`fieldMaps`), the `polymorphismRegistries`, the `bridges`, and the rules (`permissions`) |
 | **schema** | the rules of the schema map (`permissions`): per resource, the rule (`ActionRule`) that decides each action: a grant, a relation walk, a condition, or a combination |
 | **grant** | an entry a role gives: actions on a resource or one record (`{ resource, id?, actions }`); the grants a permix holds are its table |
 | **entitlement** | an entry given beyond a role: actions on a resource, from an anchor, with an optional `where`, backed by whoever granted it |
@@ -68,7 +68,9 @@ The nouns are below. The verbs, one per operation with the name that says the ac
 | **delegate** | a token or integration that acts from its owner's permissions: `full`, capped at a ceiling, entitlements, or a mix |
 | **full** | the owner's permissions, whole and live |
 | **ceiling** | the action a delegate's role maps to; the owner's grants are kept at it (`capAtRole`) |
-| **supplied map** | a field map in the schema map's `suppliedFieldMaps`, whose rows each check is given in its `bridgeData` (an app's `actor` map: who is acting), read by rules as `<schemaMap>:<Model>` |
+| **supplied bridge** | a json-rules bridge with no join (no `on`): its far model's row is given to each check in its `bridgeData`, and rules on the models it starts from read it |
+| **supplied model** | the far end of a supplied bridge (`actor:User`), read by rules as `<map>:<Model>.<column>` |
+| **supplied map** | a field map a supplied bridge ends in (an app's `actor` map: who is acting), or one joined by key from a supplied map (`sec`, joined from `actor:User`) |
 | **permix** | the installed form of a holder's permissions that `check` reads |
 | **pseudo record** | the would-be row a create or a grant is checked on; the rows built for it below the anchor, with keys and parents but no ids, are **stand-ins** |
 
@@ -86,18 +88,24 @@ type ActionRule =
   | null;                        // terminal deny, as is an action the schema does not name
 ```
 
-A `SchemaMap` is `{ fieldMaps, suppliedFieldMaps?, bridges?, polymorphismRegistries?, permissions }`, one object, so the
+A `SchemaMap` is `{ fieldMaps, polymorphismRegistries?, bridges?, permissions }`, one object, so the
 data shape and the rules cannot be passed mismatched:
 
-- `fieldMaps`: the field maps of the records the app loads and walks, by map name (`{ db: prismaMap }`).
-- `suppliedFieldMaps`: the field maps whose rows each check is given in its `bridgeData`, by map name (see
-  [Supplied maps](#supplied-maps-data-the-call-gives-who-is-acting-for-one)). A map name in both
-  `fieldMaps` and `suppliedFieldMaps` throws.
-- `bridges`: one list of json-rules bridges between models of different maps (see
-  [Bridges](#bridges-cross-source-rel-walks)).
-- `polymorphismRegistries`: by map name, then model, the axes of each false-polymorphic model (see
+- `fieldMaps`: every field map, by map name (`{ db: prismaMap, actor: actorMap }`): the maps of the
+  records the app loads and walks, and the supplied maps alike.
+- `polymorphismRegistries`: by map name, each value one map's registry by model name, the axes of
+  each false-polymorphic model (`PolymorphismRegistry`; see
   [Polymorphic rules](#polymorphic-rules-the-fan-out)).
+- `bridges`: one list of json-rules bridges between models of different maps. A joined bridge is
+  crossed by a `rel` (see [Bridges](#bridges-cross-source-rel-walks)); a supplied bridge, one with
+  no join, says whose row each check is given (see
+  [Supplied maps](#supplied-maps-data-the-call-gives-who-is-acting-for-one)).
 - `permissions`: the schema, mapping a **resource** to `{ actions: { name → ActionRule } }`.
+
+Nothing else marks a map as supplied: a map is supplied when a supplied bridge ends in it, or a
+joined bridge joins it to a supplied map. A map that starts a supplied bridge or is named in
+`permissions` holds records, and is never taken as supplied. Every model of a map that is not
+supplied is a resource.
 
 A resource is named `map:Model` everywhere: in `permissions` keys, `subject.resource`, grants,
 anchors, entitlements, `bridgeData` keys and bridge endpoints. It is json-rules' endpoint key, the model
@@ -113,10 +121,10 @@ is illustrative; use whatever your roles grant. The map holds the field maps, th
 ```ts
 import { Operator } from '@inixiative/json-rules';
 import type { SchemaMap } from '@inixiative/permissions';
-// written by `bunx field-schemaMap generate` after `prisma generate`
+// written by `bunx field-map generate` after `prisma generate`
 import { prismaMap } from './generated/prismaMap.gen';
 
-const map: SchemaMap = {
+const schemaMap: SchemaMap = {
   fieldMaps: { db: prismaMap },
   permissions: {
     'db:Organization': {
@@ -334,9 +342,9 @@ Rules outside the schema are judged against the declaration too: see
 import { engineGlobals } from '@inixiative/json-rules';
 import { makeRebacCheck, type SchemaMap } from '@inixiative/permissions';
 
-// the one schemaMap the walk reads: the models' relations and foreign keys (an @inixiative/field-schemaMap
-// FieldMap, as `field-schemaMap generate` writes it), the polymorphic models' kinds, and the rules
-const map: SchemaMap = { fieldMaps: { db: prismaMap }, polymorphismRegistries: { db: polymorphismRegistries }, permissions };
+// the one schemaMap the walk reads: the models' relations and foreign keys (an @inixiative/field-map
+// FieldMap, as `field-map generate` writes it), the polymorphic models' kinds, and the rules
+const schemaMap: SchemaMap = { fieldMaps: { db: prismaMap }, polymorphismRegistries: { db: polymorphismRegistry }, permissions };
 // the field a record's grants are keyed by: `id` unless set (`uuid`, `_id`, `ID`…), once, at boot
 engineGlobals.set('permissions.idField', 'uuid');
 const check = makeRebacCheck(schemaMap);
@@ -409,12 +417,17 @@ reported.
 
 ## Supplied maps: data the call gives (who is acting, for one)
 
-The library has no notion of an actor. The schema map declares **supplied** maps in `suppliedFieldMaps`:
-field maps by map name, any name, whose rows each check is given in its `bridgeData`, keyed
-`<schemaMap>:<Model>` as the joined bridges' far rows are. A `{ rule }` at any resource reads them as
-`<schemaMap>:<Model>.<column>`, and on along their relations and to-one bridges
-(`actor:User.org.plan`, `actor:User.sec:Posture.managed`). An app with no supplied maps reads none;
-an app with several reads them all alike.
+The library has no notion of an actor. An app says whose rows each check is given by declaring
+**supplied bridges** in `bridges`: json-rules bridges with no join (no `on`). The far model of a
+supplied bridge is a **supplied model**; each check is given its row in `bridgeData`, keyed
+`<map>:<Model>` as the joined bridges' far rows are. A `{ rule }` reads it as
+`<map>:<Model>.<column>`, and on along its relations and to-one bridges
+(`actor:User.org.plan`, `actor:User.sec:Posture.managed`). An app with no supplied bridges reads
+none; an app with several reads them all alike.
+
+The first endpoint says which rules read the row. `{ fieldMap: 'db' }` (json-rules 4.7) names only
+a map: every model of `db`. `{ fieldMap: 'db', model: 'Document' }` names one model. The second
+endpoint is the supplied model:
 
 ```ts
 // the app's own actor map: which kind is acting, and each kind's own columns
@@ -422,19 +435,27 @@ const actor: FieldMap = {
   models: {
     Acting: { fields: { model: { kind: 'enum', type: 'ActingKind' } } },
     User: { fields: { id: { kind: 'scalar', type: 'String' } } },
+    Token: { fields: { id: { kind: 'scalar', type: 'String' } } },
   },
   enums: { ActingKind: ['User', 'Token', 'Internal'] },
 };
 // a security tool's devices, joined to the actor by its id
 const sec: FieldMap = { models: { Device: { fields: { userId: str, risk: str } } } };
-const map: SchemaMap = {
-  fieldMaps: { db: prismaMap },
-  suppliedFieldMaps: { actor, sec },
-  bridges: [{
-    endpoints: [{ fieldMap: 'actor', model: 'User', on: 'id' }, { fieldMap: 'sec', model: 'Device', on: 'userId' }],
-    cardinality: 'oneToMany',
-  }],
-  polymorphismRegistries: { db: polymorphismRegistries },
+const schemaMap: SchemaMap = {
+  fieldMaps: { db: prismaMap, actor, sec },
+  polymorphismRegistries: { db: polymorphismRegistry },
+  bridges: [
+    // supplied: every model of `db` reads the row of `actor:Acting`, `actor:User` and `actor:Token`
+    ...['Acting', 'User', 'Token'].map((model) => ({
+      endpoints: [{ fieldMap: 'db' }, { fieldMap: 'actor', model }],
+      cardinality: 'oneToOne',
+    })),
+    // joined, from a supplied model: `sec` is a supplied map, its rows found by key
+    {
+      endpoints: [{ fieldMap: 'actor', model: 'User', on: 'id' }, { fieldMap: 'sec', model: 'Device', on: 'userId' }],
+      cardinality: 'oneToMany',
+    },
+  ],
   permissions,
 };
 
@@ -445,16 +466,37 @@ check(permix, {
 }, 'read');
 ```
 
-- **The call gives one row of each model at the root; the rest are found by key.** Every supplied
-  model is given one row, read from every row a rule is on, except the far end of a joined bridge
-  (`sec:Device`), whose rows `bridgeData` holds and the bridge finds by key.
-- **The engine fills them; a record never brings its own.** Before each `{ rule }` the check runs
+A **supplied map** is a field map a supplied bridge ends in (`actor`), or one joined by key from a
+supplied map (`sec`, joined from `actor:User`). A map that starts a supplied bridge or is named in
+`permissions` holds records, and is never taken as supplied. `validateSchemaMap` reports each of
+these, and a check throws the first:
+
+- **A rule reads a supplied model only if a supplied bridge starts from its model or its map.** A
+  rule on `crm:Account` that reads `actor:User.id` is a read outside the lens until a second
+  supplied bridge, `[{ fieldMap: 'crm' }, { fieldMap: 'actor', model: 'User' }]`, is declared. A
+  bridge from `db:Document` alone gives the row to `db:Document`, not to `db:Organization`.
+- **A supplied bridge does not end in a map of records**: "a bridge between `every model of db` and
+  `actor:User` has no join, so its far end is supplied, but `actor` holds records (it has rules, or
+  starts a supplied bridge): no chain leads from a supplied row into the records".
+- **A supplied map is not joined to a map of records**: "a bridge between `actor:User` and `db:Doc`
+  has one end supplied: no chain leads from a supplied row into the records".
+- **A supplied bridge ends in a declared field map**: "… ends in the map `nope`, which is not in
+  `fieldMaps`".
+
+What the check does with a supplied row:
+
+- **The call gives one row of each supplied model; the rest are found by key.** The far end of a
+  joined bridge from a supplied model (`sec:Device`) is not given one row: `bridgeData` holds its
+  rows, and the bridge finds them by key.
+- **It is read at the row the rule is on.** A `{ rule }` reads it from the record it is checked
+  on, never under a relation (`org.actor:User.id` is refused), and a `where` never reads it.
+- **The engine fills it; a record never brings its own.** Before each `{ rule }` the check runs
   json-rules' `recordWithBridgeData`, with the joined rows indexed once per check: any key a row
-  carries naming a supplied model is dropped, on the record and every row reached from it, and the
-  rows from `bridgeData` are put on. Nothing in `bridgeData` for a model means it is not there, and a rule
-  reading it fails. A bridge a rule reads along has both ends in supplied maps; one with a single
-  end supplied is refused (see [Bridges](#bridges-cross-source-rel-walks)), so no chain leads from
-  a supplied row back to a record.
+  carries naming a supplied model is dropped, and the rows from `bridgeData` are put on. A row not
+  given is absent, and a rule reading it fails.
+- **A supplied bridge is never crossed by a `{ rel, action }` walk** (`{ rel: 'actor:User', action }`
+  is refused). The library makes no bridge of its own from a resource to a supplied model: only the
+  supplied bridges declared give a rule a row.
 - **A list on a supplied row is crossed with the list arm**: `{ rel: 'actor:User.sec:Device',
   arrayOperator: 'any', condition }`, its own list relations too (`actor:User.groups`). An item is a
   supplied row with no actions, so its condition holds `{ rule }`s in `any` and `all`, read in the
@@ -463,8 +505,7 @@ check(permix, {
   `ruleFieldEqualsPath('ownerId', 'actor:User.id')` is `all: [ownerId exists, ownerId equals
   actor:User.id]`. A comparison with a literal needs none.
 - **Typed.** A model a supplied map lacks, a read off the end of its relations and bridges, a model
-  reached twice on one chain and an enum value outside its enum are refused. A `where` reads the
-  record alone, so a supplied path there is refused, and `org.actor:User` is not a path.
+  reached twice on one chain and an enum value outside its enum are refused.
 - **Stored rules too.** A row's `permissionRules` or an `additionalRules` entry that is not
   positive, loops or reads outside the lens throws, as the schema's would.
 
@@ -502,27 +543,23 @@ row of its own.
 
 The standard shape of a polymorphic check (R-2026-11-19-15): fan out over the kinds, each branch
 checking its own kind first, every rule positive, every match checking its field exists. A kind with no row
-(`default`, `Internal`) is named by its kind alone. `makeKindRules(schemaMap)` builds them, reading the
-kinds from the map: a resource's polymorphic axis (`schemaMap.polymorphismRegistries`, by map name then model), or
-a supplied model's enum field (`'actor:Acting'`, `'model'`). A kind the map does not have throws
-when the rule is built.
+(`default`, `Internal`) is named by its kind alone. `makeKindRules({ fieldMaps, polymorphismRegistries, bridges })`
+builds them, reading the kinds from those three tables: a resource's polymorphic axis
+(`polymorphismRegistries`, by map name then model), or a supplied model's enum field
+(`'actor:Acting'`, `'model'`), a supplied model being the far end of a supplied bridge in `bridges`.
+A kind the tables do not have throws when the rule is built.
 
-The builders read the data shape, so they take the map before it has rules
-(`SchemaMapWithoutPermissions`); the rules they return then go into `permissions`:
+The builders read the data shape, so they take the tables before there are rules (a whole schema
+map is fine to pass); the rules they return then go into `permissions`:
 
 ```ts
-import {
-  makeKindRules,
-  ruleFieldEqualsPath,
-  type SchemaMap,
-  type SchemaMapWithoutPermissions,
-} from '@inixiative/permissions';
+import { makeKindRules, ruleFieldEqualsPath, type SchemaMap } from '@inixiative/permissions';
 
-const shape: SchemaMapWithoutPermissions = {
-  fieldMaps: { db: prismaMap },
-  suppliedFieldMaps: { actor },
-  polymorphismRegistries: { db: polymorphismRegistries }, // your false-polymorphismRegistries registry, by model
-};
+const shape = {
+  fieldMaps: { db: prismaMap, actor },
+  polymorphismRegistries: { db: polymorphismRegistry }, // your false-polymorphism registry, by model name
+  bridges: actorBridges, // the supplied bridges to `actor:Acting`, `actor:User`, `actor:Token`
+} satisfies Omit<SchemaMap, 'permissions'>;
 const kind = makeKindRules(shape);
 
 // one branch per kind of a side, each checking its own kind first; a kind left out denies
@@ -539,7 +576,7 @@ kind.ruleKindIsOneOf('actor:Acting', 'model', ['Token', 'User']);
 // a fan-out over who is acting
 kind.ruleForEachKind('actor:Acting', 'model', { Internal: true, User: ruleFieldEqualsPath('ownerId', 'actor:User.id') });
 
-const map: SchemaMap = {
+const schemaMap: SchemaMap = {
   ...shape,
   permissions: {
     'db:Token': { actions: { manage: kind.ruleActionThroughEachKind('db:Token', 'ownerModel', 'manage') } },
@@ -556,19 +593,21 @@ its organization, and only an explicit branch says which kinds may walk it.
 
 A `rel` can cross a **bridge**: a cross-source edge between two field maps (see
 [`@inixiative/json-rules`](https://github.com/inixiative/json-rules)). The map holds one list of
-bridges, and each is classified by its ends:
+bridges, and each is classified by its join and its ends:
 
-- **Neither end supplied:** crossed by a `rel` from a record. It must be joined (each endpoint
-  names its key with `on`); one with no join is refused.
-- **Both ends supplied:** read by a `{ rule }` from a supplied row
+- **No join:** a supplied bridge. Its far model's row is given to each check in `bridgeData` and
+  read by a `{ rule }`; it is never crossed by a `rel`
   (see [Supplied maps](#supplied-maps-data-the-call-gives-who-is-acting-for-one)).
-- **One end supplied:** refused on first use and by `validateSchemaMap`, joined or not, so no chain
-  leads from a supplied row into the records.
+- **Joined, neither end supplied:** crossed by a `rel` from a record. Each endpoint names its key
+  with `on`.
+- **Joined, both ends supplied:** read by a `{ rule }` from a supplied row, its far rows found by key.
+- **Joined, one end supplied:** refused on first use and by `validateSchemaMap` ("has one end
+  supplied"), so no chain leads from a supplied row into the records.
 
 Both ends of a crossed bridge are resources, named `map:Model`:
 
 ```ts
-const map: SchemaMap = {
+const schemaMap: SchemaMap = {
   fieldMaps: { db: prismaMap },
   bridges: [{
     endpoints: [
@@ -931,7 +970,7 @@ const permix = await permixOf(permissions);
   any other: an owner that loses the action takes the entitlement with it.
 - **Silence never widens.** No `full`, no ceiling and no entitlements is the empty permissions.
 
-Delegates chain: a token on an integration of a member is `delegate(map, delegate(map,
+Delegates chain: a token on an integration of a member is `delegate(schemaMap, delegate(schemaMap,
 member, integration), token)`. A full token on a full integration is the member's permissions; a
 ceiling anywhere on the chain caps what is below it and drops the entitlements above it; a token's
 entitlements are backed by the integration's permissions, whatever that resolved to.
@@ -1006,8 +1045,8 @@ lists included) are always readable, so ABAC is untouched; bridges are their own
   got there. One `{ rel }` hop lands on any row the hydrator loads, a self-relation too
   (`{ rel: 'parent' }`); a longer one is one path in the lens. Under a list item the lens is the
   rest of the declared `down` paths at each landing.
-- **The actor.** In a `{ rule }`, `actor:<Model>` is each supplied model's own columns at the row
-  the rule is read on (see [Supplied maps](#supplied-maps-data-the-call-gives-who-is-acting-for-one)).
+- **The actor.** In a `{ rule }`, `actor:<Model>` is a supplied model's own columns at the row
+  the rule is read on, for each supplied model a supplied bridge from that row's model or map gives (see [Supplied maps](#supplied-maps-data-the-call-gives-who-is-acting-for-one)).
   A `where` reads the record alone, so an `actor:` path there is refused.
 
 **Where it runs.** A schema on first use: it throws, and `permissions` and `bridges` are frozen so
@@ -1020,7 +1059,7 @@ frozen when first judged; `whyEntitlementWhereLeavesLens(schemaMap, resource, wh
 validates a row before saving it, as Kingdom's `validateEntitlementGrants` can). On a list item
 only the declared paths are loaded, so an arm reading anything else is unknown there and its
 siblings still decide. A `permissions` key that names no map, names a model its map does not
-have, or sits in a map that is not in `fieldMaps` without being the far end of a bridge from one, is
+have, or sits in a map that is not in `fieldMaps` without being the far end of a joined bridge from one, is
 refused: a name that is no model has no lens, so nothing its rules read could be refused.
 `validateActionRule` with `{ schemaMap, resource }` reports what a check refuses in a stored rule, in one
 call (see [Also exported](#also-exported)). `validateSchemaMap` also reports an operator json-rules' gate finds unfit for its field
@@ -1040,9 +1079,8 @@ owns its foreign key (the record's ownership closure) before checking, instead o
 per-action include shapes. Then a missing relation can only mean the key is null: a real deny, not a
 loading artifact.
 
-`makeHydrator` is that pattern over the **same field maps** the checks walk, so the two can't drift. It takes only what hydration reads, `{ fieldMaps, polymorphismRegistries? }` (`RecordFieldMaps`; a whole schema map is one), and it only hydrates: what is wrong with a map's names is reported by `validateSchemaMap` and refused when a check is built.
-Give it the map and
-`load`, one read of a resource's record by its target columns (`{ id }`, or every
+`makeHydrator` is that pattern over the **same field maps** the checks walk, so the two can't drift. It takes one field map and its name, `makeHydrator({ mapName, fieldMap, load })`: one hydrator per field map, every resource it reads and loads named `<mapName>:<Model>`. It only hydrates: it does not check the schema map's names, which `validateSchemaMap` reports and building a check refuses. It still reads `@permissions` annotations strictly, since a `down` it cannot read is a list it cannot load.
+`load` is one read of a resource's record by its target columns (`{ id }`, or every
 column of a composite key). `load` is the cache seam: the hydrator de-duplicates loads within one
 hydration, your wrapper caches across calls.
 
@@ -1067,12 +1105,12 @@ import {
   type SchemaMap,
 } from '@inixiative/permissions';
 import { lowerFirst } from 'lodash-es';
-// written by `bunx field-schemaMap generate` after `prisma generate`
+// written by `bunx field-map generate` after `prisma generate`
 import { prismaMap } from './generated/prismaMap.gen';
 
-const map: SchemaMap = {
+const schemaMap: SchemaMap = {
   fieldMaps: { db: prismaMap },
-  polymorphismRegistries: { db: polymorphismRegistries }, // your false-polymorphismRegistries registry, if you have one
+  polymorphismRegistries: { db: polymorphismRegistry }, // your false-polymorphism registry, if you have one
   permissions,
 };
 
@@ -1081,7 +1119,8 @@ const delegateOf = (resource: string) => prisma[lowerFirst(parseEndpointKey(reso
 
 const check = makeRebacCheck(schemaMap);
 const hydrate = makeHydrator({
-  schemaMap,
+  mapName: 'db',
+  fieldMap: prismaMap,
   load: (resource, where, down) =>
     cached(resource, where, () =>
       delegateOf(resource).findFirst({ where, include: prismaIncludeOfDown(down) }),
@@ -1153,7 +1192,7 @@ and declare in the map any computed value a rule reads.
   `whyEntitlementWhereLeavesLens(schemaMap, resource, where)` is the lens check of one entitlement
   `where`, for an app that validates a row before saving it.
 - `lensesAtRow(schemaMap, resource)` returns the json-rules lenses a read is judged in at one row: `rule`
-  (with the supplied maps, `actor:Acting` and `actor:<Model>`) for a `{ rule }`, `lens` for a `where` or a path. `lensesAtListItem(map,
+  (with the supplied models its resource is given, `actor:Acting` and `actor:<Model>`) for a `{ rule }`, `lens` for a `where` or a path. `lensesAtListItem(schemaMap,
   resource, field)` returns them at an item of a declared list (what its `down` paths load), or
   null when `field` is not a declared list. An editor authors rules in them, so it offers exactly
   what `validateSchemaMap` accepts (rules-builder's permission builder does).

@@ -1,4 +1,4 @@
-## 0.29.0 — `make…` for everything that hands you a function; `bridgeData`; the hydrator only hydrates
+## 0.29.0 — `make…` for everything that hands you a function; `bridgeData`; supplied maps are field maps a supplied bridge ends in; a hydrator per field map
 
 Breaking, with no compatibility path (no users).
 
@@ -6,7 +6,11 @@ Why: Aron, 2026-11-23, standardising call sites across the library, transitions,
 and template: "`make hydrator` gives you a hydrator, and then you run the hydrator. `make check`
 gives you a check… If all these things are giving you a thing, then they should be made." And:
 "the hydrator shouldn't be doing these checks inside of it… It should just hydrate. The validator
-should be doing the validate."
+should be doing the validate." And: "The hydrator needs… one field map." On the separate group of
+supplied maps: "why is the supplied field map different than field maps?… For me, they're just
+field maps… I was hoping that we would make some sort of pseudo-bridge that just lets you jump to
+them", and of where such a bridge starts: "it could be from any prefix, so any map… a decoration or
+helper for one individual map."
 
 - **`make…`**: `createRebacCheck`, `createRebacPaths`, `createCanGrantEntitlement` and
   `createHydrator` are `makeRebacCheck`, `makeRebacPaths`, `makeCanGrantEntitlement` and
@@ -15,15 +19,60 @@ should be doing the validate."
 - **`bridgeData`**: a subject's `data` is `bridgeData` (`{ resource, record, bridgeData? }`): the
   rows of every bridge by `map:Model`, a joined bridge's far rows and each supplied model's row
   (`actor:User`), as json-rules' `recordWithBridgeData` takes them.
-- **The hydrator only hydrates.** `makeHydrator({ map, load })` takes `RecordFieldMaps`
-  (`{ maps, polymorphism? }`), the part of the schema map hydration reads; a whole schema map is
-  one, and so is a map without rules. It no longer refuses a map whose names are wrong (a map
-  name that is no name, `polymorphism` naming a missing map or model, a map in both `maps` and
-  `supplied`): `validateSchema` reports those, and building a check (`makeRebacCheck`,
-  `makeRebacPaths`, `makeCanGrantEntitlement`) throws the first. It still reads `@permissions`
-  annotations strictly, since a `down` it cannot read is a list it cannot load.
-- The helpers that read no rule (`relationOf`, `listsOf`, the row keys) are typed on
-  `RecordFieldMaps`; a helper that reads rules, bridges or supplied maps still takes the whole map.
+- **`schemaMap`, never bare `map`**: the whole object is `schemaMap` in every signature and option
+  (`validateActionRule(rule, { schemaMap, resource, action?, rowRules?, additionalRules? })`).
+- **Renamed keys**: `maps` is `fieldMaps`, `polymorphism` is `polymorphismRegistries` (keyed by map
+  name, each value one map's registry by model name; the type `Polymorphism` is
+  `PolymorphismRegistry`), and `validateSchema` is `validateSchemaMap`. `SchemaMapWithoutPermissions`
+  and `RecordFieldMaps` are gone.
+- **The schema map is `{ fieldMaps, polymorphismRegistries?, bridges?, permissions }`.** `supplied`
+  is gone: every field map is in `fieldMaps`. A map is supplied because a declared json-rules
+  supplied bridge (one with no `on`) ends in it: its far model's row is given to each check in
+  `bridgeData`. The bridge's first endpoint may name only a map (`{ fieldMap: 'db' }`, json-rules
+  4.7), meaning every model of that map. A supplied map is a field map a supplied bridge ends in, or
+  one joined by key from a supplied map (`actor:User` joined to `sec:Device`). A map that starts a
+  supplied bridge or is named in `permissions` holds records and is never taken as supplied. An app
+  writes:
+
+  ```ts
+  const schemaMap: SchemaMap = {
+    fieldMaps: { db: prismaMap, actor: actorMap },
+    polymorphismRegistries: { db: polymorphismRegistry },
+    bridges: ['Acting', 'User', 'Token'].map((model) => ({
+      endpoints: [{ fieldMap: 'db' }, { fieldMap: 'actor', model }],
+      cardinality: 'oneToOne',
+    })),
+    permissions,
+  };
+  ```
+
+  Each rule has a test in `test/suppliedBridges.test.ts`:
+  - a rule on a model reads a supplied model only if a supplied bridge starts from that model or
+    from its map; declare another bridge for another map;
+  - a supplied bridge may not end in a map of records ("has no join, so its far end is supplied,
+    but `actor` holds records (it has rules, or starts a supplied bridge)");
+  - a supplied map is not joined to a map of records ("has one end supplied: no chain leads from a
+    supplied row into the records");
+  - a supplied bridge ends in a declared field map ("ends in the map `nope`, which is not in
+    `fieldMaps`");
+  - a supplied row is read only by a `{ rule }` at the row the rule is on, never under a relation,
+    never by a `where`; a row not given is absent; a record cannot bring its own supplied row; a
+    supplied bridge is never crossed by `rel`.
+
+  The library no longer makes a bridge from every resource to every supplied model: a rule reads
+  only what a declared supplied bridge gives it. Inside the library the schema map is resolved once
+  (`resolvedSchemaMap.ts`) into its record maps, supplied maps, joined bridges and supplied bridges;
+  `problemsOfMapNames` and `problemsOfBridges` are in `schemaMapProblems.ts`.
+- **The hydrator only hydrates, one field map at a time.** `makeHydrator({ mapName, fieldMap, load })`
+  takes one field map and its name; an app with several maps of records makes one hydrator per
+  field map. It does not check the schema map's names (a map name that is no name, a polymorphism
+  registry naming a missing map or model, a supplied bridge into a map of records):
+  `validateSchemaMap` reports those, and building a check (`makeRebacCheck`, `makeRebacPaths`,
+  `makeCanGrantEntitlement`) throws the first. It still reads `@permissions` annotations strictly,
+  since a `down` it cannot read is a list it cannot load.
+- **`makeKindRules({ fieldMaps, polymorphismRegistries, bridges })`** takes the three tables it
+  reads; a whole schema map is fine to pass.
+- Requires `@inixiative/json-rules` ^4.7.0.
 
 ## 0.28.0 — one schema map; a resource is `map:Model`; one call validates a stored rule
 
