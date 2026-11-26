@@ -13,8 +13,8 @@ const prismaIncludeOfDownPaths = (paths: DownPaths): true | { include: PrismaInc
 };
 
 /**
- * The `down` that `load` is given, as a Prisma `include` for the read of the row
- * (`findFirst({ where, include })`), or undefined when the resource declares no list.
+ * The `down` that `loadMany` is given, as a Prisma `include` for the read of the rows
+ * (`findMany({ where, include })`), or undefined when the resource declares no list.
  */
 export const prismaIncludeOfDown = (down: Down): PrismaIncludeOfDown | undefined => {
   const include: PrismaIncludeOfDown = {};

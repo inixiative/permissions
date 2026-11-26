@@ -23,8 +23,8 @@ what.
 | reach | `reachableFrom` | The actions on a resource whose holding grants an action by pure delegation, itself included. |
 | narrow a grant | `delegatedWhere` | The `where` of a grant passed on from a held one: the added conditions, then the held `where`'s conjuncts, flat. |
 | build pseudo records | `pseudoRecordsOfEntitlement`, `pseudoRecordsBelowAnchor` | The pseudo records a grant is checked on, built below its hydrated anchor along the entry's path; the first for an entitlement entry, the second for a record about to be created. |
-| hydrate | `makeHydrator` | Build the loader for one field map (`{ mapName, fieldMap, load }`) that puts on a record every relation the lens follows, so a check never reads a relation that was not loaded; `hydrationLimits` is its load budget. It only hydrates: the schema map's names are `validateSchemaMap`'s to report. |
-| build an include | `prismaIncludeOfDown` | Turn the `down` that `load` is given into a Prisma `include` for the read of the row; undefined when the resource declares no list. The hydrator itself knows no ORM. |
+| hydrate | `makeHydrator` | Build the `{ hydrate, hydrateMany }` loader for one field map (`{ mapName, fieldMap, loadMany }`) that walks followed to-one relations layer by layer and puts on every record each relation the lens follows, so a check never reads a relation that was not loaded; `hydrationLimits` is its per-record load budget (`hydrateMany` scales by `records.length`). It only hydrates: the schema map's names are `validateSchemaMap`'s to report. |
+| build an include | `prismaIncludeOfDown` | Turn the `down` that `loadMany` is given into a Prisma `include` for the read of the rows; undefined when the resource declares no list. The hydrator itself knows no ORM. |
 | validate | `validateActionRule` | What a check refuses in one action rule: not well formed or positive; given where it sits (`{ schemaMap, resource, action?, rowRules?, additionalRules? }`), also a delegation back to its own action and every read outside the lens at its resource. The one call for a stored rule, a draft, or a rule kept outside the map (a transition's permission side). |
 | validate | `validateSchemaMap`, `schemaRuleIssues` | Every issue in a schema map (its names and bridges, then the rules' shape, cycles, reads outside the lens, undefined actions); the shape issues alone, reading only the map's rules. |
 | validate | `entitlementProblem`, `wellFormedEntitlements` | Why one entitlement entry is malformed, or null; the well-formed entries of a list. |
@@ -62,7 +62,7 @@ what.
 | walk an anchor path on a record | `src/core/anchorPath.ts` (`rowsAlongAnchorPath`; `anchorRowReachedFrom`, whether it reaches the anchor; `rowsAbove`, the rows above a granted record) | — (used by `entitled`, the grant check and `pseudoRecords.ts`) |
 | walk the delegation graph | `src/core/reachableFrom.ts` (`delegationReach`) | — (used by `reachableFrom` and `validateActionRule`'s cycle test) |
 | identify a row | `src/core/rowKeys.ts` (`identityColumnsOfRow`, `identityKeyOfRow`, `keyFromResourceAndColumns`), `src/core/recordId.ts` (`recordId`, `hasNoValue`: null, undefined or `''` is no value); on a walk, `src/core/evaluate.ts` (`identifyRowOncePerCheck`, once per row and resource in one check) | — (the hydrator and loop detection share one key) |
-| load a row | `src/helpers/hydration/hydrate.ts` | — (the app's `load` is called nowhere else; it is given `down` and brings the resource's declared lists with the row) |
+| load rows | `src/helpers/hydration/hydrate.ts` | — (the app's `loadMany` is called nowhere else; it is given a deduplicated, homogeneous-key batch and `down`, and brings each resource's declared lists with the rows) |
 
 ## The lens, in this library's words
 

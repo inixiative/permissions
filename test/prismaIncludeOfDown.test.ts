@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { prismaIncludeOfDown } from '../index';
 
-describe('prismaIncludeOfDown: the `down` that `load` is given, as a Prisma include', () => {
+describe('prismaIncludeOfDown: the `down` that `loadMany` is given, as a Prisma include', () => {
   test('a declared path nests an include, and a leaf is true', () => {
     expect(
       prismaIncludeOfDown({

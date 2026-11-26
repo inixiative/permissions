@@ -419,8 +419,9 @@ describe('two objects of one row', () => {
   const hydratedO1 = () =>
     makeHydrator({
       ...dbFieldMapOf(loopMap),
-      load: async (resource: string) => stored[resource] ?? null,
-    })('db:organization', { id: 'o1', primarySpaceId: 's1' });
+      loadMany: async (resource: string, wheres: readonly Row[]) =>
+        wheres.map(() => stored[resource] ?? null),
+    }).hydrate('db:organization', { id: 'o1', primarySpaceId: 's1' });
   const self = { resource: 'db:organization', id: 'o1' };
   const writerHolding = async (action: string) => {
     const owner = createPermissions();

@@ -1,6 +1,6 @@
 {
   "name": "@inixiative/permissions",
-  "version": "0.29.0",
+  "version": "0.30.0",
   "description": "RBAC, ABAC and ReBAC in one check over your own records, with entitlements and delegates; the app passes one schema map: its @inixiative/field-map maps, the supplied maps, bridges, polymorphism and rules",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",

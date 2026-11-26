@@ -43,21 +43,24 @@ export const makeHydratorReadingEachRowThroughLoad = <R extends string>({
   };
   return makeHydrator<R>({
     ...dbFieldMapOf(schemaMap),
-    load: async (resource, where) => {
-      const row = await load(resource, where);
-      if (!row) return null;
-      const result: Row = { ...row };
-      for (const [name, list] of listsOf(schemaMap, resource)) {
-        const itemsWhere = keysFrom(list, row);
-        const items =
-          Object.keys(itemsWhere).length === list.from.length
-            ? await loadItems(list.resource, itemsWhere)
-            : [];
-        result[name] = await Promise.all(
-          items.map((item) => rowWithDeclaredPaths(list.resource, item, list.down)),
-        );
-      }
-      return result;
-    },
-  });
+    loadMany: async (resource, wheres) =>
+      Promise.all(
+        wheres.map(async (where) => {
+          const row = await load(resource, where);
+          if (!row) return null;
+          const result: Row = { ...row };
+          for (const [name, list] of listsOf(schemaMap, resource)) {
+            const itemsWhere = keysFrom(list, row);
+            const items =
+              Object.keys(itemsWhere).length === list.from.length
+                ? await loadItems(list.resource, itemsWhere)
+                : [];
+            result[name] = await Promise.all(
+              items.map((item) => rowWithDeclaredPaths(list.resource, item, list.down)),
+            );
+          }
+          return result;
+        }),
+      ),
+  }).hydrate;
 };
