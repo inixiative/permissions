@@ -62,7 +62,7 @@ what.
 | walk an anchor path on a record | `src/core/anchorPath.ts` (`rowsAlongAnchorPath`; `anchorRowReachedFrom`, whether it reaches the anchor; `rowsAbove`, the rows above a granted record) | — (used by `entitled`, the grant check and `pseudoRecords.ts`) |
 | walk the delegation graph | `src/core/reachableFrom.ts` (`delegationReach`) | — (used by `reachableFrom` and `validateActionRule`'s cycle test) |
 | identify a row | `src/core/rowKeys.ts` (`identityColumnsOfRow`, `identityKeyOfRow`, `keyFromResourceAndColumns`), `src/core/recordId.ts` (`recordId`, `hasNoValue`: null, undefined or `''` is no value); on a walk, `src/core/evaluate.ts` (`identifyRowOncePerCheck`, once per row and resource in one check) | — (the hydrator and loop detection share one key) |
-| load rows | `src/helpers/hydration/hydrate.ts` | — (the app's `loadMany` is called nowhere else; it is given a deduplicated, homogeneous-key batch and `down`, and brings each resource's declared lists with the rows) |
+| load rows | `src/helpers/hydration/hydrate.ts` (`loadLayer`, sole caller of `loadMany`), `layer.ts`, `declaredLists.ts`, `hydrationRun.ts` | — (the app's `loadMany` is called nowhere else; it is given a deduplicated batch of `where`s sharing the same key columns and `down`, and brings each resource's declared lists with the rows) |
 
 ## The lens, in this library's words
 

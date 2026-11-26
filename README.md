@@ -1081,7 +1081,7 @@ loading artifact.
 
 `makeHydrator` is that pattern over the **same field maps** the checks walk, so the two can't drift. It takes one field map and its name, `makeHydrator({ mapName, fieldMap, loadMany })`, and returns `{ hydrate, hydrateMany }`: it hydrates that map's resources and throws for any other; one hydrator per field map, every resource it reads and loads named `<mapName>:<Model>`. It only hydrates: it does not check the schema map's names, which `validateSchemaMap` reports and building a check refuses. It still reads `@permissions` annotations strictly, since a `down` it cannot read is a list it cannot load.
 
-The hydrator walks the relation graph **breadth-first, layer by layer**, sharing one fetched-row map and one materialized-object map across the whole hydration (and across every record of `hydrateMany`). `loadMany(resource, wheres, down)` is one batched read of a resource's records by their target columns (`[{ id }, …]`, or every column of a composite key): every `where` in one call shares the exact same column names and is deduplicated within its wave. Return an array of the **same length and order** as `wheres`, with `null` where no record exists (wrong lengths or non-row items throw loudly). `loadMany` is the cache seam: the hydrator deduplicates across waves and across all records of a `hydrateMany` call, and your wrapper caches across calls (e.g. Redis `MGET` + Prisma `findMany` for misses).
+The hydrator walks the relation graph **breadth-first, layer by layer**, sharing one loaded-row map and one hydrated-row map across the whole hydration (and across every record of `hydrateMany`). `loadMany(resource, wheres, down)` is one batched read of a resource's records by their target columns (`[{ id }, …]`, or every column of a composite key): every `where` in one call shares the exact same column names and is deduplicated within its layer. Return an array of the **same length and order** as `wheres`, with `null` where no record exists (wrong lengths or non-row entries throw loudly). `loadMany` is the cache seam: the hydrator deduplicates across layers and across all records of a `hydrateMany` call, and your wrapper caches across calls (e.g. Redis `MGET` + Prisma `findMany` for misses).
 
 `loadMany` takes a third argument, `down`: what the resource declares with
 `/// @permissions(down: [...])`, as its declared lists by list field name, each with the paths
@@ -1155,7 +1155,7 @@ or a row under one, changes.
   already carried there is dropped. A request body spread into a record
   (`hydrate('db:Message', { ...body })`) can therefore not bring its own `conversation` with a
   participant list in it. For each record you pass, the hydrator reads its own stored
-  row once (batched into the first wave alongside the records' direct to-ones), by its identity, and takes the lists from it; a record with no key yet, or one `loadMany`
+  row once (batched into the first layer alongside the records' direct to-ones), by its identity, and takes the lists from it; a record with no key yet, or one `loadMany`
   returns `null` for has `[]`. Everything else is left as given (a holder's
   `targetEntitlements` the app loaded, a relation keyed on the other side); no stored rule may
   name it ([the lens](#what-a-rule-may-read-the-relation-lens)). Columns are left as given too:
@@ -1163,7 +1163,7 @@ or a row under one, changes.
   may set. Under a list item every relation the declaration does not load, to-one or list, is
   dropped, whatever `loadMany` returned, and a list arm met there denies.
 - **The budget counts rows.** `hydrationLimits.loads` is the most rows one record's hydration takes in:
-  each fetched row, each item of a list and each row under it, counted wherever it appears. For
+  each loaded row, each item of a list and each row under it, counted wherever it appears. For
   `hydrateMany`, the budget scales by `records.length`.
 - **Check the schema against the map:** `validateSchemaMap(schemaMap)` returns every read outside
   the lens and every action named where it isn't defined, which would otherwise deny forever,
@@ -1259,7 +1259,7 @@ offers, so its cost grows with depth and with the entitlements held on the resou
 
 
 The core owns wrapping, checking, the pseudo records a grant is checked on, and validation. The helpers resolve a delegate's
-permissions and hydrate records through your `loadMany`. Fetching rows, mapping roles to grants, and
+permissions and hydrate records through your `loadMany`. Loading rows, mapping roles to grants, and
 naming actions and roles stay in your app (e.g. [`@template/permissions`](https://github.com/inixiative/template)
 passes one schema map, its prisma map, polymorphism registry and rules, and its role mappings). The core makes no
 assumptions about what actions or roles are called.

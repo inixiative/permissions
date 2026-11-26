@@ -3,14 +3,14 @@
 Breaking, with no compatibility path (no users).
 
 - **`makeHydrator` returns `{ hydrate, hydrateMany }` and takes `loadMany` instead of `load`.**
-  - `loadMany(resource, wheres, down)` receives a non-empty, deduplicated wave of `where` keys
-    for one `resource`, all sharing the same key column names (e.g. all `{ id }` or all
+  - `loadMany(resource, wheres, down)` receives a non-empty, deduplicated layer batch of `where`
+    keys for one `resource`, all sharing the same key column names (e.g. all `{ id }` or all
     `{ organizationId, userId }`), and returns a positional `readonly (Row | null)[]` matching
-    `wheres` in length and order (`null` where missing). Non-matching lengths or non-row items
+    `wheres` in length and order (`null` where missing). Non-matching lengths or non-row entries
     throw loudly.
   - `hydrateMany(resource, records)` walks the relation graph breadth-first, layer by layer,
-    sharing one raw-row map and one materialized-object map across the entire batch: shared
-    parents, owners, diamonds and cycles load once per wave and share the same hydrated JS object.
+    sharing one loaded-row map and one hydrated-row map across the entire batch: shared
+    parents, owners, diamonds and cycles load once per layer and share the same hydrated JS object.
   - `hydrate(resource, record)` is a one-line wrapper over `hydrateMany(resource, [record])`, so
     even a single record with two relations to the same resource batches them into one `loadMany`
     call.

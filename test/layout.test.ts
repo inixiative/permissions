@@ -22,7 +22,10 @@ describe('the core stands alone; helpers are built on it', () => {
       'helpers/delegation/delegate.ts',
       'helpers/delegation/permissions.ts',
       'helpers/delegation/wellFormedEntitlements.ts',
+      'helpers/hydration/declaredLists.ts',
       'helpers/hydration/hydrate.ts',
+      'helpers/hydration/hydrationRun.ts',
+      'helpers/hydration/layer.ts',
       'helpers/hydration/prismaIncludeOfDown.ts',
     ]);
   });

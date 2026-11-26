@@ -286,7 +286,7 @@ describe('hydrateMany: breadth-first layer-by-layer batching', () => {
     const hydrated = await hydrateMany('db:placement', placements);
     expect(hydrated).toHaveLength(3);
     expect(hydrated.map((row) => row.id)).toEqual(['p1', 'p2', 'p3']);
-    // Wave 1: 1 call for all 4 unique artifacts; Wave 2: 1 call for shared space; Wave 3: 1 call for shared org.
+    // Layer 1: 1 call for all 4 unique artifacts; Layer 2: 1 call for shared space; Layer 3: 1 call for shared org.
     expect(calls.map(({ resource, wheres }) => ({ resource, wheres }))).toEqual([
       {
         resource: 'db:artifact',
@@ -334,7 +334,7 @@ describe('hydrateMany: breadth-first layer-by-layer batching', () => {
     );
   });
 
-  test('groups keys by column set so every loadMany call receives homogeneous wheres', async () => {
+  test('groups keys by column set so every loadMany call receives wheres sharing the same key columns', async () => {
     const mixedKeysMap: SchemaMap = {
       permissions: {},
       fieldMaps: {
@@ -405,7 +405,7 @@ describe('hydrateMany: breadth-first layer-by-layer batching', () => {
     expect(loads.sort()).toEqual(['db:user:{"id":"a"}', 'db:user:{"id":"b"}']);
   });
 
-  test('batches root declared lists with Wave 1 to-ones without over-fetching stale root FKs', async () => {
+  test('batches root declared lists with layer 1 to-ones without loading stale root FKs', async () => {
     const column = (extra: Row = {}) => ({
       kind: 'scalar',
       type: 'String',
@@ -453,7 +453,7 @@ describe('hydrateMany: breadth-first layer-by-layer batching', () => {
       loadMany: loaderOver(store, undefined, calls),
     });
 
-    // Root n1 has caller-cleared parentId: null — its stored stale-parent must NOT be fetched.
+    // Root n1 has caller-cleared parentId: null — its stored stale-parent must NOT be loaded.
     const [onlyN1] = await hydrateMany('db:Node', [
       { id: 'n1', parentId: null, parent: { forged: true }, items: [{ forged: true }] },
     ]);
@@ -461,8 +461,8 @@ describe('hydrateMany: breadth-first layer-by-layer batching', () => {
     expect(onlyN1?.items).toEqual([{ id: 'i1', nodeId: 'n1' }]);
     expect(calls.map(({ wheres }) => wheres)).toEqual([[{ id: 'n1' }]]);
 
-    // When another root in the batch points to n1 as a to-one, n1 loads ONCE in Wave 1 and is
-    // materialized as a to-one (which then walks stored n1's parent in Wave 2).
+    // When another root in the batch points to n1 as a to-one, n1 loads ONCE in layer 1 and is
+    // hydrated as a to-one (which then walks stored n1's parent in layer 2).
     calls.length = 0;
     const [h1, h2, unsaved] = await hydrateMany('db:Node', [
       { id: 'n1', parentId: null },
@@ -505,7 +505,7 @@ describe('hydrateMany: breadth-first layer-by-layer batching', () => {
     calls.length = 0;
     hydrationLimits.loads = 1;
     try {
-      // 2 placements -> budget 2; Wave 1 has 3 unique artifacts -> throws before Wave 1 calls loadMany.
+      // 2 placements -> budget 2; layer 1 has 3 unique artifacts -> throws before layer 1 calls loadMany.
       await expect(
         hydrateMany('db:placement', [
           { id: 'p1', containerId: 'folder', artifactId: 'a1' },
@@ -552,7 +552,7 @@ describe('hydrateMany: breadth-first layer-by-layer batching', () => {
     ).rejects.toThrow(/not a row or null/);
   });
 
-  test('Wave 1 root list hit reached again as a to-one in Wave 2 reuses raw row with separate list copy', async () => {
+  test('layer 1 root list hit reached again as a to-one in layer 2 reuses loaded row with separate list copy', async () => {
     const column = (extra: Row = {}) => ({
       kind: 'scalar',
       type: 'String',
@@ -598,8 +598,8 @@ describe('hydrateMany: breadth-first layer-by-layer batching', () => {
       ...dbFieldMapOf(listMap),
       loadMany: loaderOver(store, undefined, calls),
     });
-    // Wave 1 fetches n1 (asToOne: false for root list) and n2 (asToOne: true).
-    // Wave 2 reaches n1 via n2.parent — n1 is already in raw so NO second loadMany call happens.
+    // Layer 1 loads n1 (isFollowedToOne: false for root list) and n2 (isFollowedToOne: true).
+    // Layer 2 reaches n1 via n2.parent — n1 is already in loadedRows so NO second loadMany call happens.
     const [h1] = await hydrateMany('db:Node', [{ id: 'n1', parentId: 'n2' }]);
     expect(calls.map(({ wheres }) => wheres)).toEqual([[{ id: 'n1' }, { id: 'n2' }]]);
     const reachedN1 = (h1?.parent as Row).parent as Row;
@@ -608,7 +608,7 @@ describe('hydrateMany: breadth-first layer-by-layer batching', () => {
     expect(reachedN1.items).toEqual([{ id: 'i1', nodeId: 'n1' }]);
     expect(reachedN1.items).not.toBe(h1?.items);
 
-    // Same when the Wave 1 root list row is missing (null) and Wave 2 reaches it via a to-one.
+    // Same when the layer 1 root list row is missing (null) and layer 2 reaches it via a to-one.
     calls.length = 0;
     const missingStore: Store = {
       'db:Node': [{ id: 'n2', parentId: 'missing', items: [] }],
@@ -622,14 +622,14 @@ describe('hydrateMany: breadth-first layer-by-layer batching', () => {
     expect(m1?.items).toEqual([]);
     expect((m1?.parent as Row).parent).toBeUndefined();
 
-    // Truly empty frontier still strips both forged to-ones and forged declared lists.
+    // Truly empty layer still strips both forged to-ones and forged declared lists.
     calls.length = 0;
-    const [emptyFrontier] = await hydrateMany('db:Node', [
+    const [emptyLayer] = await hydrateMany('db:Node', [
       { parentId: null, parent: { forged: true }, items: [{ forged: true }] },
     ]);
     expect(calls).toEqual([]);
-    expect(emptyFrontier?.parent).toBeUndefined();
-    expect(emptyFrontier?.items).toEqual([]);
+    expect(emptyLayer?.parent).toBeUndefined();
+    expect(emptyLayer?.items).toEqual([]);
   });
 
   test('mutating the input records array or a root record during loadMany does not corrupt linking', async () => {

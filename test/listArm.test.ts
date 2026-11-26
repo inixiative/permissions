@@ -1331,7 +1331,7 @@ describe('loadMany brings the lists a resource declares', () => {
     }).hydrate;
   const c1 = { uuid: 'c1', brandUuid: 'b1', createdByUuid: 'fu-rex' };
 
-  test('load is given `down`: the lists the resource declares and the paths under each, `{}` for a resource with none', async () => {
+  test('loadMany is given `down`: the lists the resource declares and the paths under each, `{}` for a resource with none', async () => {
     const asked: Asked[] = [];
     await hydratorIncluding(itemsWithDownPaths, asked)('db:Conversation', c1);
     const forConversation = asked.filter(({ resource }) => resource === 'db:Conversation');
@@ -1345,7 +1345,7 @@ describe('loadMany brings the lists a resource declares', () => {
     expect(forBrand.down).toEqual({});
   });
 
-  test('rows under an item are the ones load returned: nothing under an item is read again', async () => {
+  test('rows under an item are the ones loadMany returned: nothing under an item is read again', async () => {
     const asked: Asked[] = [];
     const hydrated = await hydratorIncluding(itemsWithDownPaths, asked)('db:Conversation', c1);
     const read = asked.map(({ where }) => JSON.stringify(where)).join(' ');
@@ -1384,7 +1384,7 @@ describe('loadMany brings the lists a resource declares', () => {
     expect(fay.forumUser as Row).not.toHaveProperty('brandUser');
   });
 
-  test('the rows load returned are copied, never changed', async () => {
+  test('the rows loadMany returned are copied, never changed', async () => {
     const freezeDeep = (value: unknown): unknown => {
       if (value && typeof value === 'object') {
         for (const inner of Object.values(value)) freezeDeep(inner);
@@ -1418,7 +1418,7 @@ describe('loadMany brings the lists a resource declares', () => {
     );
   });
 
-  test('load failing fails the hydration: a list is never empty by accident', async () => {
+  test('loadMany failing fails the hydration: a list is never empty by accident', async () => {
     await expect(
       hydratorIncluding(() => {
         throw new Error('the read failed');

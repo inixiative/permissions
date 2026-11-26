@@ -1,4 +1,4 @@
-import type { Down, DownPaths } from './hydrate';
+import type { Down, DownPaths } from './hydrationRun';
 
 /** A Prisma `include` of declared lists and paths: a relation is `true`, or carries the include under it. */
 export type PrismaIncludeOfDown = {
