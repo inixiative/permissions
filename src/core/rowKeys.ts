@@ -49,7 +49,7 @@ export const identityColumnsOfRow = (
   return identity;
 };
 
-// why: a key is text, so `5` and `'5'` are one row here while `load` is asked with the value as held
+// why: a key is text, so `5` and `'5'` are one row here while `loadMany` is asked with the value as held
 /** A row's key (`identityColumnsOfRow`, each value as a string, encoded with its resource), or undefined (the object). */
 export const identityKeyOfRow = (
   fieldMapsWithPolymorphism: FieldMapsWithPolymorphism,

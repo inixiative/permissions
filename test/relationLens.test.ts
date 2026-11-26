@@ -911,12 +911,13 @@ describe('the starting record: a row is known by resource and id', () => {
       },
     };
     const seen: string[] = [];
-    const load = makeHydrator({
+    const { hydrate: load } = makeHydrator({
       ...dbFieldMapOf(nodes),
-      load: async (_resource, where) => {
-        seen.push(String(where.id));
-        return { id: 'n1', name: 'stored', parentId: 'n1' };
-      },
+      loadMany: async (_resource, wheres) =>
+        wheres.map((where) => {
+          seen.push(String(where.id));
+          return { id: 'n1', name: 'stored', parentId: 'n1' };
+        }),
     });
     const node = await load('db:Node', { id: 'n1', name: 'caller', parentId: 'n1' });
     const parent = node.parent as Row;
@@ -957,7 +958,10 @@ describe('the starting record: a row is known by resource and id', () => {
       },
     } satisfies SchemaMap;
     const stored = { org: 'o', key: 'k', name: 'Una', parentOrg: 'o', parentKey: 'k' };
-    const load = makeHydrator({ ...dbFieldMapOf(nodes), load: async () => stored });
+    const { hydrate: load } = makeHydrator({
+      ...dbFieldMapOf(nodes),
+      loadMany: async (_resource, wheres) => wheres.map(() => stored),
+    });
     const forged = await load('db:Node', { ...stored, name: 'EVIL' });
     const reads: Rules = {
       permissions: {
@@ -1091,12 +1095,13 @@ describe('the limits throw; nothing is cut', () => {
         },
       },
     };
-    const endless = makeHydrator({
+    const { hydrate: endless } = makeHydrator({
       ...dbFieldMapOf(nodes),
-      load: async (_resource, where) => {
-        const i = Number(String(where.id).slice(1));
-        return { id: `n${i}`, parentId: `n${i + 1}` };
-      },
+      loadMany: async (_resource, wheres) =>
+        wheres.map((where) => {
+          const i = Number(String(where.id).slice(1));
+          return { id: `n${i}`, parentId: `n${i + 1}` };
+        }),
     });
     await expect(endless('db:Node', { id: 'n0', parentId: 'n1' })).rejects.toThrow(
       `past ${hydrationLimits.loads} rows`,

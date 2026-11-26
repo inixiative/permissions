@@ -331,20 +331,23 @@ describe('found by an adversarial review of this change', () => {
 });
 
 describe('a hydrator hydrates its own field map', () => {
-  const load = async () => null;
+  const loadMany = async (_resource: string, wheres: readonly Row[]) => wheres.map(() => null);
 
   test('a resource of another map is refused, not passed through with the caller’s rows', async () => {
-    const hydrate = makeHydrator({ mapName: 'db', fieldMap: db, load });
+    const { hydrate, hydrateMany } = makeHydrator({ mapName: 'db', fieldMap: db, loadMany });
     await expect(hydrate('crm:Account', { id: 'a1' })).rejects.toThrow(
       /`crm:Account` is not a model of the map `db` this hydrator was made for/,
     );
     await expect(hydrate('db:Nope', { id: 'x' })).rejects.toThrow(
       /`db:Nope` is not a model of the map `db` this hydrator was made for/,
     );
+    await expect(hydrateMany('crm:Account', [])).rejects.toThrow(
+      /`crm:Account` is not a model of the map `db` this hydrator was made for/,
+    );
   });
 
   test('a map name that is no name is refused when the hydrator is made', () => {
-    expect(() => makeHydrator({ mapName: 'a:b', fieldMap: db, load })).toThrow(
+    expect(() => makeHydrator({ mapName: 'a:b', fieldMap: db, loadMany })).toThrow(
       /a map is named `a:b`/,
     );
   });

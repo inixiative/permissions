@@ -1,209 +1,84 @@
-import type { FieldMap } from '@inixiative/field-map';
 import { mapNameIsNoName } from '../../core/errors';
-import { hasNoValue, idField } from '../../core/recordId';
-import {
-  followedToOneRelationsOf,
-  listsOf,
-  type Relation,
-  relationOf,
-  type SpelledRelationTree,
-} from '../../core/relations';
 import { modelOfResource } from '../../core/resourceNames';
-import { identityColumnsOfRow, keyFromResourceAndColumns } from '../../core/rowKeys';
 import type { FieldMapsWithPolymorphism } from '../../core/schemaMap';
 import type { Row } from '../../core/types';
+import { downOf, putDeclaredListsOntoRoots } from './declaredLists';
+import {
+  type Down,
+  type DownPaths,
+  type HydrateDeps,
+  type HydrationLayer,
+  type HydrationRun,
+  type Hydrator,
+  hydrationLimits,
+} from './hydrationRun';
+import {
+  assertLoadedBatch,
+  collectRootLayer,
+  groupUnloadedLayerEntries,
+  hydrateLayerAndCollectNext,
+  linkAllFollowedToOnes,
+} from './layer';
 
-/** The declared paths under a list item, as nested relation names; a leaf is `{}`. */
-export type DownPaths = { [relation: string]: DownPaths };
+export { type Down, type DownPaths, type HydrateDeps, type Hydrator, hydrationLimits };
 
-/** What a resource declares `/// @permissions(down: [...])`: its declared lists by list field name, each with the paths under an item; `{}` when it declares none. */
-export type Down = { [listField: string]: DownPaths };
-
-/**
- * What the hydrator needs: one field map with its name (`db`), and `load`, one read of a `resource`'s (`db:Model`)
- * record by its target columns (`{ id }` — `permissions.idField` — or every column of a composite key),
- * with the lists that resource declares. `load` is the cache seam; the hydrator only de-duplicates
- * loads within one hydration.
- *
- * `down` says what the row must come back holding: under each declared list's field name every
- * item, and on each item the row on every declared path under it. How it is read is the app's
- * (`prismaIncludeOfDown` turns it into a Prisma `include`). A truncated list silently denies real
- * members. The hydrator reads nothing more under an item, and keeps of each item only its columns
- * and the declared paths.
- */
-export type HydrateDeps<R extends string = string> = {
-  mapName: string;
-  fieldMap: FieldMap;
-  load: (resource: R, where: Row, down: Down) => Promise<Row | null>;
-};
-
-const whereOf = (relation: Relation, record: Row): Row | null => {
-  const where: Row = {};
-  for (const [index, column] of relation.from.entries()) {
-    const value = record[column];
-    if (hasNoValue(value)) return null;
-    where[relation.to[index] ?? idField()] = value;
-  }
-  return where;
-};
-
-const isRow = (value: unknown): value is Row =>
-  typeof value === 'object' && value !== null && !Array.isArray(value);
-
-/** The most rows one hydration takes in (each `load`, each item of a list and each row under it, counted wherever it appears) before it throws. */
-export const hydrationLimits = { loads: 10_000 };
-
-type Run = {
-  raw: Map<string, Promise<Row | null>>;
-  rows: Map<string, Promise<Row | null>>;
-  work: Promise<void>[];
-  loads: number;
-};
-
-/** A hydrator that loads every to-one of every row, and each declared list (README, Helper: hydration). */
-export const makeHydrator = <R extends string>({ mapName, fieldMap, load }: HydrateDeps<R>) => {
+/** A hydrator that loads every followed to-one of every row and each declared list, layer by layer (README, Helper: hydration). */
+export const makeHydrator = <R extends string>({
+  mapName,
+  fieldMap,
+  loadMany,
+}: HydrateDeps<R>): Hydrator<R> => {
   if (!mapName || mapName.includes(':')) throw new Error(mapNameIsNoName(mapName));
-  const fieldMapsWithPolymorphism: FieldMapsWithPolymorphism = {
-    fieldMaps: { [mapName]: fieldMap },
-  };
-  const countLoadAgainstBudget = (run: Run, resource: R) => {
-    if (++run.loads > hydrationLimits.loads)
-      throw new Error(
-        `hydrating reached \`${resource}\` past ${hydrationLimits.loads} rows: a walk that large is not a permission walk`,
-      );
-  };
-  const downPathsOf = (tree: SpelledRelationTree): DownPaths => {
-    const paths: DownPaths = {};
-    for (const [name, below] of Object.entries(tree))
-      paths[name] = downPathsOf((below.relations ?? {}) as SpelledRelationTree);
-    return paths;
-  };
-  const downOf = (resource: R): Down => {
-    const down: Down = {};
-    for (const [name, list] of listsOf(fieldMapsWithPolymorphism, resource))
-      down[name] = downPathsOf(list.down);
-    return down;
-  };
-  const loadOnce = (run: Run, resource: R, where: Row): Promise<Row | null> => {
-    const key = keyFromResourceAndColumns(resource, where);
-    let loading = run.raw.get(key);
-    if (!loading) {
-      countLoadAgainstBudget(run, resource);
-      loading = load(resource, where, downOf(resource));
-      run.raw.set(key, loading);
-    }
-    return loading;
-  };
-  // why: a row stored once is one object wherever it is reached, so a loop is the real cyclic graph
-  const storedRowAsOneSharedObject = (
-    run: Run,
-    relation: Relation<R>,
-    where: Row,
-  ): Promise<Row | null> => {
-    const key = keyFromResourceAndColumns(relation.resource, where);
-    let row = run.rows.get(key);
-    if (!row) {
-      let resolve: (value: Row | null) => void = () => {};
-      row = new Promise((done) => {
-        resolve = done;
-      });
-      run.rows.set(key, row);
-      run.work.push(
-        (async () => {
-          const stored = await loadOnce(run, relation.resource, where);
-          const object = stored ? { ...stored } : null;
-          resolve(object);
-          if (object && stored) {
-            putDeclaredListsOnto(run, relation.resource, object, stored);
-            await loadFollowedToOnesOnto(run, relation.resource, object, stored);
-          }
-        })(),
-      );
-    }
-    return row;
-  };
-  // why: a list is taken only from a row `load` returned, never from the record a caller passed
-  const putDeclaredListsOnto = (run: Run, resource: R, result: Row, stored: Row | null): void => {
-    for (const [name, list] of listsOf(fieldMapsWithPolymorphism, resource)) {
-      const items = stored ? stored[name] : [];
-      if (!Array.isArray(items))
-        throw new Error(
-          `\`load\` returned a \`${resource}\` without its declared list \`${name}\`: bring every list in \`down\` (a row cached before the list was declared has none)`,
-        );
-      result[name] = items.map((item) => {
-        if (!isRow(item))
-          throw new Error(`\`load\` returned an item of \`${resource}.${name}\` that is not a row`);
-        return countThenCopyRowKeepingOnlyDownPaths(run, list.resource, item, list.down);
-      });
-    }
-  };
-  // why: read by the row's identity, so a to-one that joins on those columns shares the read
-  const loadOwnStoredRowForItsDeclaredLists = async (
-    run: Run,
-    resource: R,
-    record: Row,
-  ): Promise<Row | null> => {
-    if (!listsOf(fieldMapsWithPolymorphism, resource).length) return null;
-    const where = identityColumnsOfRow(fieldMapsWithPolymorphism, resource, record);
-    return where ? loadOnce(run, resource, where) : null;
-  };
-  const loadFollowedToOnesOnto = async (
-    run: Run,
-    resource: R,
-    result: Row,
-    record: Row,
-  ): Promise<void> => {
+  const fieldMaps: FieldMapsWithPolymorphism = { fieldMaps: { [mapName]: fieldMap } };
+
+  const loadLayer = async (run: HydrationRun<R>, layer: HydrationLayer<R>): Promise<void> => {
+    const batches = groupUnloadedLayerEntries(run, layer);
+    if (!batches.length) return;
+
     await Promise.all(
-      followedToOneRelationsOf(fieldMapsWithPolymorphism, resource).map(
-        async ([name, relation]) => {
-          delete result[name];
-          const where = whereOf(relation, record);
-          const row = where && (await storedRowAsOneSharedObject(run, relation, where));
-          if (row) result[name] = row;
-        },
-      ),
+      batches.map(async ({ resource, entries }) => {
+        const wheres = entries.map((entry) => entry.where);
+        const loadedRows = await loadMany(resource, wheres, downOf(fieldMaps, resource));
+        assertLoadedBatch(resource, loadedRows, entries.length);
+        for (const [index, entry] of entries.entries()) {
+          run.loadedRows.set(entry.key, loadedRows[index] as Row | null);
+        }
+      }),
     );
   };
-  // why: under an item only the declared paths exist, taken as `load` returned them and never linked
-  const countThenCopyRowKeepingOnlyDownPaths = (
-    run: Run,
-    resource: R,
-    row: Row,
-    tree: SpelledRelationTree,
-  ): Row => {
-    countLoadAgainstBudget(run, resource);
-    const result: Row = { ...row };
-    for (const [name, field] of Object.entries(
-      modelOfResource(fieldMapsWithPolymorphism, resource)?.fields ?? {},
-    ))
-      if (field.kind === 'object') delete result[name];
-    for (const [name, below] of Object.entries(tree)) {
-      const relation = relationOf(fieldMapsWithPolymorphism, resource, name);
-      const held = row[name];
-      if (relation && isRow(held))
-        result[name] = countThenCopyRowKeepingOnlyDownPaths(
-          run,
-          relation.resource,
-          held,
-          (below.relations ?? {}) as SpelledRelationTree,
-        );
-    }
-    return result;
-  };
-  return async (resource: R, record: Row): Promise<Row> => {
+
+  const hydrateMany = async (resource: R, records: readonly Row[]): Promise<Row[]> => {
     // why: a resource of another map would come back holding whatever rows the caller put on it
-    if (!modelOfResource(fieldMapsWithPolymorphism, resource))
+    if (!modelOfResource(fieldMaps, resource))
       throw new Error(
         `\`${resource}\` is not a model of the map \`${mapName}\` this hydrator was made for`,
       );
-    const run: Run = { raw: new Map(), rows: new Map(), work: [], loads: 0 };
-    const result: Row = { ...record };
-    const [ownStoredRow] = await Promise.all([
-      loadOwnStoredRowForItsDeclaredLists(run, resource, record),
-      loadFollowedToOnesOnto(run, resource, result, record),
-    ]);
-    putDeclaredListsOnto(run, resource, result, ownStoredRow);
-    while (run.work.length) await Promise.all(run.work.splice(0));
-    return result;
+    if (!records.length) return [];
+
+    const run: HydrationRun<R> = {
+      loadedRows: new Map(),
+      hydratedRows: new Map(),
+      rowsLoaded: 0,
+      rowLimit: hydrationLimits.loads * records.length,
+    };
+    const roots = records.map((record) => ({ ...record }));
+    const { rootListKeys, layer: firstLayer } = collectRootLayer(fieldMaps, run, resource, roots);
+
+    await loadLayer(run, firstLayer);
+    putDeclaredListsOntoRoots(fieldMaps, run, resource, roots, rootListKeys);
+
+    let layer = hydrateLayerAndCollectNext(fieldMaps, run, firstLayer);
+    while (layer.size > 0) {
+      await loadLayer(run, layer);
+      layer = hydrateLayerAndCollectNext(fieldMaps, run, layer);
+    }
+
+    linkAllFollowedToOnes(fieldMaps, run, resource, roots);
+    return roots;
   };
+
+  const hydrate = async (resource: R, record: Row): Promise<Row> =>
+    (await hydrateMany(resource, [record]))[0] as Row;
+
+  return { hydrate, hydrateMany };
 };

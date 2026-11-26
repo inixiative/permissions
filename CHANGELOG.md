@@ -1,3 +1,23 @@
+## 0.30.0 — layer-by-layer `hydrateMany` and batched `loadMany`
+
+Breaking, with no compatibility path (no users).
+
+- **`makeHydrator` returns `{ hydrate, hydrateMany }` and takes `loadMany` instead of `load`.**
+  - `loadMany(resource, wheres, down)` receives a non-empty, deduplicated layer batch of `where`
+    keys for one `resource`, all sharing the same key column names (e.g. all `{ id }` or all
+    `{ organizationId, userId }`), and returns a positional `readonly (Row | null)[]` matching
+    `wheres` in length and order (`null` where missing). Non-matching lengths or non-row entries
+    throw loudly.
+  - `hydrateMany(resource, records)` walks the relation graph breadth-first, layer by layer,
+    sharing one loaded-row map and one hydrated-row map across the entire batch: shared
+    parents, owners, diamonds and cycles load once per layer and share the same hydrated JS object.
+  - `hydrate(resource, record)` is a one-line wrapper over `hydrateMany(resource, [record])`, so
+    even a single record with two relations to the same resource batches them into one `loadMany`
+    call.
+  - `hydrationLimits.loads` scales by `records.length` for `hydrateMany` (same per-record budget as
+    calling `hydrate` per record; `records.length === 1` keeps the exact existing limit).
+  - Exported type: `Hydrator<R>`.
+
 ## 0.29.0 — `make…` for everything that hands you a function; `bridgeData`; supplied maps are field maps a supplied bridge ends in; a hydrator per field map
 
 Breaking, with no compatibility path (no users).

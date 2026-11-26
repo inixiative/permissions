@@ -1246,7 +1246,10 @@ describe('what the hydrator does not follow, no check reads', () => {
       permissions: {},
       fieldMaps: { db: fieldMap },
     };
-    const hydrate = makeHydrator({ ...dbFieldMapOf(lib), load: async () => null });
+    const { hydrate } = makeHydrator({
+      ...dbFieldMapOf(lib),
+      loadMany: async (_resource, wheres) => wheres.map(() => null),
+    });
     const hydrated = await hydrate('db:Message', {
       id: 'm1',
       conversationId: 'c1',
@@ -1280,7 +1283,7 @@ describe('what the hydrator does not follow, no check reads', () => {
   });
 });
 
-describe('load brings the lists a resource declares', () => {
+describe('loadMany brings the lists a resource declares', () => {
   const withUser = (data: Store, membership: Row | undefined): Row | null =>
     membership
       ? {
@@ -1316,18 +1319,19 @@ describe('load brings the lists a resource declares', () => {
   ) =>
     makeHydrator({
       ...dbFieldMapOf(schemaMap),
-      load: async (resource, where, down) => {
-        asked.push({ resource, where, down });
-        const row = data[resource]?.find(matches(where));
-        if (!row) return null;
-        return down.participants
-          ? { ...row, participants: participantsOf(data, { conversationUuid: row.uuid }) }
-          : row;
-      },
-    });
+      loadMany: async (resource, wheres, down) =>
+        wheres.map((where) => {
+          asked.push({ resource, where, down });
+          const row = data[resource]?.find(matches(where));
+          if (!row) return null;
+          return down.participants
+            ? { ...row, participants: participantsOf(data, { conversationUuid: row.uuid }) }
+            : row;
+        }),
+    }).hydrate;
   const c1 = { uuid: 'c1', brandUuid: 'b1', createdByUuid: 'fu-rex' };
 
-  test('load is given `down`: the lists the resource declares and the paths under each, `{}` for a resource with none', async () => {
+  test('loadMany is given `down`: the lists the resource declares and the paths under each, `{}` for a resource with none', async () => {
     const asked: Asked[] = [];
     await hydratorIncluding(itemsWithDownPaths, asked)('db:Conversation', c1);
     const forConversation = asked.filter(({ resource }) => resource === 'db:Conversation');
@@ -1341,7 +1345,7 @@ describe('load brings the lists a resource declares', () => {
     expect(forBrand.down).toEqual({});
   });
 
-  test('rows under an item are the ones load returned: nothing under an item is read again', async () => {
+  test('rows under an item are the ones loadMany returned: nothing under an item is read again', async () => {
     const asked: Asked[] = [];
     const hydrated = await hydratorIncluding(itemsWithDownPaths, asked)('db:Conversation', c1);
     const read = asked.map(({ where }) => JSON.stringify(where)).join(' ');
@@ -1380,7 +1384,7 @@ describe('load brings the lists a resource declares', () => {
     expect(fay.forumUser as Row).not.toHaveProperty('brandUser');
   });
 
-  test('the rows load returned are copied, never changed', async () => {
+  test('the rows loadMany returned are copied, never changed', async () => {
     const freezeDeep = (value: unknown): unknown => {
       if (value && typeof value === 'object') {
         for (const inner of Object.values(value)) freezeDeep(inner);
@@ -1414,7 +1418,7 @@ describe('load brings the lists a resource declares', () => {
     );
   });
 
-  test('load failing fails the hydration: a list is never empty by accident', async () => {
+  test('loadMany failing fails the hydration: a list is never empty by accident', async () => {
     await expect(
       hydratorIncluding(() => {
         throw new Error('the read failed');
@@ -1488,13 +1492,14 @@ describe('load brings the lists a resource declares', () => {
     const budget = hydrationLimits.loads;
     const data = store();
     const before = { loads: 0 };
-    const counting = makeHydrator({
+    const { hydrate: counting } = makeHydrator({
       ...dbFieldMapOf(schemaMap),
-      load: async (resource, where, down) => {
-        before.loads++;
-        const row = data[resource]?.find(matches(where));
-        return row && down.participants ? { ...row, participants: [] } : (row ?? null);
-      },
+      loadMany: async (resource, wheres, down) =>
+        wheres.map((where) => {
+          before.loads++;
+          const row = data[resource]?.find(matches(where));
+          return row && down.participants ? { ...row, participants: [] } : (row ?? null);
+        }),
     });
     await counting('db:Conversation', c1);
     const itemsOfC1 = itemsWithDownPaths(data, { conversationUuid: 'c1' }).length;
@@ -1574,13 +1579,14 @@ describe('a resource that declares two lists on different columns', () => {
   test('the record’s own row is read by its id, so one empty join column empties neither list', async () => {
     const asked: Row[] = [];
     const toldToBring: Down[] = [];
-    const hydrate = makeHydrator({
+    const { hydrate } = makeHydrator({
       ...dbFieldMapOf(twoLists),
-      load: async (_resource, where, down) => {
-        asked.push(where);
-        toldToBring.push(down);
-        return where.id === 'p1' ? stored : null;
-      },
+      loadMany: async (_resource, wheres, down) =>
+        wheres.map((where) => {
+          asked.push(where);
+          toldToBring.push(down);
+          return where.id === 'p1' ? stored : null;
+        }),
     });
     const hydrated = await hydrate('db:Parent', { id: 'p1', code: null });
     expect(asked).toEqual([{ id: 'p1' }]);
@@ -1597,12 +1603,13 @@ describe('a resource that declares two lists on different columns', () => {
     };
     delete withoutTargetColumns.fieldMaps.db.models.Kid?.fields.parent?.toFields;
     const asked: Row[] = [];
-    const hydrate = makeHydrator({
+    const { hydrate } = makeHydrator({
       ...dbFieldMapOf(withoutTargetColumns as unknown as SchemaMap),
-      load: async (_resource, where) => {
-        asked.push(where);
-        return { ...stored, id: 'someone-else' };
-      },
+      loadMany: async (_resource, wheres) =>
+        wheres.map((where) => {
+          asked.push(where);
+          return { ...stored, id: 'someone-else' };
+        }),
     });
     await hydrate('db:Parent', { id: 'p2', code: 'x' });
     expect(asked).toEqual([{ id: 'p2' }]);
@@ -1610,12 +1617,13 @@ describe('a resource that declares two lists on different columns', () => {
 
   test('a record with no id of its own is never read by an empty where', async () => {
     const asked: Row[] = [];
-    const hydrate = makeHydrator({
+    const { hydrate } = makeHydrator({
       ...dbFieldMapOf(twoLists),
-      load: async (_resource, where) => {
-        asked.push(where);
-        return stored;
-      },
+      loadMany: async (_resource, wheres) =>
+        wheres.map((where) => {
+          asked.push(where);
+          return stored;
+        }),
     });
     const hydrated = await hydrate('db:Parent', { code: 'x' });
     expect(asked).toEqual([]);
@@ -1668,15 +1676,16 @@ describe('the record’s own row and a to-one that reaches it are one read', () 
 
   test('the row is read once, by its id as the record holds it, when its own to-one leads back to it', async () => {
     const asked: Row[] = [];
-    const hydrate = makeHydrator({
+    const { hydrate } = makeHydrator({
       ...dbFieldMapOf(family),
-      load: async (resource, where) => {
-        if (resource === 'db:Kid') return { id: 'k1', parentId: 5 };
-        asked.push(where);
-        return where.id === 5
-          ? { id: 5, featuredKidId: 'k1', kids: [{ id: 'k1', parentId: 5 }] }
-          : null;
-      },
+      loadMany: async (resource, wheres) =>
+        wheres.map((where) => {
+          if (resource === 'db:Kid') return { id: 'k1', parentId: 5 };
+          asked.push(where);
+          return where.id === 5
+            ? { id: 5, featuredKidId: 'k1', kids: [{ id: 'k1', parentId: 5 }] }
+            : null;
+        }),
     });
     const hydrated = await hydrate('db:Parent', { id: 5, featuredKidId: 'k1' });
     expect(asked).toEqual([{ id: 5 }]);
@@ -1722,11 +1731,12 @@ describe('a row’s identity: read with the value as held, keyed as text', () =>
     const asked: Row[] = [];
     await makeHydrator({
       ...dbFieldMapOf(numbered),
-      load: async (_resource, where) => {
-        asked.push(where);
-        return { ...record, kids: [] };
-      },
-    })('db:Parent', record);
+      loadMany: async (_resource, wheres) =>
+        wheres.map((where) => {
+          asked.push(where);
+          return { ...record, kids: [] };
+        }),
+    }).hydrate('db:Parent', record);
     return asked;
   };
 
